@@ -1,0 +1,38 @@
+# Dependências e Pacotes
+node_modules/
+.pnpm-store/
+
+# Builds e Caches
+.turbo/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Testes e Relatórios
+playwright-report/
+test-results/
+.vitest-cache/
+
+# Dados locais, Worktrees e Artefatos Efêmeros
+data/
+.worktrees/
+*.db
+*.db-shm
+*.db-wal
+
+# Variáveis de Ambiente e Chaves (preservar .env.example)
+.env
+.env.local
+.env.*.local
+!.env.example
+.master-key
+
+# Logs e Sistema Operacional
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
