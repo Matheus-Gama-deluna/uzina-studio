@@ -25,11 +25,11 @@
   - [x] Telas: Sidebar Hierárquica + Kanban + Lista + Configurações de Provedor (navegáveis com MSW)
   - [x] Contract Drift Check verde contra as rotas reais + QA Visual + `factory-verifier` PASS
 
-- [ ] **Slice 2 — OpenCode Bridge, Worktrees & StuckDetector** (*Domain-First + Tests as Data*)
-  - [ ] `@uzina/opencode-bridge` (`LocalGitWorktreeWorkspace` + `OpenCodeRunner` `plan`/`build` + `role_bindings`)
-  - [ ] Integração das 8 skills `packages/skills/*/SKILL.md`
-  - [ ] `StuckDetector` (5 padrões testados via tabela declarativa *Tests as Data*)
-  - [ ] Teste de integração real criando e limpando worktree em repo temporário
+- [x] **Slice 2 — OpenCode Bridge, Worktrees & StuckDetector** (*Domain-First + Tests as Data*)
+  - [x] `@uzina/opencode-bridge` (`LocalGitWorktreeWorkspace` + `OpenCodeRunner` `plan`/`build` + `role_bindings`)
+  - [x] Integração das 8 skills `packages/skills/*/SKILL.md`
+  - [x] `StuckDetector` (5 padrões testados via tabela declarativa *Tests as Data*)
+  - [x] Teste de integração real criando e limpando worktree em repo temporário
 
 - [ ] **Slice 3 — Workflow Mastra, Descoberta & Estúdio Visual Lite** (*Contract-First + Vertical Slice*)
   - [ ] `@uzina/mastra-runtime` (LibSQLStore/PostgresStore) + lock atômico SQL

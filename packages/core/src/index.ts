@@ -1,2 +1,6 @@
 export * from "./vault.js";
 export * from "./state-machine.js";
+export * from "./redact.js";
+export * from "./path-guard.js";
+export * from "./stuck-detector.js";
+export * from "./skills-loader.js";
