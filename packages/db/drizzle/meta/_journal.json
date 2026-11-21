@@ -8,6 +8,20 @@
       "when": 1795278412362,
       "tag": "0000_living_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795280846144,
+      "tag": "0001_mysterious_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795281879261,
+      "tag": "0002_military_blacklash",
+      "breakpoints": true
     }
   ]
 }

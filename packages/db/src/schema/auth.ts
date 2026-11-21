@@ -26,7 +26,7 @@ export const users = pgTable(
     organizationId: uuid("organization_id").references(() => organizations.id, {
       onDelete: "set null",
     }),
-    role: text("role").default("owner").notNull(),
+    role: text("role").default("auditor").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

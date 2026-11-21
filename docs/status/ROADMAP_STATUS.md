@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP)
 
-> **Estado Atual:** `Slice 0 concluído (Walking Skeleton)` na branch `feat/slice-00-walking-skeleton` → **Próximo passo:** Aprovação/PR do Slice 0 na `main` e elaboração do Dossiê do **Slice 1 (Hierarquia, Cofre & UI com MSW)**.
+> **Estado Atual:** `Slice 1 concluído (Hierarquia, Cofre & UI com MSW)` na branch `feat/slice-01-hierarchy-vault-ui` → **Próximo passo:** Elaborar Dossiê + Plan Gate EGM e executar o **Slice 2 (`@uzina/opencode-bridge`, Worktrees & `StuckDetector`)**.
 
 ---
 
@@ -9,8 +9,8 @@
 ```mermaid
 flowchart LR
     F0["Fase 0: Bootstrap & Governança (CONCLUÍDA)"] --> S0["Slice 0: Walking Skeleton (CONCLUÍDO)"]
-    S0 --> S1["Slice 1: Hierarquia, Cofre & UI MSW (PRÓXIMO)"]
-    S1 --> S2["Slice 2: OpenCode Bridge, Worktrees & StuckDetector"]
+    S0 --> S1["Slice 1: Hierarquia, Cofre & UI MSW (CONCLUÍDO)"]
+    S1 --> S2["Slice 2: OpenCode Bridge, Worktrees & StuckDetector (PRÓXIMO)"]
     S2 --> S3["Slice 3: Workflow Mastra, Descoberta & Estúdio Visual"]
     S3 --> S4["Slice 4: .uzina/verify, AppSec v1 & Caixa de Decisões ★ Marco #1"]
     S4 --> S5["Slice 5: Co-piloto Executivo & Memória 3 Escopos"]
@@ -31,7 +31,7 @@ flowchart LR
 | :--- | :--- | :--- | :---: | :--- | :--- |
 | **Fase 0 — Bootstrap** | *Governança & Preparação* | `pnpm`, extração do kit, identidade **Uzina Studio**, ADRs 001/002, correção `check-no-ee.mjs`, `.gitignore`, `git init`, Dossiê Slice 0 | Sim (Slice 0) | [PROGRESS_LOG](PROGRESS_LOG.md) | 🟢 Concluída |
 | **Slice 0 — Walking Skeleton** | *Contract-First + Skeleton* | Monorepo `@uzina/*`, `@uzina/contracts` base, `@uzina/db` dual-mode PGlite/Postgres, `apps/web` + Better Auth + `/api/health`, `pnpm verify` | **Sim** (`readiness` + `design` + `details`) | [slice-00](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-00-walking-skeleton.md) | 🟢 Concluído (`feat/slice-00-walking-skeleton`) |
-| **Slice 1 — Hierarquia, Cofre & UI MSW** | *Frontend-First (MSW) + Domain-First* | Seed `"Internos"`, CRUD 4 níveis, Cofre AES-256-GCM, Sidebar/Kanban/Lista/Provedores com MSW + Contract Drift Check | Seletiva (`readiness`) | *A criar* | ⚪ Planejado |
+| **Slice 1 — Hierarquia, Cofre & UI MSW** | *Frontend-First (MSW) + Domain-First* | Seed `"Internos"`, CRUD 4 níveis, Cofre AES-256-GCM, Sidebar/Kanban/Lista/Provedores com MSW + Contract Drift Check | Seletiva (`readiness`) | [slice-01](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-01-hierarchy-vault-ui.md) | 🟢 Concluído (`feat/slice-01-hierarchy-vault-ui`) |
 | **Slice 2 — OpenCode Bridge & StuckDetector** | *Domain-First + Tests as Data* | `@uzina/opencode-bridge` (`LocalGitWorktreeWorkspace` + `OpenCodeRunner`), 8 skills, `StuckDetector` (5 padrões) | **Sim** (`readiness` + `design`) | *A criar* | ⚪ Planejado |
 | **Slice 3 — Workflow Mastra & Estúdio Visual** | *Contract-First + Vertical Slice* | `@uzina/mastra-runtime` (`suspend`/`resume` + lock SQL), Entrevista 5 pilares, Strategy Router, Estúdio Visual Lite (`.uzina/DESIGN.md`) | **Sim** (`readiness` + `design`) | *A criar* | ⚪ Planejado |
 | **Slice 4 — Verify, AppSec v1 & Decisões ★** | *Vertical Slice + Dual-Mode* | Auditor de testes, `@uzina/security-engine` (SARIF + 4 adaptadores + triagem), CLI `uzina sec`, Caixa de Decisões HITL + PR (**Marco Utilizável #1**) | **Sim** (`readiness` + `design`) | *A criar* | ⚪ Planejado |

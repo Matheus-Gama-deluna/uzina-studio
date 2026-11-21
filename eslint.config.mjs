@@ -9,6 +9,7 @@ export const baseEslintConfig = tseslint.config(
       "**/drizzle/**",
       "**/coverage/**",
       "**/.turbo/**",
+      "**/public/mockServiceWorker.js",
       "data/**",
       "docs/**",
     ],

@@ -79,3 +79,17 @@ export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;
 
 export const OrgRoleSchema = z.enum(["owner", "admin", "developer", "auditor"]);
 export type OrgRole = z.infer<typeof OrgRoleSchema>;
+
+export const ProjectStatusSchema = z.enum(["active", "archived"]);
+export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
+
+export const AgentRoleSchema = z.enum([
+  "discovery",
+  "architect",
+  "visual",
+  "builder",
+  "verifier",
+  "security",
+  "copilot",
+]);
+export type AgentRole = z.infer<typeof AgentRoleSchema>;
