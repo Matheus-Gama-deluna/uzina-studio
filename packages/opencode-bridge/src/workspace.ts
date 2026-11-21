@@ -129,6 +129,7 @@ export interface ExecutionWorkspace {
     deliverableId: string,
     options?: { worktreesRootDir?: string }
   ): Promise<WorktreeHandle>;
+  attach(existingHandle: WorktreeHandle): Promise<WorktreeHandle>;
   exec(
     command: string,
     args?: string[],
@@ -407,6 +408,59 @@ export class LocalGitWorktreeWorkspace implements ExecutionWorkspace {
 
   getHandle(): WorktreeHandle | null {
     return this.handle;
+  }
+
+  async attach(existingHandle: WorktreeHandle): Promise<WorktreeHandle> {
+    const validated = WorktreeHandleSchema.parse(existingHandle);
+    assertSafeGitRef(validated.branchName, "branchName");
+    assertSafeGitRef(validated.baseBranch, "baseBranch");
+
+    const absRepoPath = path.resolve(validated.repoPath);
+    const absWorkspacePath = path.resolve(validated.workspacePath);
+    if (!fs.existsSync(absRepoPath) || !fs.existsSync(absWorkspacePath)) {
+      throw new WorktreeError(
+        `Worktree ou repositório não encontrado para reattach: ${absWorkspacePath}`
+      );
+    }
+
+    try {
+      const check = await runGit(absWorkspacePath, [
+        "rev-parse",
+        "--is-inside-work-tree",
+      ]);
+      if (check.stdout.trim() !== "true") {
+        throw new WorktreeError(
+          `Diretório não é working tree Git válida: ${absWorkspacePath}`
+        );
+      }
+      const branchOut = await runGit(absWorkspacePath, [
+        "rev-parse",
+        "--abbrev-ref",
+        "HEAD",
+      ]);
+      if (branchOut.stdout.trim() !== validated.branchName) {
+        throw new WorktreeError(
+          `Branch atual da worktree (${branchOut.stdout.trim()}) diverge do handle (${validated.branchName}).`
+        );
+      }
+    } catch (error) {
+      if (error instanceof WorktreeError) {
+        throw error;
+      }
+      throw new WorktreeError(
+        `Falha ao validar worktree existente em ${absWorkspacePath}`,
+        error
+      );
+    }
+
+    const realHandle = WorktreeHandleSchema.parse({
+      ...validated,
+      repoPath: absRepoPath,
+      workspacePath: fs.realpathSync.native(absWorkspacePath).replace(/^\\\\\?\\/, ""),
+    });
+    this.handle = realHandle;
+    this.isPrepared = true;
+    return realHandle;
   }
 
   async prepare(
@@ -736,8 +790,11 @@ export class LocalGitWorktreeWorkspace implements ExecutionWorkspace {
       }
       throw new WorktreeError("Falha ao gerar git diff da worktree.", error);
     } finally {
-      if (tempIndexDir && fs.existsSync(tempIndexDir)) {
-        fs.rmSync(tempIndexDir, { recursive: true, force: true });
+      if (tempIndexDir && fs.existsSync(/*turbopackIgnore: true*/ tempIndexDir)) {
+        fs.rmSync(/*turbopackIgnore: true*/ tempIndexDir, {
+          recursive: true,
+          force: true,
+        });
       }
     }
   }

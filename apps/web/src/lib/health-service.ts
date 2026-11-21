@@ -16,7 +16,7 @@ export async function getPublicHealth(
 ): Promise<HealthPublic> {
   let isUp = false;
   try {
-    const dbCheck = await probe(2000);
+    const dbCheck = await probe(5000);
     isUp = dbCheck.status === "up";
   } catch {
     isUp = false;
@@ -34,7 +34,7 @@ export async function getDetailedHealth(
 ): Promise<HealthDetails> {
   let dbCheck: DatabaseHealthCheck;
   try {
-    dbCheck = await probe(2000);
+    dbCheck = await probe(5000);
   } catch {
     dbCheck = {
       status: "down",

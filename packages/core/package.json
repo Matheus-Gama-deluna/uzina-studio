@@ -21,6 +21,18 @@
     "./redact": {
       "types": "./dist/redact.d.ts",
       "import": "./dist/redact.js"
+    },
+    "./strategy-router": {
+      "types": "./dist/strategy-router.d.ts",
+      "import": "./dist/strategy-router.js"
+    },
+    "./discovery": {
+      "types": "./dist/discovery.d.ts",
+      "import": "./dist/discovery.js"
+    },
+    "./design-md": {
+      "types": "./dist/design-md.d.ts",
+      "import": "./dist/design-md.js"
     }
   },
   "scripts": {

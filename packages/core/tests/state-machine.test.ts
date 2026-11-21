@@ -15,13 +15,18 @@ describe("@uzina/core — Deliverable State Machine", () => {
 
   test.each([
     { from: "discovery", to: "spec_review", ctx: defaultCtx, ok: true },
+    { from: "discovery", to: "failed", ctx: defaultCtx, ok: true },
     { from: "spec_review", to: "visual_studio", ctx: { ...defaultCtx, hasUi: true }, ok: true },
     { from: "spec_review", to: "contract_tests", ctx: { ...defaultCtx, hasUi: true }, ok: false },
     { from: "spec_review", to: "contract_tests", ctx: { ...defaultCtx, hasUi: false }, ok: true },
     { from: "spec_review", to: "visual_studio", ctx: { ...defaultCtx, hasUi: false }, ok: false },
+    { from: "spec_review", to: "failed", ctx: { ...defaultCtx, hasUi: true }, ok: true },
     { from: "visual_studio", to: "contract_tests", ctx: { ...defaultCtx, hasUi: true }, ok: true },
+    { from: "visual_studio", to: "failed", ctx: { ...defaultCtx, hasUi: true }, ok: true },
     { from: "contract_tests", to: "building", ctx: defaultCtx, ok: true },
+    { from: "contract_tests", to: "failed", ctx: defaultCtx, ok: true },
     { from: "building", to: "verifying", ctx: defaultCtx, ok: true },
+    { from: "building", to: "failed", ctx: defaultCtx, ok: true },
     { from: "verifying", to: "decision_pending", ctx: defaultCtx, ok: true },
     { from: "verifying", to: "building", ctx: { ...defaultCtx, verifyAttempts: 1, maxVerifyAttempts: 3 }, ok: true },
     { from: "verifying", to: "building", ctx: { ...defaultCtx, verifyAttempts: 3, maxVerifyAttempts: 3 }, ok: false },
@@ -53,6 +58,7 @@ describe("@uzina/core — Deliverable State Machine", () => {
   test("getAllowedNextStatuses retorna lista coerente para spec_review e paused", () => {
     expect(getAllowedNextStatuses("spec_review", { hasUi: true })).toEqual([
       "visual_studio",
+      "failed",
       "paused",
     ]);
     expect(

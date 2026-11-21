@@ -60,3 +60,21 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm verify` sem cache (`build --force` + `typecheck lint test --force`): **235 testes aprovados** (`1 skipped` `postgres-live` sem `TEST_DATABASE_URL`), **0 erros/warnings** ESLint/Turbopack.
   * Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) aprovado pré-código; Verify Gate (`appsec-auditor`, `test-critic`, `egm-codebase-details`, `factory-verifier`) **PASS** unânime pós-código.
 * **Próximo passo:** Elaborar Dossiê + Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) e implementar o **Slice 3 (`@uzina/mastra-runtime` & Estúdio Visual Lite)**.
+
+---
+
+## 2026-11-21 — Slice 3: Workflow Mastra (Apache 2.0), Descoberta 5 Pilares & Estúdio Visual Lite (`feat/slice-03-mastra-workflow-visual-studio`)
+
+* **Entregue:**
+  * `@uzina/contracts`: schemas Zod v4 em `src/workflow.ts` (`DesignAsset*`, `Discovery*`, `BrownfieldMap`, `StrategyRouter*`, `DeliverableWorkflowState`) e retrocompatibilidade em `DeliverableSchema` (`86/86` testes).
+  * `@uzina/core`: atualização controlada de `state-machine.ts` (`-> failed`), subpaths browser-safe (`./strategy-router`, `./discovery`, `./design-md` sem imports `node:*`) e `brownfield.ts` somente leitura (symlinks ignorados, limite 256 KiB, Scorecard `0–100` com `securityPosture` 5×4 pts, `121/121` testes).
+  * `@uzina/opencode-bridge`: método `attach(existingHandle)` em `ExecutionWorkspace`/`LocalGitWorktreeWorkspace` para compartilhamento da mesma worktree entre `stage_contract_and_tests` e `stage_build` (`45/45` testes).
+  * `@uzina/db`: tabela `design_assets` (`intention_tags text[]`), migration `0003_tiresome_silver_samurai.sql` e locks SQL atômicos com TTL padrão `5` min (`packages/db/src/locks.ts`, `21/21` passed + `1 skipped` `postgres-live`).
+  * `@uzina/mastra-runtime`: novo pacote Apache 2.0 estrito (`@mastra/core@1.85.0`, `@mastra/libsql@1.31.1`, `@mastra/pg@1.37.0`), storage dual-mode (`LibSQLStore` com `pathToFileURL` ↔ `PostgresStore`), workflow durável de 5 etapas (`stage_discovery` → `stage_blueprint` → `stage_visual_studio` → `stage_contract_and_tests` → `stage_build`), heartbeat de lock, `stuck_intervention` em loop e pré-validação de portões (`10/10` testes incluindo sobrevivência real a restart).
+  * `apps/web`: 8 rotas REST (RBAC, anti-IDOR, upload magic bytes PNG/JPEG/WEBP com pré-checagem `Content-Length` `413` e `GET /api/assets/[id]` com `nosniff` + `CSP sandbox`), handlers MSW completos + Contract Drift Check e Estúdio Visual (`/app/projects/[id]/studio`, `19/19` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * `pnpm turbo run build typecheck lint test --force` (uncached): **24/24 tasks verdes**, **302 testes passed** (`1 skipped` `postgres-live`), `0` erros/warnings ESLint/Turbopack.
+  * `browser` (`flash`): **PASS** em `/app` e `/app/projects/[id]/studio` (`1280×800`, `768×1024`, `390×844`, Dark/Light).
+  * `appsec-auditor` (`PASS`), `test-critic` (`NEEDS_FIX` -> corrigido), `egm-codebase-details` (`NEEDS_FIX` -> corrigido) e `factory-verifier`: **PASS**.
+* **Próximo passo:** Iniciar o Dossiê + Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) do **Slice 4 (`.uzina/verify`, `@uzina/security-engine` v1 & Caixa de Decisões HITL — Marco Utilizável #1)**.

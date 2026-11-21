@@ -250,9 +250,11 @@ export function CockpitShell({
               <span>Uzina Studio</span>
               <span className="mx-1.5 text-fg-muted">/</span>
               <span className="font-medium text-fg-primary">
-                {pathname.startsWith("/app/providers")
-                  ? "Provedores & Cofre"
-                  : "Torre de Controle"}
+                {pathname.includes("/studio")
+                  ? "Estúdio Visual"
+                  : pathname.startsWith("/app/providers")
+                    ? "Provedores & Cofre"
+                    : "Torre de Controle"}
               </span>
             </nav>
           </div>

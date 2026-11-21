@@ -11,7 +11,7 @@ const IGNORE_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "
 const SOURCE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".yaml"]);
 
 const FORBIDDEN_PATTERNS = [
-  { name: "Pacote comercial @mastra/*-ee", regex: /@mastra\/[a-z0-9-]+-ee(["'/\s]|$)/i },
+  { name: "Pacote comercial @mastra/*-ee", regex: /@mastra\/[a-z0-9-]+-ee(["'/\s@:]|$)/i },
   { name: "Import de caminho comercial /ee/", regex: /from\s+["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
   { name: "Import side-effect de caminho comercial /ee/", regex: /\bimport\s+["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
   { name: "Import dinâmico de caminho comercial /ee/", regex: /\bimport\(\s*["']@mastra\/[^"']*\/ee(\/|["']|$)/i },

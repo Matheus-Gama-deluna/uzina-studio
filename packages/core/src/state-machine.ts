@@ -26,19 +26,19 @@ export function getAllowedNextStatuses(
 
   switch (from) {
     case "discovery":
-      next.push("spec_review");
+      next.push("spec_review", "failed");
       break;
     case "spec_review":
-      next.push(ctx.hasUi ? "visual_studio" : "contract_tests");
+      next.push(ctx.hasUi ? "visual_studio" : "contract_tests", "failed");
       break;
     case "visual_studio":
-      next.push("contract_tests");
+      next.push("contract_tests", "failed");
       break;
     case "contract_tests":
-      next.push("building");
+      next.push("building", "failed");
       break;
     case "building":
-      next.push("verifying");
+      next.push("verifying", "failed");
       break;
     case "verifying": {
       next.push("decision_pending");

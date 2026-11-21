@@ -4,3 +4,7 @@ export * from "./redact.js";
 export * from "./path-guard.js";
 export * from "./stuck-detector.js";
 export * from "./skills-loader.js";
+export * from "./strategy-router.js";
+export * from "./discovery.js";
+export * from "./design-md.js";
+export * from "./brownfield.js";

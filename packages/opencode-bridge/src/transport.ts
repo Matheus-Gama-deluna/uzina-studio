@@ -721,8 +721,8 @@ export class SdkOpenCodeTransport implements OpenCodeTransport {
         },
         async close(): Promise<void> {
           embeddedServer?.close();
-          if (xdgTempDir && fs.existsSync(xdgTempDir)) {
-            fs.rmSync(xdgTempDir, {
+          if (xdgTempDir && fs.existsSync(/*turbopackIgnore: true*/ xdgTempDir)) {
+            fs.rmSync(/*turbopackIgnore: true*/ xdgTempDir, {
               recursive: true,
               force: true,
               maxRetries: 3,
@@ -733,8 +733,11 @@ export class SdkOpenCodeTransport implements OpenCodeTransport {
       };
     } catch (error) {
       embeddedServer?.close();
-      if (xdgTempDir && fs.existsSync(xdgTempDir)) {
-        fs.rmSync(xdgTempDir, { recursive: true, force: true });
+      if (xdgTempDir && fs.existsSync(/*turbopackIgnore: true*/ xdgTempDir)) {
+        fs.rmSync(/*turbopackIgnore: true*/ xdgTempDir, {
+          recursive: true,
+          force: true,
+        });
       }
       if (error instanceof OpenCodeTransportError) {
         throw error;

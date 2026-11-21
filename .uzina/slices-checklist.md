@@ -31,12 +31,12 @@
   - [x] `StuckDetector` (5 padrões testados via tabela declarativa *Tests as Data*)
   - [x] Teste de integração real criando e limpando worktree em repo temporário
 
-- [ ] **Slice 3 — Workflow Mastra, Descoberta & Estúdio Visual Lite** (*Contract-First + Vertical Slice*)
-  - [ ] `@uzina/mastra-runtime` (LibSQLStore/PostgresStore) + lock atômico SQL
-  - [ ] `deliverableLifecycleWorkflow` com `suspend()`/`resume()` sobrevivendo a restart
-  - [ ] Entrevista 2–3 rodadas (5 pilares) + Mapa Brownfield leve + Strategy Router (6 estratégias)
-  - [ ] Estúdio Visual Lite (Moodboard + uploads em `/api/assets/:id` + `.uzina/DESIGN.md`)
-  - [ ] Etapa `stage_contract_and_tests` executando antes do `stage_build`
+- [x] **Slice 3 — Workflow Mastra, Descoberta & Estúdio Visual Lite** (*Contract-First + Vertical Slice*)
+  - [x] `@uzina/mastra-runtime` (LibSQLStore/PostgresStore) + lock atômico SQL
+  - [x] `deliverableLifecycleWorkflow` com `suspend()`/`resume()` sobrevivendo a restart
+  - [x] Entrevista 2–3 rodadas (5 pilares) + Mapa Brownfield leve + Strategy Router (6 estratégias)
+  - [x] Estúdio Visual Lite (Moodboard + uploads em `/api/assets/:id` + `.uzina/DESIGN.md`)
+  - [x] Etapa `stage_contract_and_tests` executando antes do `stage_build`
 
 - [ ] **Slice 4 — `.uzina/verify`, `security-engine` v1 & Caixa de Decisões** (*Marco Utilizável #1*)
   - [ ] Auditor estático de Test Anti-Patterns (`packages/core/src/test-auditor.ts`)

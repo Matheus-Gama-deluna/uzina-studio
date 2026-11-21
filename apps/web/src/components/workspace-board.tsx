@@ -23,9 +23,11 @@ import {
   Pause,
   Plus,
   RefreshCw,
+  Sparkles,
   UserPlus,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 
 type ViewMode = "kanban" | "list";
@@ -421,9 +423,19 @@ export function WorkspaceBoard() {
           )}
 
           {activeProject && (
-            <span className="rounded border border-border-subtle bg-inset px-2 py-1 font-mono text-[11px] text-fg-secondary">
-              {STRATEGY_LABELS[activeProject.defaultDevelopmentStrategy]}
-            </span>
+            <>
+              <span className="rounded border border-border-subtle bg-inset px-2 py-1 font-mono text-[11px] text-fg-secondary">
+                {STRATEGY_LABELS[activeProject.defaultDevelopmentStrategy]}
+              </span>
+              <Link
+                href={`/app/projects/${activeProject.id}/studio`}
+                data-testid="link-project-studio"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
+              >
+                <Sparkles className="size-3.5 text-accent" strokeWidth={1.75} />
+                <span>Estúdio Visual &amp; Workflow</span>
+              </Link>
+            </>
           )}
         </div>
 

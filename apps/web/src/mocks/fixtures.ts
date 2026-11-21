@@ -1,6 +1,9 @@
 import {
+  BrownfieldMapSchema,
   ClientListResponseSchema,
   DeliverableListResponseSchema,
+  DeliverableWorkflowStateSchema,
+  DesignAssetListResponseSchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
 } from "@uzina/contracts";
@@ -132,4 +135,87 @@ export const mockProviders = ProviderProfileListResponseSchema.parse({
       updatedAt: NOW,
     },
   ],
+});
+
+export const MOCK_DELIVERABLE_ID = "50000000-0000-4000-8000-000000000001";
+
+export const mockDesignAssets = DesignAssetListResponseSchema.parse({
+  items: [
+    {
+      id: "70000000-0000-4000-8000-000000000001",
+      projectId: MOCK_PROJECT_ID,
+      deliverableId: MOCK_DELIVERABLE_ID,
+      assetType: "reference_url",
+      title: "Linear Cockpit Reference",
+      sourceUrl: "https://linear.app",
+      assetUrl: null,
+      mimeType: null,
+      sizeBytes: null,
+      intentionTags: ["copiar:densidade-tabela", "ignorar:gradiente"],
+      notes: "Referência para layout técnico com bordas hairline.",
+      approved: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ],
+});
+
+export const mockBrownfieldMap = BrownfieldMapSchema.parse({
+  repoPath: "/workspaces/uzina-studio",
+  scannedAt: NOW,
+  totalFilesScanned: 48,
+  truncated: false,
+  topLevelEntries: ["apps", "packages", "docs", "package.json", "pnpm-lock.yaml"],
+  manifestsFound: ["package.json", "pnpm-lock.yaml"],
+  detectedStack: ["typescript", "nextjs", "drizzle"],
+  hasTests: true,
+  hasCi: true,
+  hasSteering: true,
+  dimensions: {
+    ciAndVerify: 18,
+    testQuality: 17,
+    documentationAndSteering: 18,
+    securityPosture: 16,
+    architectureModularity: 15,
+  },
+  maturityScore: 84,
+  recommendedStrategy: "frontend_first_msw",
+  riskNotes: [],
+});
+
+export const mockWorkflowState = DeliverableWorkflowStateSchema.parse({
+  deliverableId: MOCK_DELIVERABLE_ID,
+  runId: "80000000-0000-4000-8000-000000000001",
+  workflowStatus: "suspended",
+  deliverableStatus: "discovery",
+  suspendedStep: "stage_discovery",
+  gate: "discovery_confirm",
+  suspendPayload: {
+    gate: "discovery_confirm",
+    roundNumber: 1,
+    hasUi: true,
+    round: {
+      roundNumber: 1,
+      coveredPillars: [],
+      answers: [],
+      questions: [
+        {
+          id: "q-objective-user",
+          pillar: "objective_and_user",
+          prompt: "Qual persona principal vai operar este entregável?",
+          recommendedOption: "Operador técnico interno com fluxo auditável",
+          options: [
+            "Operador técnico interno com fluxo auditável",
+            "Cliente final externo",
+          ],
+        },
+      ],
+    },
+  },
+  specMarkdown: null,
+  blueprint: null,
+  designMdContent: null,
+  contractTestFiles: [],
+  stageHistory: ["stage_discovery"],
+  updatedAt: NOW,
 });

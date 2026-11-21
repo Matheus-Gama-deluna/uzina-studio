@@ -1,4 +1,4 @@
-import type { RoleBindings } from "@uzina/contracts";
+import type { DesignAssetType, RoleBindings } from "@uzina/contracts";
 import {
   boolean,
   index,
@@ -161,4 +161,36 @@ export const providerProfiles = pgTable(
       .notNull(),
   },
   (table) => [index("idx_provider_profiles_org_id").on(table.organizationId)]
+);
+
+export const designAssets = pgTable(
+  "design_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deliverableId: uuid("deliverable_id").references(() => deliverables.id, {
+      onDelete: "set null",
+    }),
+    assetType: text("asset_type").$type<DesignAssetType>().notNull(),
+    title: text("title").notNull(),
+    sourceUrl: text("source_url"),
+    storagePath: text("storage_path"),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    intentionTags: text("intention_tags").array().default([]).notNull(),
+    notes: text("notes"),
+    approved: boolean("approved").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_design_assets_project_id").on(table.projectId),
+    index("idx_design_assets_deliverable_id").on(table.deliverableId),
+  ]
 );

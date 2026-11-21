@@ -9,16 +9,15 @@ import {
   type Deliverable,
 } from "@uzina/contracts";
 import {
-  clients,
   deliverables,
   getDb,
   projectRepositories,
-  projects,
 } from "@uzina/db";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
+import { findScopedProject } from "@/lib/studio-queries";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,30 +43,14 @@ export function mapDeliverable(
     riskLevel: RiskLevelSchema.parse(row.riskLevel),
     worktreePath: row.worktreePath,
     branchName: row.branchName,
+    mastraRunId: row.mastraRunId ?? null,
+    specMarkdown: row.specMarkdown ?? null,
+    blueprintJson: row.blueprintJson ?? null,
     verifyAttempts: row.verifyAttempts,
     maxVerifyAttempts: row.maxVerifyAttempts,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   });
-}
-
-async function findOwnedProject(
-  projectId: string,
-  organizationId: string
-) {
-  const { db } = await getDb();
-  const [found] = await db
-    .select({ project: projects })
-    .from(projects)
-    .innerJoin(clients, eq(projects.clientId, clients.id))
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(clients.organizationId, organizationId)
-      )
-    )
-    .limit(1);
-  return found?.project ?? null;
 }
 
 export async function GET(
@@ -82,12 +65,12 @@ export async function GET(
     return jsonError(400, { error: "ID de projeto inválido", code: "INVALID_ID" });
   }
 
-  const project = await findOwnedProject(id, guard.actor.organizationId);
+  const { db } = await getDb();
+  const project = await findScopedProject(db, id, guard.actor.organizationId);
   if (!project) {
     return jsonError(404, { error: "Projeto não encontrado", code: "NOT_FOUND" });
   }
 
-  const { db } = await getDb();
   const rows = await db
     .select()
     .from(deliverables)
@@ -112,7 +95,8 @@ export async function POST(
     return jsonError(400, { error: "ID de projeto inválido", code: "INVALID_ID" });
   }
 
-  const project = await findOwnedProject(id, guard.actor.organizationId);
+  const { db } = await getDb();
+  const project = await findScopedProject(db, id, guard.actor.organizationId);
   if (!project) {
     return jsonError(404, { error: "Projeto não encontrado", code: "NOT_FOUND" });
   }
@@ -120,7 +104,6 @@ export async function POST(
   const body = await parseJsonBody(request, CreateDeliverableSchema);
   if (!body.ok) return body.response;
 
-  const { db } = await getDb();
   if (body.data.repositoryId) {
     const [repo] = await db
       .select({ id: projectRepositories.id })

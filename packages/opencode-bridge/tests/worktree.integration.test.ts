@@ -316,4 +316,33 @@ describe("LocalGitWorktreeWorkspace — integração real com Git", () => {
       workspace.prepare(plainDir, "main", "deliv-nogit")
     ).rejects.toThrowError(WorktreeError);
   });
+
+  test("attach() reanexa uma nova instância à mesma worktree preservando arquivos e permitindo getDiff()", async () => {
+    const repoDir = createTempGitRepo();
+    const wsStage1 = new LocalGitWorktreeWorkspace();
+    const handle = await wsStage1.prepare(repoDir, "main", "reattach-1");
+
+    const wsStage2 = new LocalGitWorktreeWorkspace();
+    try {
+      fs.writeFileSync(
+        path.join(handle.workspacePath, "contract.ts"),
+        "export const step1 = true;\n",
+        "utf8"
+      );
+
+      const attached = await wsStage2.attach(handle);
+      expect(attached.workspacePath).toBe(handle.workspacePath);
+      expect(attached.branchName).toBe(handle.branchName);
+
+      const diff = await wsStage2.getDiff("main");
+      expect(diff).toContain("contract.ts");
+      expect(diff).toContain("step1");
+
+      await expect(
+        wsStage2.attach({ ...handle, branchName: "main" })
+      ).rejects.toThrowError(WorktreeError);
+    } finally {
+      await wsStage2.cleanup({ deleteBranch: true });
+    }
+  });
 });
