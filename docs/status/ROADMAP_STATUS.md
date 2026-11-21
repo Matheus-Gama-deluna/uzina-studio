@@ -47,7 +47,7 @@ flowchart LR
 | **Node.js** | `v22.19.0` | Sim | Compatível com Node 22 LTS exigido |
 | **pnpm** | `12.21.0` | Sim | Instalado globalmente via npm (`save-exact=true` no `.npmrc`) |
 | **Git** | `2.51.0.windows.1` | Sim | Repositório inicializado em `main` |
-| **Remote GitHub (`origin`)** | Pendente | Não (até push/PR) | Usuário conectará quando criar o repo no GitHub |
+| **Remote GitHub (`origin`)** | Conectado (`Matheus-Gama-deluna/uzina-studio`) | Sim (para push/PR) | Branch `main` sincronizada via HTTPS (`git push -u origin main`) |
 | **Docker / PostgreSQL** | Não instalado | Não no Slice 0 | PGlite valida banco local; Postgres validado via `TEST_DATABASE_URL` ou Docker sob demanda |
 | **GitHub CLI (`gh`)** | Não instalado | Apenas no Slice 4 | Usado para `gh pr create` automático; fallback local disponível |
 | **OpenCode CLI** | Não instalado | Apenas no Slice 2+ | Integrado via SDK/bridge com fallback/mock de integração até instalação |

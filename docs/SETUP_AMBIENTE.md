@@ -12,13 +12,9 @@ Este repositório reside em `OneDrive\Documentos\_Fabrica_softwares`. Pastas com
 1. Ao rodar o sistema localmente, você pode apontar `UZINA_DATA_DIR` no `.env` para um diretório local fora do OneDrive (ex.: `C:\uzina-data`).
 2. Se notar lentidão ou erro `EBUSY` durante `pnpm install` ou `next dev`, pause temporariamente a sincronização do OneDrive ou exclua as pastas geradas da sincronização.
 
-## 3. Conectando ao GitHub (Quando Estiver Pronto)
-O repositório local foi inicializado na branch `main`. Para conectar ao seu repositório remoto no GitHub:
-
-```bash
-git remote add origin https://github.com/<seu-usuario>/uzina-studio.git
-git push -u origin main
-```
+## 3. Repositório Remoto (GitHub)
+O repositório está conectado ao remote oficial `origin`:
+* `https://github.com/Matheus-Gama-deluna/uzina-studio.git` (branch `main` rastreando `origin/main` via Git Credential Manager).
 
 ## 4. Ferramentas Opcionais Instaladas Sob Demanda
 Não são necessárias para a **Fase 0** nem para iniciar o **Slice 0** em modo PGlite, mas serão úteis nos slices indicados:
