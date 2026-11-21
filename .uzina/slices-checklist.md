@@ -12,12 +12,12 @@
   - [x] Inicialização Git (`main`) + `.gitignore` robusto
   - [x] Dossiê do Slice 0 (`docs/slices/slice-00-walking-skeleton.md`) revisado via Plan Gate EGM (`readiness` + `design`)
 
-- [ ] **Slice 0 — Walking Skeleton** (*Contract-First + Skeleton*)
-  - [ ] Monorepo `pnpm` + Turborepo + TypeScript strict + `.npmrc` (`save-exact=true`)
-  - [ ] `@uzina/contracts` base (`HealthCheckSchema`, enums centrais)
-  - [ ] `@uzina/db` dual-mode (PGlite local single-process `globalThis` + switch `DATABASE_URL` Postgres + `docker-compose.dev.yml`)
-  - [ ] `apps/web` Next.js App Router + Better Auth + `GET /api/health`
-  - [ ] `pnpm verify` verde (`check-no-ee`, typecheck, lint, build, testes de integração)
+- [x] **Slice 0 — Walking Skeleton** (*Contract-First + Skeleton*)
+  - [x] Monorepo `pnpm` + Turborepo + TypeScript strict + `.npmrc` (`save-exact=true`)
+  - [x] `@uzina/contracts` base (`HealthCheckSchema`, enums centrais)
+  - [x] `@uzina/db` dual-mode (PGlite local single-process `globalThis` + switch `DATABASE_URL` Postgres + `docker-compose.dev.yml`)
+  - [x] `apps/web` Next.js App Router + Better Auth + `GET /api/health`
+  - [x] `pnpm verify` verde (`check-no-ee`, typecheck, lint, build, testes de integração) + validação visual (`browser`) + `factory-verifier` PASS
 
 - [ ] **Slice 1 — Hierarquia, Cofre & UI com MSW** (*Frontend-First + Domain-First*)
   - [ ] Seed automático do cliente `"Internos"` e CRUD `Clients → Projects (+ Repos) → Deliverables`

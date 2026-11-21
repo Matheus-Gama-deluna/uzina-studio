@@ -8,11 +8,13 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 const IGNORE_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", ".turbo", "data", "docs"]);
-const SOURCE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"]);
+const SOURCE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".yaml"]);
 
 const FORBIDDEN_PATTERNS = [
   { name: "Pacote comercial @mastra/*-ee", regex: /@mastra\/[a-z0-9-]+-ee(["'/\s]|$)/i },
   { name: "Import de caminho comercial /ee/", regex: /from\s+["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
+  { name: "Import side-effect de caminho comercial /ee/", regex: /\bimport\s+["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
+  { name: "Import dinâmico de caminho comercial /ee/", regex: /\bimport\(\s*["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
   { name: "Require de caminho comercial /ee/", regex: /require\(\s*["']@mastra\/[^"']*\/ee(\/|["']|$)/i },
   { name: "Dependência mastra-ee", regex: /["']mastra-ee["']/i },
 ];

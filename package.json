@@ -1,0 +1,26 @@
+{
+  "name": "uzina-studio",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "check:no-ee": "node scripts/check-no-ee.mjs",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "verify": "node scripts/check-no-ee.mjs && pnpm turbo run typecheck lint build test",
+    "dev": "turbo run dev"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "eslint": "9.39.5",
+    "turbo": "2.11.13",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0",
+    "vitest": "5.1.1"
+  }
+}

@@ -25,6 +25,7 @@ Siga estas 8 etapas em ordem estrita para cada Slice (`Slice 0` → `Slice 6`):
    - Implemente respeitando: processo único no PGlite (`globalThis` singleton), zero `any` implícito, zero `@mastra/*-ee`, zero segredo em texto claro e Prompt Cache fixo por papel.
 7. **Verify Gate:**
    - Execute `node scripts/check-no-ee.mjs` e `pnpm verify` (typecheck + lint + build + auditor de testes + testes).
+   - **Validação Visual do Painel (`apps/web`):** Sempre que `apps/web` for criado ou alterado, suba o servidor local e acione o subagente `browser` (`Model: "flash"`) em `http://localhost:3000` para validar renderização real, responsividade e ausência de erros de console/rede (`5xx`).
    - Rode `test-critic` (`flash`) nos testes adicionados, `appsec-auditor` (`flash`) quando houver auth/cripto/rotas/uploads, e `factory-verifier` (`inherit`) para auditoria independente do `git diff`.
    - Em Slices críticos (0, 2, 3 e 4), rode `egm-codebase-details` para garantir zero drift entre o dossiê/spec e o código real.
 8. **Encerramento & Controle de Fases:**

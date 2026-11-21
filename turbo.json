@@ -1,0 +1,33 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "TEST_DATABASE_URL",
+        "UZINA_DATA_DIR",
+        "FACTORY_DATA_DIR",
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "UZINA_STRICT_SECRETS",
+        "NODE_ENV",
+        "NEXT_PHASE"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
