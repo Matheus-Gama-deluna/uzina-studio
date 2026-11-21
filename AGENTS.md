@@ -22,7 +22,8 @@ Leia este arquivo integralmente antes de criar ou editar qualquer arquivo neste 
   - Agentes executores operam exclusivamente dentro de **Git worktrees isolados** (`.worktrees/task-<id>`) via harness `@uzina/opencode-bridge` com `AbortSignal`, timeout estrito e contenção de path traversal.
   - Nunca alterne modelo LLM no meio da mesma sessão OpenCode (higiene de Prompt Cache).
 - **Superfícies Web (`Next.js App Router` — `apps/web`):**
-  - Superfície Executiva (Co-piloto, Specs, Aprovações, Entregas) e Superfície Técnica (Torre de Controle, Caixa de Decisões, Worktrees, Diffs, Logs SAST) construídas com React Server Components por padrão e validação **Zod** em todas as Server Actions e Route Handlers.
+  - Superfície Executiva (Co-piloto, Specs, Aprovações, Entregas em `/exec/*`) e Superfície Técnica (Torre de Controle, Caixa de Decisões, Worktrees, Diffs, Logs SAST em `/app/*`) construídas com React Server Components por padrão, Tailwind CSS v4 + Radix/shadcn (`data-slot`) e validação **Zod** em todas as Server Actions e Route Handlers.
+  - Toda UI deve seguir o contrato visual [`.uzina/DESIGN.md`](.uzina/DESIGN.md) e as skills `cockpit-ui-craft` e `ui-visual-qa-critic` (tokens OKLCH, `tabular-nums`, 5 estados de dados, zero "AI slop" e QA visual multi-viewport no `browser`).
 - **Autenticação e Controle de Acesso (`Better Auth`):**
   - RBAC multi-tenant validado no servidor em todas as operações de leitura e mutação.
 - **Camada de Dados (`Drizzle ORM`: `PGlite` → `PostgreSQL` + `pgvector`):**
