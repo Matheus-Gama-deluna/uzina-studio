@@ -31,7 +31,10 @@ import {
   type UzinaDb,
 } from "@uzina/db";
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
-import { recordTokenSavingsEventScoped } from "./finops.js";
+import {
+  recordTokenSavingsEventScoped,
+  resolveOrganizationEmbeddingProvider,
+} from "./finops.js";
 
 const MAX_MARKDOWN_BYTES = 512 * 1024;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "dist", ".turbo"]);
@@ -323,7 +326,9 @@ export async function searchQmdScoped(
   }
 ): Promise<QmdSearchResponse> {
   const parsed = QmdSearchRequestSchema.parse(params.request);
-  const provider = params.provider ?? resolveDefaultEmbeddingProvider();
+  const provider =
+    params.provider ??
+    (await resolveOrganizationEmbeddingProvider(db, params.organizationId));
 
   await ensureMissingMemoryChunksIndexed(db, params.organizationId, provider);
 

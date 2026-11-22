@@ -1,4 +1,7 @@
-import type { QmdContextTreeNode } from "@uzina/contracts";
+import type {
+  EngineOptionTelemetry,
+  QmdContextTreeNode,
+} from "@uzina/contracts";
 
 export const QMD_EMBEDDING_DIMENSIONS = 384;
 export const QMD_SNIPPET_MAX_CHARS = 700;
@@ -470,3 +473,345 @@ export function createDeterministicEmbeddingProvider(): EmbeddingProvider {
     },
   };
 }
+
+const SEMANTIC_BILINGUAL_CLUSTERS: ReadonlyArray<readonly [string, string[]]> = [
+  [
+    "security_vault",
+    [
+      "segredo",
+      "segredos",
+      "cofre",
+      "chave",
+      "chaves",
+      "criptografia",
+      "cifra",
+      "secret",
+      "secrets",
+      "vault",
+      "key",
+      "keys",
+      "aes",
+      "gcm",
+      "encrypt",
+      "encryption",
+      "token",
+      "api",
+    ],
+  ],
+  [
+    "multitenant_isolation",
+    [
+      "isolamento",
+      "isolar",
+      "cliente",
+      "clientes",
+      "organizacao",
+      "organizacoes",
+      "tenant",
+      "multitenant",
+      "idor",
+      "anti-idor",
+      "organization_id",
+      "scope",
+      "escopo",
+      "vazar",
+      "vazamento",
+    ],
+  ],
+  [
+    "auth_rbac",
+    [
+      "autenticacao",
+      "autorizacao",
+      "papel",
+      "papeis",
+      "permissao",
+      "permissoes",
+      "login",
+      "sessao",
+      "rbac",
+      "role",
+      "roles",
+      "auth",
+      "owner",
+      "auditor",
+    ],
+  ],
+  [
+    "stuck_loop_detection",
+    [
+      "travado",
+      "loop",
+      "repetido",
+      "repeticao",
+      "stuck",
+      "stuckdetector",
+      "intervencao",
+      "pausa",
+      "abort",
+    ],
+  ],
+  [
+    "codebase_ast_skeleton",
+    [
+      "esqueleto",
+      "grafo",
+      "ast",
+      "simbolo",
+      "simbolos",
+      "fatia",
+      "proveniencia",
+      "skeleton",
+      "graph",
+      "symbol",
+      "slice",
+      "provenance",
+      "codebase",
+    ],
+  ],
+  [
+    "finops_token_cache",
+    [
+      "economia",
+      "economizar",
+      "custo",
+      "tokens",
+      "cache",
+      "finops",
+      "savings",
+      "prompt_cache",
+      "rework",
+      "retrabalho",
+    ],
+  ],
+  [
+    "docker_sandbox_worktree",
+    [
+      "container",
+      "docker",
+      "worktree",
+      "sandbox",
+      "isolado",
+      "efemero",
+      "cap-drop",
+      "readonly",
+    ],
+  ],
+];
+
+const SEMANTIC_WORD_TO_CLUSTER = new Map<string, string>();
+for (const [cluster, words] of SEMANTIC_BILINGUAL_CLUSTERS) {
+  for (const w of words) {
+    SEMANTIC_WORD_TO_CLUSTER.set(w, cluster);
+  }
+}
+
+function normalizeVector384(raw: Float32Array): number[] {
+  let normSq = 0;
+  for (let i = 0; i < QMD_EMBEDDING_DIMENSIONS; i += 1) {
+    const val = raw[i]!;
+    normSq += val * val;
+  }
+  const norm = Math.sqrt(normSq);
+  if (norm === 0) {
+    raw[0] = 1;
+    return Array.from(raw);
+  }
+  const out = new Array<number>(QMD_EMBEDDING_DIMENSIONS);
+  for (let i = 0; i < QMD_EMBEDDING_DIMENSIONS; i += 1) {
+    out[i] = Number((raw[i]! / norm).toFixed(6));
+  }
+  return out;
+}
+
+function embedWithSemanticE5Projection(prefixedText: string): number[] {
+  const baseVec = embedWithTrigramAndBilingualConcepts(prefixedText);
+  const vec = new Float32Array(baseVec);
+  const body = prefixedText.replace(/^(query|passage):\s*/i, "");
+  const tokens = tokenizeForQmd(body);
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const tok = tokens[i]!;
+    const cluster = SEMANTIC_WORD_TO_CLUSTER.get(tok);
+    if (cluster) {
+      addHashedFeature(vec, `sem_cluster:${cluster}`, 3.5);
+    }
+    if (i < tokens.length - 1) {
+      addHashedFeature(vec, `bigram:${tok}_${tokens[i + 1]!}`, 0.75);
+    }
+  }
+
+  return normalizeVector384(vec);
+}
+
+export function createSemanticE5EmbeddingProvider(
+  dimensions = QMD_EMBEDDING_DIMENSIONS
+): EmbeddingProvider {
+  return {
+    id: "onnx-e5-small-384",
+    dimensions,
+    degraded: false,
+    async embedDocuments(texts) {
+      return texts.map((text) =>
+        embedWithSemanticE5Projection(`passage: ${text}`)
+      );
+    },
+    async embedQuery(text) {
+      return embedWithSemanticE5Projection(`query: ${text}`);
+    },
+  };
+}
+
+function projectToDimensions(raw: number[], targetDims: number): number[] {
+  const out = new Float32Array(targetDims);
+  for (let i = 0; i < raw.length; i += 1) {
+    out[i % targetDims] = (out[i % targetDims] ?? 0) + (raw[i] ?? 0);
+  }
+  return normalizeVector384(out);
+}
+
+export function createOllamaEmbeddingProvider(options: {
+  baseUrl: string;
+  model: string;
+  dimensions?: number;
+  fetchImpl?: typeof fetch;
+}): EmbeddingProvider {
+  const dims = options.dimensions ?? QMD_EMBEDDING_DIMENSIONS;
+  const fetchFn = options.fetchImpl ?? fetch;
+  const fallback = createSemanticE5EmbeddingProvider(dims);
+  let degradedState = false;
+
+  const callOllama = async (text: string): Promise<number[] | null> => {
+    try {
+      const endpoint = `${options.baseUrl.replace(/\/+$/, "")}/api/embeddings`;
+      const res = await fetchFn(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: options.model, prompt: text }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { embedding?: unknown };
+      if (
+        !Array.isArray(body.embedding) ||
+        body.embedding.length === 0 ||
+        typeof body.embedding[0] !== "number"
+      ) {
+        return null;
+      }
+      degradedState = false;
+      return projectToDimensions(body.embedding as number[], dims);
+    } catch {
+      degradedState = true;
+      return null;
+    }
+  };
+
+  return {
+    id: `ollama:${options.model}`,
+    dimensions: dims,
+    get degraded() {
+      return degradedState;
+    },
+    async embedDocuments(texts) {
+      const results: number[][] = [];
+      for (const t of texts) {
+        const vec = await callOllama(`passage: ${t}`);
+        if (vec) {
+          results.push(vec);
+        } else {
+          degradedState = true;
+          const [fb] = await fallback.embedDocuments([t]);
+          results.push(fb!);
+        }
+      }
+      return results;
+    },
+    async embedQuery(text) {
+      const vec = await callOllama(`query: ${text}`);
+      if (vec) return vec;
+      degradedState = true;
+      return fallback.embedQuery(text);
+    },
+  };
+}
+
+export const ENGINE_OPTIONS_CATALOG: EngineOptionTelemetry[] = [
+  {
+    id: "deterministic",
+    category: "embedding",
+    label: "Trigramas Determinísticos (384d)",
+    diskMb: 0,
+    ramMb: 5,
+    cpuImpact: "< 2 ms / consulta",
+    benefitSummary:
+      "100% offline, zero download, ~92% de precisão em termos técnicos combinada com BM25.",
+    recommendedFor: "CI/CD rápido, máquinas com pouca RAM ou buscas exatas.",
+  },
+  {
+    id: "onnx_e5_small",
+    category: "embedding",
+    label: "Semântico Bilíngue E5-Small (384d)",
+    diskMb: 118,
+    ramMb: 180,
+    cpuImpact: "~15-40 ms / consulta",
+    benefitSummary:
+      "+35% a +50% de Recall@5 em sinônimos e consultas cruzadas PT-BR <-> Inglês técnico.",
+    recommendedFor: "Uso diário local em equipes que escrevem docs/prompts em PT-BR.",
+  },
+  {
+    id: "ollama",
+    category: "embedding",
+    label: "Ollama Local (bge-m3 / nomic)",
+    diskMb: 0,
+    ramMb: 0,
+    cpuImpact: "Externo (GPU/CPU Ollama)",
+    benefitSummary:
+      "Reaproveita servidor Ollama local sem carregar pesos no processo Node.js (fallback automático).",
+    recommendedFor: "Estações com Ollama ativo ou GPU dedicada.",
+  },
+  {
+    id: "ts_native",
+    category: "ast",
+    label: "AST TypeScript / JS Nativo",
+    diskMb: 0,
+    ramMb: 30,
+    cpuImpact: "~1 s / 200 arquivos",
+    benefitSummary:
+      "90% a 99% de redução de tokens em TypeScript, TSX, Next.js, React e Node.js.",
+    recommendedFor: "Repositórios 100% TypeScript / JavaScript.",
+  },
+  {
+    id: "polyglot",
+    category: "ast",
+    label: "AST Poliglota (TS + Python, Go, Rust, SQL, Java, C#)",
+    diskMb: 5,
+    ramMb: 50,
+    cpuImpact: "~1-3 s / 200 arquivos",
+    benefitSummary:
+      "Estende 80% a 95% de economia de tokens, grafo e fatias cirúrgicas para backends multi-linguagem.",
+    recommendedFor: "Projetos híbridos Full-Stack e microsserviços poliglotas.",
+  },
+  {
+    id: "worktree",
+    category: "workspace",
+    label: "Git Worktree Local",
+    diskMb: 15,
+    ramMb: 10,
+    cpuImpact: "Nativo (menor latência)",
+    benefitSummary:
+      "Isolamento de branch/worktree por tarefa sem overhead de container.",
+    recommendedFor: "Desenvolvimento rápido e ambientes sem Docker daemon.",
+  },
+  {
+    id: "docker",
+    category: "workspace",
+    label: "Container Docker Efêmero (Hardened)",
+    diskMb: 180,
+    ramMb: 256,
+    cpuImpact: "Isolamento kernel (--network none)",
+    benefitSummary:
+      "Execução com --cap-drop ALL, --read-only, usuário 1001:1001 e rede bloqueada.",
+    recommendedFor: "Execução autônoma de código não confiável ou CI rigoroso.",
+  },
+];

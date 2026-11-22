@@ -2,10 +2,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type {
+  AstEngineMode,
   CodebaseRelation,
   CodebaseSymbolKind,
 } from "@uzina/contracts";
 import ts from "typescript";
+import {
+  detectPolyglotLanguage,
+  indexPolyglotSourceText,
+  type PolyglotLanguage,
+} from "./polyglot-indexer.js";
 
 export interface ExtractedRawReference {
   fromSymbolName: string;
@@ -27,7 +33,7 @@ export interface IndexedSymbolDraft {
 export interface IndexedFileDraft {
   path: string;
   sha256: string;
-  language: "typescript" | "tsx" | "javascript" | "jsx";
+  language: "typescript" | "tsx" | "javascript" | "jsx" | PolyglotLanguage;
   size: number;
   lineCount: number;
   symbols: IndexedSymbolDraft[];
@@ -371,7 +377,12 @@ export function indexSourceText(
   };
 }
 
-function walkSourceFiles(rootDir: string, currentDir: string, out: string[]): void {
+function walkSourceFiles(
+  rootDir: string,
+  currentDir: string,
+  out: string[],
+  astMode: AstEngineMode
+): void {
   const entries = fs.readdirSync(currentDir, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
@@ -380,12 +391,12 @@ function walkSourceFiles(rootDir: string, currentDir: string, out: string[]): vo
     const fullPath = path.join(currentDir, name);
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(name)) continue;
-      walkSourceFiles(rootDir, fullPath, out);
+      walkSourceFiles(rootDir, fullPath, out, astMode);
       continue;
     }
     if (!entry.isFile()) continue;
     const rel = path.relative(rootDir, fullPath).replace(/\\/g, "/");
-    if (detectLanguage(rel)) {
+    if (detectLanguage(rel) || (astMode === "polyglot" && detectPolyglotLanguage(rel))) {
       out.push(rel);
     }
   }
@@ -434,14 +445,18 @@ export function resolveWorkspaceEdges(
   return edges;
 }
 
-export function scanCodebaseWorkspace(rootDir: string): WorkspaceScanResult {
+export function scanCodebaseWorkspace(
+  rootDir: string,
+  options?: { astMode?: AstEngineMode }
+): WorkspaceScanResult {
   const resolvedRoot = path.resolve(rootDir);
   if (!fs.existsSync(resolvedRoot)) {
     return { files: [], edges: [] };
   }
 
+  const astMode: AstEngineMode = options?.astMode ?? "polyglot";
   const relPaths: string[] = [];
-  walkSourceFiles(resolvedRoot, resolvedRoot, relPaths);
+  walkSourceFiles(resolvedRoot, resolvedRoot, relPaths, astMode);
   relPaths.sort();
 
   const files: IndexedFileDraft[] = [];
@@ -450,7 +465,11 @@ export function scanCodebaseWorkspace(rootDir: string): WorkspaceScanResult {
     const stat = fs.statSync(abs);
     if (stat.size > 512 * 1024) continue;
     const content = fs.readFileSync(abs, "utf8");
-    files.push(indexSourceText(rel, content));
+    if (detectPolyglotLanguage(rel)) {
+      files.push(indexPolyglotSourceText(rel, content));
+    } else {
+      files.push(indexSourceText(rel, content));
+    }
   }
 
   const edges = resolveWorkspaceEdges(files);

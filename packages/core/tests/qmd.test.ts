@@ -6,6 +6,9 @@ import {
   computeBm25Scores,
   cosineSimilarity,
   createDeterministicEmbeddingProvider,
+  createOllamaEmbeddingProvider,
+  createSemanticE5EmbeddingProvider,
+  ENGINE_OPTIONS_CATALOG,
   formatQmdSnippet,
   reciprocalRankFusion,
   tokenizeForQmd,
@@ -114,5 +117,51 @@ describe("@uzina/core — Slice 7 QMD (Chunker, BM25, RRF & Embeddings 384d)", (
       "docs/adr",
       "memories/client",
     ]);
+  });
+
+  test("createSemanticE5EmbeddingProvider conecta PT-BR <-> Inglês técnico e createOllamaEmbeddingProvider degrada graciosamente", async () => {
+    const semantic = createSemanticE5EmbeddingProvider();
+    expect(semantic.id).toBe("onnx-e5-small-384");
+    expect(semantic.degraded).toBe(false);
+
+    const qVec = await semantic.embedQuery(
+      "como protegemos segredos e chaves no cofre?"
+    );
+    const [enVaultVec, unrelatedVec] = await semantic.embedDocuments([
+      "Provider Vault AES-256-GCM encryption key storage",
+      "Tailwind CSS spacing margin padding utility classes",
+    ]);
+
+    const simPtEn = cosineSimilarity(qVec, enVaultVec!);
+    const simUnrelated = cosineSimilarity(qVec, unrelatedVec!);
+    expect(simPtEn).toBeGreaterThan(0.35);
+    expect(simPtEn).toBeGreaterThan(simUnrelated);
+
+    // Ollama sucesso com fetchImpl injetado
+    const ollamaOk = createOllamaEmbeddingProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "bge-m3",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({ embedding: Array.from({ length: 384 }, () => 0.5) }),
+          { status: 200 }
+        ),
+    });
+    const okVec = await ollamaOk.embedQuery("teste");
+    expect(okVec).toHaveLength(384);
+    expect(ollamaOk.degraded).toBe(false);
+
+    // Ollama offline degrada graciosamente sem lançar erro
+    const ollamaOffline = createOllamaEmbeddingProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "bge-m3",
+      fetchImpl: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+    const fbVec = await ollamaOffline.embedQuery("cofre");
+    expect(fbVec).toHaveLength(384);
+    expect(ollamaOffline.degraded).toBe(true);
+    expect(ENGINE_OPTIONS_CATALOG.length).toBeGreaterThanOrEqual(7);
   });
 });

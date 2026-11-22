@@ -5,6 +5,7 @@ import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import { afterAll, describe, expect, test } from "vitest";
 import {
   MIGRATION_TABLE_ORDER,
+  engineConfigs,
   ensureDefaultOrgAndInternalClient,
   tokenSavingsEvents,
 } from "../src/index.js";
@@ -43,5 +44,18 @@ describe("@uzina/db — Slice 10 token_savings_events Schema", () => {
     expect(ev?.technique).toBe("qmd");
     expect(ev?.tokensBaseline).toBe(8500);
     expect(ev?.tokensActual).toBe(620);
+
+    expect(MIGRATION_TABLE_ORDER).toContain("engine_configs");
+    const [cfg] = await db
+      .insert(engineConfigs)
+      .values({
+        organizationId,
+        embeddingMode: "onnx_e5_small",
+        astMode: "polyglot",
+        autoInjectInRunner: true,
+      })
+      .returning();
+    expect(cfg?.embeddingMode).toBe("onnx_e5_small");
+    expect(cfg?.astMode).toBe("polyglot");
   });
 });

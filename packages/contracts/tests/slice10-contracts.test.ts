@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
+  AstEngineModeSchema,
+  EmbeddingEngineModeSchema,
   FinopsSummaryRequestSchema,
   RecordTokenSavingsSchema,
   TokenSavingsTechniqueSchema,
+  UpdateEngineConfigSchema,
   WorkspaceKindSchema,
 } from "../src/index.js";
 
@@ -66,5 +69,24 @@ describe("Slice 10 contracts — Docker Workspace & FinOps de Tokens", () => {
       "ast_graph",
       "skeleton",
     ]);
+    expect(EmbeddingEngineModeSchema.options).toEqual([
+      "deterministic",
+      "onnx_e5_small",
+      "ollama",
+    ]);
+    expect(AstEngineModeSchema.options).toEqual(["ts_native", "polyglot"]);
+    expect(
+      UpdateEngineConfigSchema.safeParse({
+        embeddingMode: "onnx_e5_small",
+        astMode: "polyglot",
+        autoInjectInRunner: true,
+        skeletonMaxTokens: 2500,
+      }).success
+    ).toBe(true);
+    expect(
+      UpdateEngineConfigSchema.safeParse({
+        ollamaBaseUrl: "http://169.254.169.254/latest",
+      }).success
+    ).toBe(false);
   });
 });

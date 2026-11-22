@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HttpUrlSchema } from "./errors.js";
 
 export const WorkspaceKindSchema = z.enum(["worktree", "docker"]);
 export type WorkspaceKind = z.infer<typeof WorkspaceKindSchema>;
@@ -77,3 +78,71 @@ export const FinopsSummarySchema = z
   })
   .strict();
 export type FinopsSummary = z.infer<typeof FinopsSummarySchema>;
+
+export const EmbeddingEngineModeSchema = z.enum([
+  "deterministic",
+  "onnx_e5_small",
+  "ollama",
+]);
+export type EmbeddingEngineMode = z.infer<typeof EmbeddingEngineModeSchema>;
+
+export const AstEngineModeSchema = z.enum(["ts_native", "polyglot"]);
+export type AstEngineMode = z.infer<typeof AstEngineModeSchema>;
+
+export const EngineOptionTelemetrySchema = z
+  .object({
+    id: z.string().min(1),
+    category: z.enum(["embedding", "ast", "workspace"]),
+    label: z.string().min(1),
+    diskMb: z.number().nonnegative(),
+    ramMb: z.number().nonnegative(),
+    cpuImpact: z.string().min(1),
+    benefitSummary: z.string().min(1),
+    recommendedFor: z.string().min(1),
+  })
+  .strict();
+export type EngineOptionTelemetry = z.infer<typeof EngineOptionTelemetrySchema>;
+
+export const EngineConfigSchema = z
+  .object({
+    organizationId: z.uuid(),
+    embeddingMode: EmbeddingEngineModeSchema,
+    ollamaBaseUrl: HttpUrlSchema,
+    ollamaEmbeddingModel: z.string().trim().min(1).max(120),
+    astMode: AstEngineModeSchema,
+    workspaceKind: WorkspaceKindSchema,
+    skeletonMaxTokens: z.number().int().min(200).max(8000),
+    qmdTopK: z.number().int().min(1).max(10),
+    autoInjectInRunner: z.boolean(),
+    dockerCpuLimit: z.string().trim().min(1).max(16),
+    dockerMemoryLimit: z.string().trim().min(2).max(16),
+    updatedAt: z.iso.datetime(),
+  })
+  .strict();
+export type EngineConfig = z.infer<typeof EngineConfigSchema>;
+
+export const UpdateEngineConfigSchema = z
+  .object({
+    embeddingMode: EmbeddingEngineModeSchema.optional(),
+    ollamaBaseUrl: HttpUrlSchema.optional(),
+    ollamaEmbeddingModel: z.string().trim().min(1).max(120).optional(),
+    astMode: AstEngineModeSchema.optional(),
+    workspaceKind: WorkspaceKindSchema.optional(),
+    skeletonMaxTokens: z.number().int().min(200).max(8000).optional(),
+    qmdTopK: z.number().int().min(1).max(10).optional(),
+    autoInjectInRunner: z.boolean().optional(),
+    dockerCpuLimit: z.string().trim().min(1).max(16).optional(),
+    dockerMemoryLimit: z.string().trim().min(2).max(16).optional(),
+  })
+  .strict();
+export type UpdateEngineConfig = z.infer<typeof UpdateEngineConfigSchema>;
+
+export const EngineConfigResponseSchema = z
+  .object({
+    config: EngineConfigSchema,
+    catalog: z.array(EngineOptionTelemetrySchema),
+    activeEmbeddingProviderId: z.string().min(1),
+    degraded: z.boolean(),
+  })
+  .strict();
+export type EngineConfigResponse = z.infer<typeof EngineConfigResponseSchema>;

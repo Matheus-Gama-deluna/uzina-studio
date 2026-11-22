@@ -20,6 +20,7 @@ import {
   deliverables,
   designAssets,
   designPrototypes,
+  engineConfigs,
   ensureDefaultOrgAndInternalClient,
   executionEvents,
   memories,
@@ -348,6 +349,14 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       technique: "skeleton",
       tokensBaseline: 12000,
       tokensActual: 950,
+    });
+
+    await sourceDb.insert(engineConfigs).values({
+      organizationId,
+      embeddingMode: "onnx_e5_small",
+      astMode: "polyglot",
+      workspaceKind: "worktree",
+      autoInjectInRunner: true,
     });
 
     // Inserir 2 clientes adicionais para exercitar batchSize: 2

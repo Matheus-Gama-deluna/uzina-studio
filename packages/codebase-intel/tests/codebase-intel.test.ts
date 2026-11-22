@@ -8,6 +8,7 @@ import {
   buildCodebaseDirectoryTree,
   buildCodebaseSkeleton,
   computeChangeImpactInMemory,
+  indexPolyglotSourceText,
   indexSourceText,
   probeCodebaseAdapters,
   querySymbolGraphInMemory,
@@ -308,5 +309,73 @@ describe("@uzina/codebase-intel — AST Indexer, Skeleton, Graph & Adapters", ()
     expect(
       reports.find((r) => r.adapter === "codebase_memory_mcp")?.status
     ).toBe("skipped_missing_binary");
+  });
+
+  test.each([
+    {
+      lang: "python",
+      file: "api/orders.py",
+      code: "@app.post('/orders')\nasync def create_order(payload: OrderInput) -> dict:\n    return save_order(payload)\n",
+      expectedKind: "route",
+      expectedName: "create_order",
+    },
+    {
+      lang: "go",
+      file: "internal/handler.go",
+      code: "func HandlePing(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(200)\n}\n",
+      expectedKind: "route",
+      expectedName: "HandlePing",
+    },
+    {
+      lang: "rust",
+      file: "src/engine.rs",
+      code: "pub fn compute_hash(input: &str) -> String {\n    input.to_string()\n}\n",
+      expectedKind: "function",
+      expectedName: "compute_hash",
+    },
+    {
+      lang: "sql",
+      file: "migrations/001.sql",
+      code: "CREATE TABLE audit_logs (\n  id uuid PRIMARY KEY\n);\n",
+      expectedKind: "db_table",
+      expectedName: "audit_logs",
+    },
+  ])(
+    "indexPolyglotSourceText extrai símbolos em $lang ($file)",
+    ({ file, code, expectedKind, expectedName }) => {
+      const parsed = indexPolyglotSourceText(file, code);
+      const sym = parsed.symbols.find((s) => s.name === expectedName);
+      expect(sym).toBeDefined();
+      expect(sym!.kind).toBe(expectedKind);
+    }
+  );
+
+  test("scanCodebaseWorkspace alterna entre astMode ts_native e polyglot + readSymbolSliceFromWorkspace em Python", () => {
+    const polyDir = fs.mkdtempSync(path.join(os.tmpdir(), "uzina-s11-poly-"));
+    tempDirs.push(polyDir);
+
+    fs.writeFileSync(
+      path.join(polyDir, "app.ts"),
+      "export function tsEntry() { return 1; }\n",
+      "utf8"
+    );
+    fs.writeFileSync(
+      path.join(polyDir, "worker.py"),
+      "def run_job(job_id: str) -> bool:\n    return True\n",
+      "utf8"
+    );
+
+    const tsOnly = scanCodebaseWorkspace(polyDir, { astMode: "ts_native" });
+    expect(tsOnly.files.map((f) => f.path)).toEqual(["app.ts"]);
+
+    const poly = scanCodebaseWorkspace(polyDir, { astMode: "polyglot" });
+    expect(poly.files.map((f) => f.path)).toEqual(["app.ts", "worker.py"]);
+
+    const pySlice = readSymbolSliceFromWorkspace(polyDir, [], {
+      path: "worker.py",
+      symbol: "run_job",
+      maxBytes: 1024,
+    });
+    expect(pySlice.code).toContain("def run_job");
   });
 });

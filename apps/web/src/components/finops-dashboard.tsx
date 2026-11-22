@@ -7,6 +7,7 @@ import {
 } from "@uzina/contracts";
 import { Coins, Cpu, Gauge, RefreshCw, TrendingDown } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { EngineConfigPanel } from "./engine-config-panel";
 
 const TECHNIQUE_LABELS: Record<TokenSavingsTechnique, string> = {
   prompt_cache: "Prompt Cache",
@@ -318,6 +319,8 @@ export function FinopsDashboard() {
           </div>
         </section>
       </div>
+
+      <EngineConfigPanel />
     </div>
   );
 }

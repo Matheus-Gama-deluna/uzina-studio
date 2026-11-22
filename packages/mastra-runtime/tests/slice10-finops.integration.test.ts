@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   clients,
   closeDb,
@@ -6,6 +9,7 @@ import {
   ensureDefaultOrgAndInternalClient,
   getDb,
   organizations,
+  projectRepositories,
   projects,
   type UzinaDb,
 } from "@uzina/db";
@@ -15,11 +19,17 @@ import {
 } from "@uzina/opencode-bridge";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  buildAutoInjectedCodebaseContext,
   createConfiguredExecutionWorkspace,
+  createMemoryScoped,
+  createOrganizationExecutionWorkspace,
+  getEngineConfigScoped,
   getFinopsSummaryScoped,
   recordTokenSavingsEventScoped,
   resetMastraStorageForTests,
   resolveConfiguredWorkspaceKind,
+  syncRepositoryCodebase,
+  updateEngineConfigScoped,
 } from "../src/index.js";
 
 describe("@uzina/mastra-runtime — Slice 10 FinOps & Seleção de Workspace", () => {
@@ -132,5 +142,97 @@ describe("@uzina/mastra-runtime — Slice 10 FinOps & Seleção de Workspace", (
     });
     expect(otherSummary.totalEvents).toBe(0);
     expect(otherSummary.totalTokensSaved).toBe(0);
+  });
+
+  test("hot-reload de engine_configs (sem restart), AST poliglota e buildAutoInjectedCodebaseContext gravando prompt_cache", async () => {
+    const initialCfg = await getEngineConfigScoped(db, { organizationId });
+    expect(initialCfg.config.embeddingMode).toBe("deterministic");
+
+    const updatedCfg = await updateEngineConfigScoped(db, {
+      organizationId,
+      input: {
+        embeddingMode: "onnx_e5_small",
+        astMode: "polyglot",
+        workspaceKind: "docker",
+        skeletonMaxTokens: 1500,
+        autoInjectInRunner: true,
+      },
+    });
+    expect(updatedCfg.activeEmbeddingProviderId).toBe("onnx-e5-small-384");
+    expect(updatedCfg.degraded).toBe(false);
+    expect(
+      await createOrganizationExecutionWorkspace(db, organizationId)
+    ).toBeInstanceOf(DockerExecutionWorkspace);
+
+    // Repositório temporário poliglota (TS + Python + Go)
+    const polyRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "uzina-s11-rt-"));
+    try {
+      fs.writeFileSync(
+        path.join(polyRepoDir, "service.ts"),
+        `export function processPayment(amount: number): number {\n  return amount * 1.1;\n}\n`,
+        "utf8"
+      );
+      fs.writeFileSync(
+        path.join(polyRepoDir, "ml_worker.py"),
+        `def score_fraud(tx_id: str) -> float:\n    return 0.02\n`,
+        "utf8"
+      );
+
+      const [cli] = await db
+        .select()
+        .from(clients)
+        .limit(1);
+      const [proj] = await db
+        .insert(projects)
+        .values({
+          clientId: cli!.id,
+          name: "Projeto Poliglota S11",
+          slug: `proj-s11-${crypto.randomUUID().slice(0, 5)}`,
+        })
+        .returning();
+      await db.insert(projectRepositories).values({
+        projectId: proj!.id,
+        name: "repo-poly-s11",
+        localPath: polyRepoDir,
+      });
+
+      const sync = await syncRepositoryCodebase(db, {
+        organizationId,
+        projectId: proj!.id,
+        workspaceRoot: polyRepoDir,
+      });
+      expect(sync.indexedFiles).toBe(2);
+
+      await createMemoryScoped(db, {
+        organizationId,
+        input: {
+          scopeType: "org",
+          scopeId: organizationId,
+          category: "architecture",
+          title: "Cofre AES-256-GCM",
+          content: "Provider Vault AES-256-GCM encryption key storage",
+        },
+      });
+
+      const injected = await buildAutoInjectedCodebaseContext(db, {
+        organizationId,
+        projectId: proj!.id,
+        deliverableId,
+        queryText: "como protegemos chaves no cofre?",
+        workspaceRoot: polyRepoDir,
+      });
+      expect(injected.enabled).toBe(true);
+      expect(injected.contextMarkdown).toContain("processPayment");
+      expect(injected.contextMarkdown).toContain("score_fraud");
+      expect(injected.contextMarkdown).toContain("onnx-e5-small-384");
+
+      const summaryAfter = await getFinopsSummaryScoped(db, { organizationId });
+      const promptCacheBreakdown = summaryAfter.byTechnique.find(
+        (b) => b.technique === "prompt_cache"
+      );
+      expect(promptCacheBreakdown?.eventsCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      fs.rmSync(polyRepoDir, { recursive: true, force: true });
+    }
   });
 });
