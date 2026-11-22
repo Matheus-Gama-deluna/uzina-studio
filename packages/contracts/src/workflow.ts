@@ -220,6 +220,7 @@ export const WorkflowGateTypeSchema = z.enum([
   "discovery_confirm",
   "blueprint_approve",
   "visual_approve",
+  "prototype_approve",
   "pr_evidence_approve",
   "stuck_intervention",
 ]);

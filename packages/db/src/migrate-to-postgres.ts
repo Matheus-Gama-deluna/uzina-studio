@@ -34,6 +34,7 @@ export const MIGRATION_TABLE_ORDER = [
   "codebase_symbols",
   "codebase_edges",
   "decision_provenance",
+  "design_prototypes",
 ] as const;
 
 export type MigrationTableName = (typeof MIGRATION_TABLE_ORDER)[number];
@@ -87,6 +88,7 @@ const TABLE_REGISTRY: ReadonlyArray<readonly [MigrationTableName, PgTable]> = [
   ["codebase_symbols", schema.codebaseSymbols],
   ["codebase_edges", schema.codebaseEdges],
   ["decision_provenance", schema.decisionProvenance],
+  ["design_prototypes", schema.designPrototypes],
 ];
 
 const DEFAULT_BATCH_SIZE = 250;

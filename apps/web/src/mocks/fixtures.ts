@@ -10,6 +10,7 @@ import {
   DeliverableListResponseSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
+  DesignPrototypeListResponseSchema,
   ExecutionEventListResponseSchema,
   MemoryListResponseSchema,
   ProjectListResponseSchema,
@@ -18,6 +19,7 @@ import {
   QmdSearchResponseSchema,
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
+  StitchMcpSyncResponseSchema,
 } from "@uzina/contracts";
 
 const NOW = "2026-11-21T17:00:00.000Z";
@@ -603,4 +605,37 @@ export const mockProvenanceListResponse = ProvenanceListResponseSchema.parse({
       createdAt: NOW,
     },
   ],
+});
+
+export const MOCK_PROTOTYPE_ID = "99000000-0000-4000-8000-000000000001";
+
+export const mockDesignPrototypes = DesignPrototypeListResponseSchema.parse({
+  items: [
+    {
+      id: MOCK_PROTOTYPE_ID,
+      projectId: MOCK_PROJECT_ID,
+      deliverableId: null,
+      level: 3,
+      source: "stitch_import",
+      title: "Dashboard Stitch v1",
+      previewUrl: `/api/prototypes/${MOCK_PROTOTYPE_ID}/preview`,
+      tokensJson: {
+        color: { primary: { $value: "#38bdf8", $type: "color" } },
+        typography: { body: { $value: "Inter, sans-serif", $type: "fontFamily" } },
+        spacing: { "space-6": { $value: "1.50rem", $type: "dimension" } },
+        radius: { xl: { $value: "0.75rem", $type: "dimension" } },
+      },
+      wireframeMermaid: null,
+      approved: false,
+      handoffPath: null,
+      createdAt: NOW,
+    },
+  ],
+});
+
+export const mockStitchSyncResponse = StitchMcpSyncResponseSchema.parse({
+  status: "unavailable",
+  detail: "Binário MCP 'stitch-mcp' não encontrado; use a importação HTML/Tailwind.",
+  screens: [],
+  importedPrototype: null,
 });

@@ -19,6 +19,7 @@ import {
   decisions,
   deliverables,
   designAssets,
+  designPrototypes,
   ensureDefaultOrgAndInternalClient,
   executionEvents,
   memories,
@@ -322,6 +323,22 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       memoryId: mem!.id,
       symbolId: cbSym1!.id,
       filePath: "src/index.ts",
+    });
+
+    await sourceDb.insert(designPrototypes).values({
+      projectId: project!.id,
+      deliverableId: deliverable!.id,
+      level: 3,
+      source: "stitch_import",
+      title: "Protótipo Migrado",
+      htmlStoragePath: "uploads/prototypes/demo.html",
+      tokensJson: {
+        color: { primary: { $value: "#38bdf8", $type: "color" } },
+        typography: { body: { $value: "Inter, sans-serif", $type: "fontFamily" } },
+        spacing: { md: { $value: "1.00rem", $type: "dimension" } },
+        radius: { lg: { $value: "0.50rem", $type: "dimension" } },
+      },
+      approved: true,
     });
 
     // Inserir 2 clientes adicionais para exercitar batchSize: 2

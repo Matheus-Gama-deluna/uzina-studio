@@ -14,6 +14,8 @@ import {
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
   DesignAssetSchema,
+  DesignPrototypeListResponseSchema,
+  DesignPrototypeSchema,
   GenerateDesignMdResponseSchema,
   MemoryListResponseSchema,
   MemorySchema,
@@ -25,6 +27,7 @@ import {
   SecurityFindingDTOSchema,
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
+  StitchMcpSyncResponseSchema,
 } from "@uzina/contracts";
 import { closeDb } from "@uzina/db";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
@@ -52,6 +55,9 @@ import { GET as getCodebaseProvenanceRoute } from "../src/app/api/projects/[id]/
 import { POST as reindexCodebaseRoute } from "../src/app/api/projects/[id]/codebase/reindex/route";
 import { GET as getCodebaseRoute } from "../src/app/api/projects/[id]/codebase/route";
 import { POST as queryCodebaseSymbolsRoute } from "../src/app/api/projects/[id]/codebase/symbols/route";
+import { PATCH as approvePrototypeRoute } from "../src/app/api/projects/[id]/prototypes/[prototypeId]/route";
+import { GET as listPrototypesRoute, POST as createPrototypeRoute } from "../src/app/api/projects/[id]/prototypes/route";
+import { POST as syncStitchRoute } from "../src/app/api/projects/[id]/prototypes/stitch/route";
 import { GET as getDeliverables, POST as createDeliverable } from "../src/app/api/projects/[id]/deliverables/route";
 import {
   DELETE as deleteDesignAsset,
@@ -800,6 +806,99 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realCbProv.status).toBe(200);
       ProvenanceListResponseSchema.parse(await realCbProv.json());
+
+      const mswProtoPost = await fetch(
+        `http://msw.local/api/projects/${projectId}/prototypes`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: "Proto Drift",
+            level: 3,
+            source: "stitch_import",
+            html: "<main>Drift</main>",
+          }),
+        }
+      );
+      expect(mswProtoPost.status).toBe(201);
+      DesignPrototypeSchema.parse(await mswProtoPost.json());
+
+      const realProtoPost = await createPrototypeRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/prototypes`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            title: "Proto Drift",
+            level: 3,
+            source: "stitch_import",
+            html: "<main>Drift</main>",
+          }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realProtoPost.status).toBe(201);
+      const createdProto = DesignPrototypeSchema.parse(
+        await realProtoPost.json()
+      );
+
+      const mswProtoList = await fetch(
+        `http://msw.local/api/projects/${projectId}/prototypes`
+      );
+      expect(mswProtoList.status).toBe(200);
+      DesignPrototypeListResponseSchema.parse(await mswProtoList.json());
+
+      const realProtoList = await listPrototypesRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/prototypes`, {
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realProtoList.status).toBe(200);
+      DesignPrototypeListResponseSchema.parse(await realProtoList.json());
+
+      const realProtoApprove = await approvePrototypeRoute(
+        new Request(
+          `http://localhost:3000/api/projects/${projectId}/prototypes/${createdProto.id}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ approved: true, syncDesignMd: false }),
+          }
+        ),
+        {
+          params: Promise.resolve({
+            id: projectId,
+            prototypeId: createdProto.id,
+          }),
+        }
+      );
+      expect(realProtoApprove.status).toBe(200);
+      DesignPrototypeSchema.parse(await realProtoApprove.json());
+
+      const mswStitchSync = await fetch(
+        `http://msw.local/api/projects/${projectId}/prototypes/stitch`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "list_screens" }),
+        }
+      );
+      expect(mswStitchSync.status).toBe(200);
+      StitchMcpSyncResponseSchema.parse(await mswStitchSync.json());
+
+      const realStitchSync = await syncStitchRoute(
+        new Request(
+          `http://localhost:3000/api/projects/${projectId}/prototypes/stitch`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ action: "list_screens" }),
+          }
+        ),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realStitchSync.status).toBe(200);
+      StitchMcpSyncResponseSchema.parse(await realStitchSync.json());
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

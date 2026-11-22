@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { StitchPrototypesPanel } from "./stitch-prototypes-panel";
 
 interface ProjectStudioProps {
   projectId: string;
@@ -1201,6 +1202,8 @@ export function ProjectStudio({
           </section>
         </div>
       </div>
+
+      <StitchPrototypesPanel projectId={projectId} />
     </div>
   );
 }

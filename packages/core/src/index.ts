@@ -12,3 +12,4 @@ export * from "./cost.js";
 export * from "./test-auditor.js";
 export * from "./test-auditor-fs.js";
 export * from "./qmd.js";
+export * from "./prototypes.js";
