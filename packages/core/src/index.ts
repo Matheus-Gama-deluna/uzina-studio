@@ -8,3 +8,6 @@ export * from "./strategy-router.js";
 export * from "./discovery.js";
 export * from "./design-md.js";
 export * from "./brownfield.js";
+export * from "./cost.js";
+export * from "./test-auditor.js";
+export * from "./test-auditor-fs.js";

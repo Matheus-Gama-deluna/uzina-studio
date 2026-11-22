@@ -18,6 +18,7 @@
     "@uzina/core": "workspace:*",
     "@uzina/db": "workspace:*",
     "@uzina/mastra-runtime": "workspace:*",
+    "@uzina/security-engine": "workspace:*",
     "better-auth": "1.7.27",
     "clsx": "2.1.1",
     "drizzle-orm": "0.45.4",

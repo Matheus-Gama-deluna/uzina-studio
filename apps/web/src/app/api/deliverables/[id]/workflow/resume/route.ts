@@ -1,7 +1,11 @@
 import { WorkflowResumeInputSchema } from "@uzina/contracts";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
-import { WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
+import {
+  VAULT_WRITE_ROLES,
+  WORKSPACE_WRITE_ROLES,
+  requireOrgRole,
+} from "@/lib/rbac";
 import {
   getWebWorkflowRuntime,
   handleWorkflowRouteError,
@@ -30,9 +34,26 @@ export async function POST(
 
   try {
     const runtimeService = await getWebWorkflowRuntime();
+    const currentState = await runtimeService.getWorkflowState({
+      deliverableId,
+      organizationId: auth.actor.organizationId,
+    });
+
+    if (
+      currentState.gate === "pr_evidence_approve" &&
+      !VAULT_WRITE_ROLES.includes(auth.actor.role)
+    ) {
+      return jsonError(403, {
+        error:
+          "Apenas owner ou admin pode aprovar, solicitar ajustes ou rejeitar o portão pr_evidence_approve.",
+        code: "FORBIDDEN",
+      });
+    }
+
     const state = await runtimeService.resumeDeliverableWorkflow({
       deliverableId,
       organizationId: auth.actor.organizationId,
+      resolvedByUserId: auth.actor.userId,
       input: parsed.data,
     });
     return NextResponse.json(state, { status: 200 });

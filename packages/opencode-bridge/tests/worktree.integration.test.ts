@@ -295,6 +295,7 @@ describe("LocalGitWorktreeWorkspace — integração real com Git", () => {
       expect(timedOut.aborted).toBe(false);
 
       const midController = new AbortController();
+      // @uzina-test-audit-ignore arbitrary_sleep: dispara AbortController enquanto processo filho real está ativo
       setTimeout(() => midController.abort(), 120);
       const midAborted = await workspace.exec(
         process.execPath,

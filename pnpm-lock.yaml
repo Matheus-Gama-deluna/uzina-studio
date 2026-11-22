@@ -214,6 +214,9 @@ importers:
       '@uzina/mastra-runtime':
         specifier: workspace:*
         version: link:../../packages/mastra-runtime
+      '@uzina/security-engine':
+        specifier: workspace:*
+        version: link:../../packages/security-engine
       better-auth:
         specifier: 1.7.27
         version: 1.7.27(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.9)(pg@8.23.1))(next@16.4.6(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@26.6.6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.1.1(@types/node@26.6.6)(msw@3.0.7(@types/node@26.6.6)(supports-color@7.2.0)(typescript@5.9.3)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
@@ -356,6 +359,9 @@ importers:
       '@uzina/opencode-bridge':
         specifier: workspace:*
         version: link:../opencode-bridge
+      '@uzina/security-engine':
+        specifier: workspace:*
+        version: link:../security-engine
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.9)(pg@8.23.1)
@@ -378,6 +384,28 @@ importers:
       '@opencode-ai/sdk':
         specifier: 1.19.6
         version: 1.19.6
+      '@uzina/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@uzina/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@types/node@26.6.6)(msw@3.0.7(@types/node@26.6.6)(supports-color@7.2.0)(typescript@5.9.3)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  packages/security-engine:
+    dependencies:
       '@uzina/contracts':
         specifier: workspace:*
         version: link:../contracts

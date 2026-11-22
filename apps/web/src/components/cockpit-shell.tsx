@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ClientListResponse, ProjectListResponse } from "@uzina/contracts";
 import {
   Building2,
+  ClipboardCheck,
   Command,
   Factory,
   FolderGit2,
@@ -11,6 +12,7 @@ import {
   KeyRound,
   LogOut,
   Menu,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -101,6 +103,32 @@ export function CockpitShell({
           >
             <Kanban className="size-4" strokeWidth={1.75} />
             <span>Torre de Controle</span>
+          </Link>
+
+          <Link
+            href="/app/decisions"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+              pathname.startsWith("/app/decisions")
+                ? "bg-accent-subtle text-accent"
+                : "text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            }`}
+          >
+            <ClipboardCheck className="size-4" strokeWidth={1.75} />
+            <span>Caixa de Decisões</span>
+          </Link>
+
+          <Link
+            href="/app/security"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+              pathname.startsWith("/app/security")
+                ? "bg-accent-subtle text-accent"
+                : "text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            }`}
+          >
+            <ShieldAlert className="size-4" strokeWidth={1.75} />
+            <span>Auditoria AppSec</span>
           </Link>
 
           <Link

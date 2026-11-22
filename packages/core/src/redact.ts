@@ -120,3 +120,82 @@ export function redactError(
   }
   return new Error(redactSecrets(String(error), cleanSecrets));
 }
+
+const SENSITIVE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16,24}(?![A-Z0-9])/g, "[REDACTED_AWS_KEY]"],
+  [/\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/g, "[REDACTED_GITHUB_TOKEN]"],
+  [/\bgithub_pat_[A-Za-z0-9_]{20,255}\b/g, "[REDACTED_GITHUB_PAT]"],
+  [/\bxox[baprs]-[A-Za-z0-9-]{10,200}\b/g, "[REDACTED_SLACK_TOKEN]"],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{20,200}\b/g, "[REDACTED_API_KEY]"],
+  [
+    /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
+    "[REDACTED_PRIVATE_KEY]",
+  ],
+  [
+    /\b([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)([^@\s/]+)(@[^\s/]+)/gi,
+    "$1[REDACTED_PASSWORD]$3",
+  ],
+  [
+    /((?:password|passwd|secret|api_key|apikey|token|bearer|authorization)\s*[:=]\s*["']?)([A-Za-z0-9._~+/-]{8,})/gi,
+    "$1[REDACTED]",
+  ],
+  [
+    /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+    "[REDACTED_JWT]",
+  ],
+];
+
+export function redactSensitiveText(
+  text: string,
+  knownSecrets: readonly (string | null | undefined)[] = []
+): string {
+  if (!text) {
+    return text;
+  }
+  let output = redactSecrets(text, knownSecrets);
+  for (const [pattern, replacement] of SENSITIVE_PATTERNS) {
+    pattern.lastIndex = 0;
+    output = output.replace(pattern, replacement);
+  }
+  return output;
+}
+
+export function redactSensitiveValue<T>(
+  value: T,
+  knownSecrets: readonly (string | null | undefined)[] = []
+): T {
+  const cleanSecrets = normalizeSecrets(knownSecrets);
+  const redactDeep = (node: unknown, seen: WeakSet<object>): unknown => {
+    if (typeof node === "string") {
+      return redactSensitiveText(node, cleanSecrets);
+    }
+    if (node instanceof Error) {
+      node.message = redactSensitiveText(node.message, cleanSecrets);
+      if (node.stack) {
+        node.stack = redactSensitiveText(node.stack, cleanSecrets);
+      }
+      return node;
+    }
+    if (Array.isArray(node)) {
+      if (seen.has(node)) {
+        return node;
+      }
+      seen.add(node);
+      return node.map((item) => redactDeep(item, seen));
+    }
+    if (node !== null && typeof node === "object") {
+      if (seen.has(node)) {
+        return "[Circular]";
+      }
+      seen.add(node);
+      const result: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(node)) {
+        result[key] = redactDeep(entry, seen);
+      }
+      return result;
+    }
+    return node;
+  };
+  return redactDeep(value, new WeakSet<object>()) as T;
+}

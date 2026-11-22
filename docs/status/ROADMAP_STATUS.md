@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP)
 
-> **Estado Atual:** `Slice 3 concluído (@uzina/mastra-runtime Apache 2.0, Descoberta 5 Pilares, Strategy Router & Estúdio Visual Lite)` na branch `feat/slice-03-mastra-workflow-visual-studio` → **Próximo passo:** Elaborar Dossiê + Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) e executar o **Slice 4 (`.uzina/verify`, `security-engine` v1 & Caixa de Decisões — Marco Utilizável #1)**.
+> **Estado Atual:** `Slice 4 concluído (.uzina/verify, @uzina/security-engine v1, CLI uzina-sec, Caixa de Decisões HITL & Fluxo Mastra 8 Estágios — Marco Utilizável #1)` na branch `feat/slice-04-verify-security-engine-decisions` → **Próximo passo:** Elaborar Dossiê + Plan Gate EGM e executar o **Slice 5 (Co-piloto Executivo `.network()` & Memória em 3 Escopos)**.
 
 ---
 
@@ -12,8 +12,8 @@ flowchart LR
     S0 --> S1["Slice 1: Hierarquia, Cofre & UI MSW (CONCLUÍDO)"]
     S1 --> S2["Slice 2: OpenCode Bridge, Worktrees & StuckDetector (CONCLUÍDO)"]
     S2 --> S3["Slice 3: Workflow Mastra, Descoberta & Estúdio Visual (CONCLUÍDO)"]
-    S3 --> S4["Slice 4: .uzina/verify, AppSec v1 & Caixa de Decisões ★ Marco #1 (PRÓXIMO)"]
-    S4 --> S5["Slice 5: Co-piloto Executivo & Memória 3 Escopos"]
+    S3 --> S4["Slice 4: .uzina/verify, AppSec v1 & Caixa de Decisões ★ Marco #1 (CONCLUÍDO)"]
+    S4 --> S5["Slice 5: Co-piloto Executivo & Memória 3 Escopos (PRÓXIMO)"]
     S5 --> S6["Slice 6: CLI npx, Migração PG & Docker ★ Fase 1 Completa"]
 ```
 
@@ -34,7 +34,7 @@ flowchart LR
 | **Slice 1 — Hierarquia, Cofre & UI MSW** | *Frontend-First (MSW) + Domain-First* | Seed `"Internos"`, CRUD 4 níveis, Cofre AES-256-GCM, Sidebar/Kanban/Lista/Provedores com MSW + Contract Drift Check | Seletiva (`readiness`) | [slice-01](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-01-hierarchy-vault-ui.md) | 🟢 Concluído (`feat/slice-01-hierarchy-vault-ui`) |
 | **Slice 2 — OpenCode Bridge & StuckDetector** | *Domain-First + Tests as Data* | `@uzina/opencode-bridge` (`LocalGitWorktreeWorkspace` + `OpenCodeRunner`), 8 skills, `StuckDetector` (5 padrões) | **Sim** (`readiness` + `design` + `details`) | [slice-02](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-02-opencode-bridge-stuck-detector.md) | 🟢 Concluído (`feat/slice-02-opencode-bridge-stuck-detector`) |
 | **Slice 3 — Workflow Mastra & Estúdio Visual** | *Contract-First + Vertical Slice* | `@uzina/mastra-runtime` (`suspend`/`resume` + lock SQL), Entrevista 5 pilares, Strategy Router, Estúdio Visual Lite (`.uzina/DESIGN.md`) | **Sim** (`readiness` + `design` + `details`) | [slice-03](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-03-mastra-workflow-visual-studio.md) | 🟢 Concluído (`feat/slice-03-mastra-workflow-visual-studio`) |
-| **Slice 4 — Verify, AppSec v1 & Decisões ★** | *Vertical Slice + Dual-Mode* | Auditor de testes, `@uzina/security-engine` (SARIF + 4 adaptadores + triagem), CLI `uzina sec`, Caixa de Decisões HITL + PR (**Marco Utilizável #1**) | **Sim** (`readiness` + `design`) | *A criar* | ⚪ Planejado |
+| **Slice 4 — Verify, AppSec v1 & Decisões ★** | *Vertical Slice + Dual-Mode* | Auditor de testes, `@uzina/security-engine` (SARIF + 4 adaptadores + triagem), CLI `uzina-sec`, Caixa de Decisões HITL + PR (**Marco Utilizável #1**) | **Sim** (`readiness` + `design`) | [slice-04](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-04-verify-security-engine-decisions.md) | 🟢 Concluído (`feat/slice-04-verify-security-engine-decisions`) |
 | **Slice 5 — Co-piloto & Memória 3 Escopos** | *Vertical Slice* | Co-piloto Executivo (`.network()`, read-only + rascunho) via SSE + `memories` (`org \| client \| project`) isoladas | Seletiva (`readiness`) | *A criar* | ⚪ Planejado |
 | **Slice 6 — Empacotamento & Release ★** | *Release Engineering* | `apps/cli` (`uzina start`, `migrate-to-postgres`), Dockerfile multi-stage + `docker-compose.yml`, GH Actions, Playwright E2E (**Fase 1 Completa**) | Seletiva (`readiness`) | *A criar* | ⚪ Planejado |
 

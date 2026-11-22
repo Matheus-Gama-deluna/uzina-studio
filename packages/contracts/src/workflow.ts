@@ -220,9 +220,28 @@ export const WorkflowGateTypeSchema = z.enum([
   "discovery_confirm",
   "blueprint_approve",
   "visual_approve",
+  "pr_evidence_approve",
   "stuck_intervention",
 ]);
 export type WorkflowGateType = z.infer<typeof WorkflowGateTypeSchema>;
+
+export const VerifierIssueSchema = z
+  .object({
+    severity: z.enum(["blocker", "major", "minor"]),
+    filePath: z.string().trim().min(1).max(500).optional(),
+    message: z.string().trim().min(1).max(2000),
+  })
+  .strict();
+export type VerifierIssue = z.infer<typeof VerifierIssueSchema>;
+
+export const VerifierVerdictOutputSchema = z
+  .object({
+    verdict: z.enum(["approved", "changes_required"]),
+    summary: z.string().trim().min(1).max(4000),
+    issues: z.array(VerifierIssueSchema).max(50).default([]),
+  })
+  .strict();
+export type VerifierVerdictOutput = z.infer<typeof VerifierVerdictOutputSchema>;
 
 export const WorkflowResumeDecisionSchema = z.enum([
   "approved",

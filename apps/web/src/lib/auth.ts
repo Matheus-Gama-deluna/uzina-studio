@@ -14,6 +14,7 @@ import {
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { bearer } from "better-auth/plugins";
 
 const AUTH_SECRET_KEY = Symbol.for("@uzina/web/ephemeralAuthSecret");
 const AUTH_INSTANCE_KEY = Symbol.for("@uzina/web/authInstance");
@@ -112,7 +113,7 @@ function createAuthInstance(
     secret,
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     basePath: "/api/auth",
-    plugins: [nextCookies()],
+    plugins: [bearer(), nextCookies()],
   });
 }
 

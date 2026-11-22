@@ -5,6 +5,7 @@ import {
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
+  DecisionListResponseSchema,
   DeliverableListResponseSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
@@ -12,11 +13,18 @@ import {
   GenerateDesignMdResponseSchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
+  ResolveDecisionResponseSchema,
+  SecurityFindingDTOSchema,
+  SecurityScanListResponseSchema,
+  SecurityScanResultSchema,
 } from "@uzina/contracts";
 import { closeDb } from "@uzina/db";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
+import { GET as getDecisions } from "../src/app/api/decisions/route";
+import { POST as resolveDecisionRoute } from "../src/app/api/decisions/[id]/resolve/route";
+import { GET as getDeliverableEvents } from "../src/app/api/deliverables/[id]/events/route";
 import { GET as getWorkflow } from "../src/app/api/deliverables/[id]/workflow/route";
 import { POST as resumeWorkflow } from "../src/app/api/deliverables/[id]/workflow/resume/route";
 import { POST as startWorkflow } from "../src/app/api/deliverables/[id]/workflow/start/route";
@@ -30,6 +38,10 @@ import { POST as generateDesignMd } from "../src/app/api/projects/[id]/design-as
 import { GET as getDesignAssets, POST as createDesignAsset } from "../src/app/api/projects/[id]/design-assets/route";
 import { GET as getProjects, POST as createProject } from "../src/app/api/projects/route";
 import { GET as getProviders, POST as createProvider } from "../src/app/api/providers/route";
+import { PATCH as patchSecurityFinding } from "../src/app/api/security/findings/[id]/route";
+import { GET as getSecurityScanById } from "../src/app/api/security/scans/[id]/route";
+import { POST as ingestSecurityScan } from "../src/app/api/security/scans/ingest/route";
+import { GET as getSecurityScans, POST as runSecurityScanRoute } from "../src/app/api/security/scans/route";
 import { resetAuthForTests } from "../src/lib/auth";
 import { resetWebWorkflowRuntimeForTests } from "../src/lib/workflow-runtime";
 import { server } from "../src/mocks/server";
@@ -392,6 +404,183 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realWfResumed.status).toBe(200);
       DeliverableWorkflowStateSchema.parse(await realWfResumed.json());
+
+      // Slice 4: Decisões, Security Scans, Findings Triage e Events SSE (MSW vs Rotas Reais)
+      const mswDecRes = await fetch("http://msw.local/api/decisions");
+      expect(mswDecRes.status).toBe(200);
+      const mswDecs = DecisionListResponseSchema.parse(await mswDecRes.json());
+      const mswDecId = mswDecs.items[0]!.id;
+
+      const mswResolveRes = await fetch(
+        `http://msw.local/api/decisions/${mswDecId}/resolve`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "approved" }),
+        }
+      );
+      expect(mswResolveRes.status).toBe(200);
+      ResolveDecisionResponseSchema.parse(await mswResolveRes.json());
+
+      const mswScansRes = await fetch("http://msw.local/api/security/scans");
+      expect(mswScansRes.status).toBe(200);
+      const mswScans = SecurityScanListResponseSchema.parse(
+        await mswScansRes.json()
+      );
+      const mswScanId = mswScans.items[0]!.id;
+
+      const mswScanDetailRes = await fetch(
+        `http://msw.local/api/security/scans/${mswScanId}`
+      );
+      expect(mswScanDetailRes.status).toBe(200);
+      const mswScanDetail = SecurityScanResultSchema.parse(
+        await mswScanDetailRes.json()
+      );
+      const mswFindingId = mswScanDetail.findings![0]!.id;
+
+      const mswTriageRes = await fetch(
+        `http://msw.local/api/security/findings/${mswFindingId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ triageVerdict: "confirmed" }),
+        }
+      );
+      expect(mswTriageRes.status).toBe(200);
+      SecurityFindingDTOSchema.parse(await mswTriageRes.json());
+
+      const realDecRes = await getDecisions(
+        new Request("http://localhost:3000/api/decisions?status=pending", {
+          headers: { cookie },
+        })
+      );
+      expect(realDecRes.status).toBe(200);
+      const realDecs = DecisionListResponseSchema.parse(await realDecRes.json());
+      const realDecId = realDecs.items[0]!.id;
+
+      const realResolveRes = await resolveDecisionRoute(
+        new Request(`http://localhost:3000/api/decisions/${realDecId}/resolve`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ status: "approved" }),
+        }),
+        { params: Promise.resolve({ id: realDecId }) }
+      );
+      expect(realResolveRes.status).toBe(200);
+      ResolveDecisionResponseSchema.parse(await realResolveRes.json());
+
+      const realRunScanRes = await runSecurityScanRoute(
+        new Request("http://localhost:3000/api/security/scans", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ projectId, targetType: "git_repo" }),
+        })
+      );
+      expect(realRunScanRes.status).toBe(201);
+      const realCreatedScan = SecurityScanResultSchema.parse(
+        await realRunScanRes.json()
+      );
+
+      const realIngestRes = await ingestSecurityScan(
+        new Request("http://localhost:3000/api/security/scans/ingest", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            projectId,
+            deliverableId,
+            targetType: "git_repo",
+            targetRef: "HEAD",
+            scannersRun: ["native_secrets"],
+            scannerStatuses: [
+              {
+                scanner: "native_secrets",
+                status: "executed",
+                binaryName: null,
+                installHint: null,
+                findingsCount: 1,
+                durationMs: 2,
+                errorMessage: null,
+              },
+            ],
+            sarifRawJson: {
+              version: "2.1.0",
+              runs: [{ tool: { driver: { name: "uzina-sec" } }, results: [] }],
+            },
+            summaryCountsJson: {
+              critical: 0,
+              high: 0,
+              medium: 1,
+              low: 0,
+              info: 0,
+              total: 1,
+              confirmedCount: 0,
+              suppressedCount: 0,
+              skippedScannersCount: 0,
+            },
+            findings: [
+              {
+                ruleId: "uzina/drift-check",
+                scanner: "native_secrets",
+                severity: "medium",
+                title: "Check de drift",
+                description: "Descrição limpa",
+                fingerprint: "9".repeat(64),
+              },
+            ],
+          }),
+        })
+      );
+      expect(realIngestRes.status).toBe(201);
+      const ingestedScan = SecurityScanResultSchema.parse(
+        await realIngestRes.json()
+      );
+      const realFindingId = ingestedScan.findings![0]!.id;
+
+      const realScansRes = await getSecurityScans(
+        new Request("http://localhost:3000/api/security/scans", {
+          headers: { cookie },
+        })
+      );
+      expect(realScansRes.status).toBe(200);
+      SecurityScanListResponseSchema.parse(await realScansRes.json());
+
+      const realScanByIdRes = await getSecurityScanById(
+        new Request(
+          `http://localhost:3000/api/security/scans/${realCreatedScan.id}`,
+          { headers: { cookie } }
+        ),
+        { params: Promise.resolve({ id: realCreatedScan.id }) }
+      );
+      expect(realScanByIdRes.status).toBe(200);
+      SecurityScanResultSchema.parse(await realScanByIdRes.json());
+
+      const realPatchFindingRes = await patchSecurityFinding(
+        new Request(
+          `http://localhost:3000/api/security/findings/${realFindingId}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ triageVerdict: "confirmed" }),
+          }
+        ),
+        { params: Promise.resolve({ id: realFindingId }) }
+      );
+      expect(realPatchFindingRes.status).toBe(200);
+      SecurityFindingDTOSchema.parse(await realPatchFindingRes.json());
+
+      const realEventsRes = await getDeliverableEvents(
+        new Request(
+          `http://localhost:3000/api/deliverables/${deliverableId}/events?snapshot=true`,
+          { headers: { cookie } }
+        ),
+        { params: Promise.resolve({ id: deliverableId }) }
+      );
+      expect(realEventsRes.status).toBe(200);
+      expect(realEventsRes.headers.get("content-type")).toContain(
+        "text/event-stream"
+      );
+      const sseBody = await realEventsRes.text();
+      expect(sseBody).toContain("event: stage_change");
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

@@ -8,11 +8,12 @@
   },
   "scripts": {
     "check:no-ee": "node scripts/check-no-ee.mjs",
+    "audit:tests": "node scripts/audit-tests.mjs",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "build": "turbo run build",
     "test": "turbo run test",
-    "verify": "node scripts/check-no-ee.mjs && pnpm turbo run build && pnpm turbo run typecheck lint test",
+    "verify": "node scripts/check-no-ee.mjs && pnpm turbo run build && node scripts/audit-tests.mjs && pnpm turbo run typecheck lint test",
     "dev": "turbo run dev"
   },
   "devDependencies": {

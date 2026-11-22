@@ -54,7 +54,7 @@ export function getAllowedNextStatuses(
       next.push("approved", "building", "failed");
       break;
     case "approved":
-      next.push("merged");
+      next.push("merged", "failed");
       break;
     case "paused":
       if (ctx.pausedFromStatus && ctx.pausedFromStatus !== "paused") {

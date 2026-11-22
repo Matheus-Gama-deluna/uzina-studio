@@ -365,6 +365,18 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
         title: session.title,
       });
 
+      if (runInput.prompt.includes("Verifier independente")) {
+        return {
+          finalText: "Verificado.",
+          structuredOutput: {
+            verdict: "approved",
+            summary: "Verificação independente aprovada.",
+            issues: [],
+          },
+          turns: [],
+        };
+      }
+
       const isContractStage = runInput.prompt.includes(
         "stage_contract_and_tests"
       );
@@ -458,8 +470,10 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       input: { decision: "approved", approveDesignMd: true },
     });
 
-    expect(s4.workflowStatus).toBe("completed");
-    expect(s4.deliverableStatus).toBe("verifying");
+    expect(s4.workflowStatus).toBe("suspended");
+    expect(s4.deliverableStatus).toBe("decision_pending");
+    expect(s4.gate).toBe("pr_evidence_approve");
+    expect(s4.suspendedStep).toBe("stage_decision");
     expect(s4.contractTestFiles).toEqual(["tests/slice3-contract.test.ts"]);
     expect(s4.stageHistory).toEqual([
       "stage_discovery",
@@ -467,12 +481,17 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       "stage_visual_studio",
       "stage_contract_and_tests",
       "stage_build",
+      "stage_verify",
+      "stage_decision",
     ]);
 
-    // Ordem estrita: Contratos antes de Build, e MESMO worktreePath
-    expect(recordedSessions).toHaveLength(2);
+    // Ordem estrita: Contratos -> Build -> Verify no MESMO worktreePath
+    expect(recordedSessions).toHaveLength(3);
     expect(recordedSessions[0]?.workspacePath).toBe(
       recordedSessions[1]?.workspacePath
+    );
+    expect(recordedSessions[1]?.workspacePath).toBe(
+      recordedSessions[2]?.workspacePath
     );
 
     const worktreePath = recordedSessions[0]?.workspacePath ?? "";
@@ -499,7 +518,7 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       .where(eq(deliverables.id, deliverableId));
     expect(updatedDeliverable?.worktreePath).toBe(worktreePath);
     expect(updatedDeliverable?.branchName).toContain("uzina/");
-    expect(updatedDeliverable?.status).toBe("verifying");
+    expect(updatedDeliverable?.status).toBe("decision_pending");
 
     // Cleanup da worktree gerada
     const ws = new LocalGitWorktreeWorkspace();
@@ -524,20 +543,33 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       withRepo: true,
     });
 
-    const transport = new InMemoryOpenCodeTransport({
-      finalText: "Executado sem UI",
-      turns: [
-        {
-          observation: {
-            turnIndex: 1,
-            actionType: "tool_call",
-            toolName: "write",
-            actionSignature: "write:tests/api.test.ts",
-            observationSignature: "ok",
+    const transport = createDynamicInMemoryTransport((runInput) => {
+      if (runInput.prompt.includes("Verifier independente")) {
+        return {
+          finalText: "OK",
+          structuredOutput: {
+            verdict: "approved",
+            summary: "Verificação sem UI aprovada.",
+            issues: [],
           },
-          touchedFiles: ["tests/api.test.ts"],
-        },
-      ],
+          turns: [],
+        };
+      }
+      return {
+        finalText: "Executado sem UI",
+        turns: [
+          {
+            observation: {
+              turnIndex: 1,
+              actionType: "tool_call",
+              toolName: "write",
+              actionSignature: "write:tests/api.test.ts",
+              observationSignature: "ok",
+            },
+            touchedFiles: ["tests/api.test.ts"],
+          },
+        ],
+      };
     });
 
     const runtime = await createMastraRuntime({
@@ -564,8 +596,9 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       input: { decision: "approved" },
     });
 
-    expect(afterBlueprint.workflowStatus).toBe("completed");
-    expect(afterBlueprint.deliverableStatus).toBe("verifying");
+    expect(afterBlueprint.workflowStatus).toBe("suspended");
+    expect(afterBlueprint.deliverableStatus).toBe("decision_pending");
+    expect(afterBlueprint.gate).toBe("pr_evidence_approve");
     expect(afterBlueprint.stageHistory).not.toContain("stage_visual_studio");
 
     const [row] = await db
@@ -596,6 +629,17 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
     const capturedPrompts: string[] = [];
     const transportA = createDynamicInMemoryTransport((runInput) => {
       capturedPrompts.push(runInput.prompt);
+      if (runInput.prompt.includes("Verifier independente")) {
+        return {
+          finalText: "OK",
+          structuredOutput: {
+            verdict: "approved",
+            summary: "Verify ok pós-stuck",
+            issues: [],
+          },
+          turns: [],
+        };
+      }
       if (runInput.prompt.includes("stage_contract_and_tests")) {
         return {
           finalText: "Contrato ok",
@@ -708,9 +752,12 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
         feedback: "Use helper compartilhado",
       },
     });
-    expect(recoveredState.workflowStatus).toBe("completed");
-    expect(recoveredState.deliverableStatus).toBe("verifying");
-    expect(capturedPrompts.at(-1)).toContain("Use helper compartilhado");
+    expect(recoveredState.workflowStatus).toBe("suspended");
+    expect(recoveredState.deliverableStatus).toBe("decision_pending");
+    expect(recoveredState.gate).toBe("pr_evidence_approve");
+    expect(
+      capturedPrompts.some((p) => p.includes("Use helper compartilhado"))
+    ).toBe(true);
 
     // Cleanup d1 worktree
     const [d1Row] = await db
@@ -910,6 +957,17 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
     let buildCount = 0;
     const makeTransport = () =>
       createDynamicInMemoryTransport((runInput) => {
+        if (runInput.prompt.includes("Verifier independente")) {
+          return {
+            finalText: "OK",
+            structuredOutput: {
+              verdict: "approved",
+              summary: "Verify ok pós-restart",
+              issues: [],
+            },
+            turns: [],
+          };
+        }
         if (runInput.prompt.includes("stage_contract_and_tests")) {
           return {
             finalText: "Contratos prontos",
@@ -1081,8 +1139,9 @@ describe("@uzina/mastra-runtime — deliverableLifecycleWorkflow (Durável + Wor
       organizationId,
       input: { decision: "approved", feedback: "Retomada pós-restart" },
     });
-    expect(finalOk.workflowStatus).toBe("completed");
-    expect(finalOk.deliverableStatus).toBe("verifying");
+    expect(finalOk.workflowStatus).toBe("suspended");
+    expect(finalOk.deliverableStatus).toBe("decision_pending");
+    expect(finalOk.gate).toBe("pr_evidence_approve");
     expect(finalOk.contractTestFiles).toEqual(["tests/late-restart.test.ts"]);
 
     const [row] = await db

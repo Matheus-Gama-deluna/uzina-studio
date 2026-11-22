@@ -38,11 +38,11 @@
   - [x] Estúdio Visual Lite (Moodboard + uploads em `/api/assets/:id` + `.uzina/DESIGN.md`)
   - [x] Etapa `stage_contract_and_tests` executando antes do `stage_build`
 
-- [ ] **Slice 4 — `.uzina/verify`, `security-engine` v1 & Caixa de Decisões** (*Marco Utilizável #1*)
-  - [ ] Auditor estático de Test Anti-Patterns (`packages/core/src/test-auditor.ts`)
-  - [ ] `@uzina/security-engine` (Gitleaks, Opengrep/Semgrep, Trivy, OSV-Scanner, Slopsquatting/DDL, SARIF, `skipped_missing_binary`, triagem 3 vereditos)
-  - [ ] CLI standalone `uzina sec scan`, `uzina sec doctor`, `uzina sec install-tools` + aba Auditoria de Segurança
-  - [ ] Caixa de Decisões HITL + Pacote de Evidências + `stage_finalize` (branch local / `gh pr create`)
+- [x] **Slice 4 — `.uzina/verify`, `security-engine` v1 & Caixa de Decisões** (*Marco Utilizável #1*)
+  - [x] Auditor estático de Test Anti-Patterns (`packages/core/src/test-auditor.ts`)
+  - [x] `@uzina/security-engine` (Gitleaks, Opengrep/Semgrep, Trivy, OSV-Scanner, Slopsquatting/DDL, SARIF, `skipped_missing_binary`, triagem 3 vereditos)
+  - [x] CLI standalone `uzina-sec` (`scan`, `doctor`, `install-tools` — encapsulada em `uzina sec` no Slice 6) + aba Auditoria de Segurança (`/app/security`)
+  - [x] Caixa de Decisões HITL (`/app/decisions`) + Pacote de Evidências + `stage_finalize` (branch local / `gh pr create --draft`) — Verify Gate `368 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações), `browser` QA **PASS** (`feat/slice-04-verify-security-engine-decisions`)
 
 - [ ] **Slice 5 — Co-piloto Executivo & Memória em 3 Escopos** (*Vertical Slice*)
   - [ ] Co-piloto Executivo (Mastra `.network()`, read-only + rascunho) no drawer global via SSE

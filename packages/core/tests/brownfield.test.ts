@@ -140,8 +140,11 @@ describe("scanRepositoryBrownfield — arqueologia somente leitura + Scorecard 0
     fs.writeFileSync(secretTarget, "TOKEN=1234", "utf8");
     try {
       fs.symlinkSync(secretTarget, path.join(schemaRepo, ".env"), "file");
-    } catch {
-      // Windows sem Developer Mode pode recusar symlink de arquivo sem elevação
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EACCES") {
+        throw error;
+      }
     }
 
     const schemaMap = scanRepositoryBrownfield(schemaRepo);

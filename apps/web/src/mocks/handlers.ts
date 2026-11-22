@@ -8,6 +8,7 @@ import {
   CreateDesignAssetReferenceSchema,
   CreateProjectSchema,
   CreateProviderProfileSchema,
+  DecisionListResponseSchema,
   DeliverableListResponseSchema,
   DeliverableSchema,
   DeliverableWorkflowStateSchema,
@@ -15,25 +16,40 @@ import {
   DesignAssetSchema,
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
+  IngestSecurityScanSchema,
   ProjectListResponseSchema,
   ProjectSchema,
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
+  ResolveDecisionResponseSchema,
+  ResolveDecisionSchema,
+  RunSecurityScanSchema,
+  SecurityFindingDTOSchema,
+  SecurityScanListResponseSchema,
+  SecurityScanResultSchema,
   UpdateDesignAssetSchema,
+  UpdateFindingTriageSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
 } from "@uzina/contracts";
 import { generateDesignMdContract } from "@uzina/core/design-md";
 import { http, HttpResponse } from "msw";
 import {
+  MOCK_DECISION_ID,
+  MOCK_FINDING_ID,
   MOCK_ORG_ID,
   MOCK_PROJECT_ID,
+  MOCK_SCAN_ID,
   mockBrownfieldMap,
   mockClients,
+  mockDecisions,
   mockDeliverables,
   mockDesignAssets,
+  mockExecutionEvents,
   mockProjects,
   mockProviders,
+  mockSecurityScanDetail,
+  mockSecurityScans,
   mockWorkflowState,
 } from "./fixtures";
 
@@ -460,5 +476,159 @@ export const handlers = [
           parsed.data.decision === "rejected" ? null : "stage_blueprint",
       })
     );
+  }),
+
+  http.get("*/api/decisions", ({ request }) => {
+    const url = new URL(request.url);
+    const err = checkSimulatedState(url);
+    if (err) return err;
+    if (url.searchParams.get("state") === "empty") {
+      return HttpResponse.json(DecisionListResponseSchema.parse({ items: [] }));
+    }
+    return HttpResponse.json(DecisionListResponseSchema.parse(mockDecisions));
+  }),
+
+  http.post("*/api/decisions/:id/resolve", async ({ request, params }) => {
+    const parsed = ResolveDecisionSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const baseDecision = mockDecisions.items[0]!;
+    const now = new Date().toISOString();
+    return HttpResponse.json(
+      ResolveDecisionResponseSchema.parse({
+        decision: {
+          ...baseDecision,
+          id: String(params.id ?? MOCK_DECISION_ID),
+          status: parsed.data.status,
+          humanFeedback: parsed.data.humanFeedback ?? null,
+          resolvedAt: now,
+          updatedAt: now,
+        },
+        workflowState: {
+          ...mockWorkflowState,
+          workflowStatus: parsed.data.status === "changes_requested" ? "suspended" : "completed",
+          deliverableStatus:
+            parsed.data.status === "approved"
+              ? "merged"
+              : parsed.data.status === "rejected"
+                ? "failed"
+                : "building",
+          gate:
+            parsed.data.status === "changes_requested"
+              ? "pr_evidence_approve"
+              : null,
+        },
+      })
+    );
+  }),
+
+  http.get("*/api/security/scans", ({ request }) => {
+    const url = new URL(request.url);
+    const err = checkSimulatedState(url);
+    if (err) return err;
+    if (url.searchParams.get("state") === "empty") {
+      return HttpResponse.json(
+        SecurityScanListResponseSchema.parse({ items: [] })
+      );
+    }
+    return HttpResponse.json(
+      SecurityScanListResponseSchema.parse(mockSecurityScans)
+    );
+  }),
+
+  http.post("*/api/security/scans", async ({ request }) => {
+    const parsed = RunSecurityScanSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      SecurityScanResultSchema.parse({
+        ...mockSecurityScanDetail,
+        id: crypto.randomUUID(),
+        targetType: parsed.data.targetType,
+      }),
+      { status: 201 }
+    );
+  }),
+
+  http.post("*/api/security/scans/ingest", async ({ request }) => {
+    const parsed = IngestSecurityScanSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      SecurityScanResultSchema.parse({
+        ...mockSecurityScanDetail,
+        id: crypto.randomUUID(),
+        mode: "standalone",
+        targetType: parsed.data.targetType,
+        targetRef: parsed.data.targetRef,
+      }),
+      { status: 201 }
+    );
+  }),
+
+  http.get("*/api/security/scans/:id", ({ params }) => {
+    return HttpResponse.json(
+      SecurityScanResultSchema.parse({
+        ...mockSecurityScanDetail,
+        id: String(params.id ?? MOCK_SCAN_ID),
+      })
+    );
+  }),
+
+  http.patch("*/api/security/findings/:id", async ({ request, params }) => {
+    const parsed = UpdateFindingTriageSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const baseFinding = mockSecurityScanDetail.findings![0]!;
+    return HttpResponse.json(
+      SecurityFindingDTOSchema.parse({
+        ...baseFinding,
+        id: String(params.id ?? MOCK_FINDING_ID),
+        triageVerdict: parsed.data.triageVerdict,
+        triageRationale:
+          parsed.data.triageRationale ?? baseFinding.triageRationale,
+        suppressedInMemory:
+          parsed.data.suppressedInMemory ?? baseFinding.suppressedInMemory,
+        povTestStatus: parsed.data.povTestStatus ?? baseFinding.povTestStatus,
+        updatedAt: new Date().toISOString(),
+      })
+    );
+  }),
+
+  http.get("*/api/deliverables/:id/events", () => {
+    const ev = mockExecutionEvents.items[0]!;
+    const sse = `id: ${ev.id}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`;
+    return new HttpResponse(sse, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
   }),
 ];

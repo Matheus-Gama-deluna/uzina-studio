@@ -33,6 +33,14 @@
     "./design-md": {
       "types": "./dist/design-md.d.ts",
       "import": "./dist/design-md.js"
+    },
+    "./cost": {
+      "types": "./dist/cost.d.ts",
+      "import": "./dist/cost.js"
+    },
+    "./test-auditor": {
+      "types": "./dist/test-auditor.d.ts",
+      "import": "./dist/test-auditor.js"
     }
   },
   "scripts": {

@@ -78,3 +78,22 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `browser` (`flash`): **PASS** em `/app` e `/app/projects/[id]/studio` (`1280×800`, `768×1024`, `390×844`, Dark/Light).
   * `appsec-auditor` (`PASS`), `test-critic` (`NEEDS_FIX` -> corrigido), `egm-codebase-details` (`NEEDS_FIX` -> corrigido) e `factory-verifier`: **PASS**.
 * **Próximo passo:** Iniciar o Dossiê + Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) do **Slice 4 (`.uzina/verify`, `@uzina/security-engine` v1 & Caixa de Decisões HITL — Marco Utilizável #1)**.
+
+---
+
+## 2026-11-22 — Slice 4: `.uzina/verify`, `@uzina/security-engine` v1 & Caixa de Decisões HITL (`feat/slice-04-verify-security-engine-decisions`) ★ Marco Utilizável #1
+
+* **Entregue:**
+  * `@uzina/contracts`: `"pr_evidence_approve"` em `WorkflowGateTypeSchema`, `VerifierVerdictOutputSchema`, `evidencePackJson` em `DeliverableSchema`, schemas `.strict()` em `src/security.ts` e `src/decisions.ts` (`108/108` testes).
+  * `@uzina/core` + `scripts/audit-tests.mjs`: `TestAuditor` browser-safe (`@uzina/core/test-auditor`, 5 anti-patterns + supressão anotada), `auditTestDirectory`, `approved -> failed` na `StateMachine`, `redactSensitiveText` / `redactSensitiveValue` e `estimateTokenCostUsd` (`137/137` testes; `audit:tests` integrado ao `verify` raiz com `0` violações em `37` arquivos / `139` testes).
+  * `@uzina/db`: tabelas `decisions`, `security_scans`, `security_findings` e `execution_events` (`packages/db/src/schema/operations.ts`) + migração `0004_open_stephen_strange.sql` (`24` passed + `1` skipped `postgres-live`).
+  * `@uzina/security-engine`: pacote dual-mode com 3 scanners nativos TS (`native_secrets`, `native_ddl`, `native_slopsquatting`), 4 adaptadores (`gitleaks`, `opengrep`/fallback `semgrep`, `trivy`, `osv_scanner`) com `shell: false`, anti-flag + `--`, `skipped_missing_binary` explícito em SARIF 2.1.0, `fingerprint` SHA-256 pré-redação + redação universal, portas `FindingSuppressionLookup` & `SecurityTriageEvaluator`, trava DAST com allowlist de servidor + DNS lookup anti-IMDS/privados, e CLI stateless `uzina-sec` (`19/19` testes).
+  * `@uzina/mastra-runtime`: `deliveryCycleWorkflow` (`.dountil()` envolvendo `stageBuild -> stageVerify -> stageDecision`) + `stageFinalize`, heartbeat global no `withDeliverableLock`, `ExecutionEventBus` in-memory, `resolveDecision` com guarda atômica `409 DECISION_ALREADY_RESOLVED`, isolamento CoT Builder vs Verifier em modo `plan` (`13/13` testes incluindo restarts reais e todos os ciclos `verify`, `changes_requested` e `rejected`).
+  * `apps/web`: plugin `bearer()` no Better Auth para CLI stateless, 7 rotas REST/SSE (`/api/decisions`, `/api/decisions/[id]/resolve`, `/api/security/scans`, `/api/security/scans/ingest`, `/api/security/scans/[id]`, `/api/security/findings/[id]`, `/api/deliverables/[id]/events`), trava RBAC `VAULT_WRITE_ROLES` em `pr_evidence_approve` e `suppressedInMemory`, MSW + Contract Drift Check, telas `/app/decisions` e `/app/security` + navegação `CockpitShell` e `CommandPalette` (`22/22` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * Verify Gate sem cache: `pnpm turbo run build --force` (**7/7**, 0 warnings Turbopack) + `node scripts/audit-tests.mjs` (**0 violações**) + `pnpm turbo run typecheck lint test --force` (**27/27 tasks**, **368 passed | 1 skipped** `postgres-live.test.ts`).
+  * CLI `node packages/security-engine/dist/cli.js doctor` e `scan packages/core --format summary`: exit `0`.
+  * `browser` (`flash`): **PASS** em `/app/decisions` e `/app/security` (Desktop `1440×900` Dark/Light e Mobile `390×844`, zero console errors, zero HTTP `>=500`, zero overflow horizontal).
+  * *(Observação de cota: subagentes finais `test-critic`, `appsec-auditor` e `factory-verifier` não reexecutados no fechamento por limite de cota solicitado pelo usuário.)*
+* **Próximo passo:** Planejar e executar o **Slice 5 (Co-piloto Executivo `.network()` & Memória em 3 Escopos)**.

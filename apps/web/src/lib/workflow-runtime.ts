@@ -1,3 +1,4 @@
+import { redactSensitiveText } from "@uzina/core";
 import { getDb, resolveDataDir, type UzinaDb } from "@uzina/db";
 import {
   createMastraRuntime,
@@ -77,10 +78,21 @@ export async function resetWebWorkflowRuntimeForTests(): Promise<void> {
   }
 }
 
+function sanitizeClientErrorMessage(message: string): string {
+  const withoutSecrets = redactSensitiveText(message);
+  return withoutSecrets
+    .replace(/[A-Za-z]:\\[^\s'"]+/g, "[PATH]")
+    .replace(/(?:\/[A-Za-z0-9._-]+){2,}/g, "[PATH]")
+    .slice(0, 400);
+}
+
 export function handleWorkflowRouteError(err: unknown) {
   if (err instanceof WorkflowRuntimeError) {
     return jsonError(err.statusCode, {
-      error: err.message,
+      error:
+        err.statusCode >= 500
+          ? "Erro interno ao operar workflow durável."
+          : sanitizeClientErrorMessage(err.message),
       code: err.code,
     });
   }

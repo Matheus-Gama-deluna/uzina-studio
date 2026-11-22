@@ -1,7 +1,17 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Command, Kanban, KeyRound, Moon, Search, Sun, X } from "lucide-react";
+import {
+  ClipboardCheck,
+  Command,
+  Kanban,
+  KeyRound,
+  Moon,
+  Search,
+  ShieldAlert,
+  Sun,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { applyTheme } from "./theme-toggle";
@@ -11,7 +21,7 @@ interface CommandItem {
   label: string;
   hint: string;
   action: () => void;
-  icon: "board" | "providers" | "theme";
+  icon: "board" | "decisions" | "security" | "providers" | "theme";
 }
 
 export function CommandPalette({
@@ -44,6 +54,26 @@ export function CommandPalette({
         icon: "board",
         action: () => {
           router.push("/app");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "nav-decisions",
+        label: "Ir para Caixa de Decisões HITL & Evidências",
+        hint: "/app/decisions",
+        icon: "decisions",
+        action: () => {
+          router.push("/app/decisions");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "nav-security",
+        label: "Ir para Auditoria AppSec (Security Engine)",
+        hint: "/app/security",
+        icon: "security",
+        action: () => {
+          router.push("/app/security");
           onOpenChange(false);
         },
       },
@@ -146,6 +176,18 @@ export function CommandPalette({
                     <span className="flex items-center gap-2.5">
                       {item.icon === "board" && (
                         <Kanban
+                          className="size-4 text-accent"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "decisions" && (
+                        <ClipboardCheck
+                          className="size-4 text-accent"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "security" && (
+                        <ShieldAlert
                           className="size-4 text-accent"
                           strokeWidth={1.75}
                         />

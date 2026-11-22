@@ -5,6 +5,7 @@ import {
   RiskLevelSchema,
   TacticalPatternSchema,
 } from "./enums.js";
+import { EvidencePackSchema } from "./decisions.js";
 
 export const DeliverableSchema = z.object({
   id: z.uuid(),
@@ -23,6 +24,7 @@ export const DeliverableSchema = z.object({
   mastraRunId: z.string().nullable().optional(),
   specMarkdown: z.string().nullable().optional(),
   blueprintJson: z.record(z.string(), z.unknown()).nullable().optional(),
+  evidencePackJson: EvidencePackSchema.nullable().optional(),
   verifyAttempts: z.number().int().min(0),
   maxVerifyAttempts: z.number().int().min(1).max(10),
   createdAt: z.iso.datetime(),

@@ -35,6 +35,7 @@ describe("@uzina/core — Deliverable State Machine", () => {
     { from: "decision_pending", to: "building", ctx: defaultCtx, ok: true },
     { from: "decision_pending", to: "failed", ctx: defaultCtx, ok: true },
     { from: "approved", to: "merged", ctx: defaultCtx, ok: true },
+    { from: "approved", to: "failed", ctx: defaultCtx, ok: true },
     { from: "building", to: "paused", ctx: defaultCtx, ok: true },
     { from: "paused", to: "building", ctx: { ...defaultCtx, pausedFromStatus: "building" }, ok: true },
     { from: "paused", to: "contract_tests", ctx: { ...defaultCtx, pausedFromStatus: "building" }, ok: false },

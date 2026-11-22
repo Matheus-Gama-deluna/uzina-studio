@@ -551,6 +551,7 @@ describe("OpenCodeRunner — Prompt Cache, Plan Isolation, Vault, StuckDetector 
         },
       ],
       onRunSideEffect: () => {
+        // @uzina-test-audit-ignore arbitrary_sleep: dispara AbortController mid-session durante turno simulado ativo
         setTimeout(() => midController.abort(), 30);
       },
       delayPerTurnMs: 50,

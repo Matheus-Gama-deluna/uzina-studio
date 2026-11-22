@@ -25,6 +25,7 @@
     "@uzina/core": "workspace:*",
     "@uzina/db": "workspace:*",
     "@uzina/opencode-bridge": "workspace:*",
+    "@uzina/security-engine": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7"
   },

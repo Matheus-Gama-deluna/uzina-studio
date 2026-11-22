@@ -5,15 +5,20 @@ import {
   type WorkflowState,
 } from "@mastra/core/workflows";
 import {
+  DecisionSchema,
   DeliverableStatusSchema,
   DeliverableWorkflowStateSchema,
+  ResolveDecisionSchema,
   StrategyRouterOutputSchema,
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
+  type Decision,
   type DeliverableStatus,
   type DeliverableWorkflowState,
   type DeliverableWorkflowStatus,
+  type ResolveDecisionInput,
+  type ResolveDecisionResponse,
   type StrategyRouterOutput,
   type WorkflowGateType,
   type WorkflowResumeInput,
@@ -22,13 +27,17 @@ import {
 import {
   acquireDeliverableLock,
   clients,
+  decisions,
   deliverables,
   designAssets,
+  executionEvents,
   projects,
   releaseDeliverableLock,
+  renewDeliverableLock,
   type UzinaDb,
 } from "@uzina/db";
 import type { ExecutionWorkspace, OpenCodeTransport } from "@uzina/opencode-bridge";
+import type { RunSecurityScanDeps } from "@uzina/security-engine";
 import { and, desc, eq } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
 import {
@@ -37,9 +46,12 @@ import {
   type MastraStorageOptions,
 } from "./storage.js";
 import {
+  LOCK_HEARTBEAT_INTERVAL_MS,
   createDeliverableLifecycleWorkflow,
   lockWorkerContext,
+  type FinalizeRunner,
   type LockWorkerContextValue,
+  type VerifyRunner,
 } from "./workflows/deliverable-lifecycle.js";
 
 export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
@@ -47,6 +59,9 @@ export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
   masterKey?: Buffer;
   workspaceFactory?: () => ExecutionWorkspace;
   transportFactory?: () => OpenCodeTransport;
+  verifyRunner?: VerifyRunner;
+  securityRunnerDeps?: RunSecurityScanDeps;
+  finalizeRunner?: FinalizeRunner;
   worktreesRootDir?: string;
   skillsDir?: string;
 }
@@ -65,8 +80,15 @@ export interface MastraWorkflowService {
   resumeDeliverableWorkflow(params: {
     deliverableId: string;
     organizationId: string;
+    resolvedByUserId?: string;
     input: WorkflowResumeInput;
   }): Promise<DeliverableWorkflowState>;
+  resolveDecision(params: {
+    decisionId: string;
+    organizationId: string;
+    resolvedByUserId?: string;
+    input: ResolveDecisionInput;
+  }): Promise<ResolveDecisionResponse>;
   close(): Promise<void>;
 }
 
@@ -76,7 +98,46 @@ const KNOWN_STAGES = [
   "stage_visual_studio",
   "stage_contract_and_tests",
   "stage_build",
+  "stage_verify",
+  "stage_decision",
+  "stage_finalize",
 ] as const;
+
+function extractSuspendedStepId(
+  suspended: { stepId: string; path?: string[] } | undefined
+): string | null {
+  if (!suspended) return null;
+  if (suspended.path && suspended.path.length > 0) {
+    const last = suspended.path[suspended.path.length - 1];
+    if (typeof last === "string" && last.trim().length > 0) {
+      return last;
+    }
+  }
+  return suspended.stepId;
+}
+
+function mapDecisionRow(
+  row: typeof decisions.$inferSelect,
+  meta?: { deliverableTitle?: string; projectId?: string; projectName?: string }
+): Decision {
+  return DecisionSchema.parse({
+    id: row.id,
+    deliverableId: row.deliverableId,
+    deliverableTitle: meta?.deliverableTitle,
+    projectId: meta?.projectId,
+    projectName: meta?.projectName,
+    mastraStepId: row.mastraStepId,
+    decisionType: row.decisionType,
+    summary: row.summary,
+    payloadJson: row.payloadJson,
+    status: row.status,
+    humanFeedback: row.humanFeedback,
+    resolvedBy: row.resolvedBy,
+    resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  });
+}
 
 async function findScopedDeliverable(
   db: UzinaDb,
@@ -118,7 +179,10 @@ function parseBlueprint(raw: unknown): StrategyRouterOutput | null {
   return parsed.success ? parsed.data : null;
 }
 
-function parseStageHistory(snap: WorkflowState | null): string[] {
+function parseStageHistory(
+  snap: WorkflowState | null,
+  eventStages: readonly string[] = []
+): string[] {
   if (!snap) return [];
   const res = snap.result as { stageHistory?: unknown } | undefined;
   if (Array.isArray(res?.stageHistory)) {
@@ -126,8 +190,20 @@ function parseStageHistory(snap: WorkflowState | null): string[] {
       (item): item is string => typeof item === "string"
     );
   }
-  const stepIds = Object.keys(snap.steps ?? {});
-  return KNOWN_STAGES.filter((s) => stepIds.includes(s));
+  if ("state" in snap && typeof snap.state === "object" && snap.state !== null) {
+    const stateObj = snap.state as { stageHistory?: unknown };
+    if (Array.isArray(stateObj.stageHistory)) {
+      return stateObj.stageHistory.filter(
+        (item): item is string => typeof item === "string"
+      );
+    }
+  }
+  if (eventStages.length > 0) {
+    const executedSet = new Set(eventStages);
+    return KNOWN_STAGES.filter((s) => executedSet.has(s));
+  }
+  const combined = new Set<string>(Object.keys(snap.steps ?? {}));
+  return KNOWN_STAGES.filter((s) => combined.has(s));
 }
 
 function extractContractFilesFromSnap(snap: WorkflowState | null): string[] {
@@ -199,6 +275,9 @@ export async function createMastraRuntime(
     masterKey: options.masterKey,
     workspaceFactory: options.workspaceFactory,
     transportFactory: options.transportFactory,
+    verifyRunner: options.verifyRunner,
+    securityRunnerDeps: options.securityRunnerDeps,
+    finalizeRunner: options.finalizeRunner,
     worktreesRootDir: options.worktreesRootDir,
     skillsDir: options.skillsDir,
   });
@@ -276,6 +355,12 @@ export async function createMastraRuntime(
         ? parseGate(suspendPayloadRaw?.gate)
         : null;
 
+    const eventRows = await options.db
+      .select({ stage: executionEvents.stage })
+      .from(executionEvents)
+      .where(eq(executionEvents.deliverableId, row.id));
+    const eventStages = eventRows.map((e) => e.stage);
+
     return DeliverableWorkflowStateSchema.parse({
       deliverableId: row.id,
       runId,
@@ -283,7 +368,7 @@ export async function createMastraRuntime(
       deliverableStatus,
       suspendedStep:
         workflowStatus === "suspended"
-          ? (suspendedStep?.stepId ?? null)
+          ? extractSuspendedStepId(suspendedStep)
           : null,
       gate,
       suspendPayload: workflowStatus === "suspended" ? suspendPayloadRaw : null,
@@ -291,7 +376,7 @@ export async function createMastraRuntime(
       blueprint: parseBlueprint(row.blueprintJson),
       designMdContent,
       contractTestFiles: extractContractFilesFromSnap(snap),
-      stageHistory: parseStageHistory(snap),
+      stageHistory: parseStageHistory(snap, eventStages),
       updatedAt: (snap?.updatedAt ?? row.updatedAt).toISOString(),
     });
   };
@@ -319,9 +404,16 @@ export async function createMastraRuntime(
     }
 
     const workerCtx: LockWorkerContextValue = { workerId };
+    const heartbeatTimer = setInterval(() => {
+      void renewDeliverableLock(options.db, { deliverableId, workerId }).catch(
+        () => undefined
+      );
+    }, LOCK_HEARTBEAT_INTERVAL_MS);
+
     try {
       return await lockWorkerContext.run(workerCtx, () => fn(workerCtx));
     } finally {
+      clearInterval(heartbeatTimer);
       await releaseDeliverableLock(options.db, {
         deliverableId,
         workerId,
@@ -401,6 +493,21 @@ export async function createMastraRuntime(
             contractTestFiles: [],
             stageHistory: [],
             stuckAttempts: 0,
+            verifyAttempts: 0,
+            maxVerifyAttempts: current.maxVerifyAttempts,
+            verifyPassed: false,
+            verifyChecks: [],
+            testAuditPassed: false,
+            testAuditViolationsCount: 0,
+            lastSecurityScanId: null,
+            securitySummary: null,
+            verifierVerdict: null,
+            verifierNotes: null,
+            evidencePack: null,
+            tokensInput: 0,
+            tokensOutput: 0,
+            cacheReadTokens: 0,
+            estimatedCostUsd: 0,
             humanFeedback: null,
             rejected: false,
             overrideStrategy: parsedInput.overrideStrategy,
@@ -427,7 +534,12 @@ export async function createMastraRuntime(
       return buildWorkflowState(deliverableId, organizationId);
     },
 
-    async resumeDeliverableWorkflow({ deliverableId, organizationId, input }) {
+    async resumeDeliverableWorkflow({
+      deliverableId,
+      organizationId,
+      resolvedByUserId,
+      input,
+    }) {
       const parsedInput = WorkflowResumeInputSchema.parse(input);
       await findScopedDeliverable(options.db, deliverableId, organizationId);
 
@@ -461,6 +573,7 @@ export async function createMastraRuntime(
           });
         }
 
+        const effectiveStepId = extractSuspendedStepId(suspended);
         const suspendPayloadObj =
           suspended.suspendPayload &&
           typeof suspended.suspendPayload === "object"
@@ -468,7 +581,7 @@ export async function createMastraRuntime(
             : null;
 
         if (
-          suspended.stepId === "stage_discovery" &&
+          effectiveStepId === "stage_discovery" &&
           parsedInput.decision === "changes_requested" &&
           typeof suspendPayloadObj?.roundNumber === "number" &&
           suspendPayloadObj.roundNumber >= 3
@@ -482,7 +595,7 @@ export async function createMastraRuntime(
         }
 
         if (
-          suspended.stepId === "stage_visual_studio" &&
+          effectiveStepId === "stage_visual_studio" &&
           parsedInput.decision === "approved" &&
           parsedInput.approveDesignMd === false
         ) {
@@ -492,6 +605,41 @@ export async function createMastraRuntime(
             message:
               "Aprovação explícita do contrato visual é obrigatória (`approveDesignMd !== false`).",
           });
+        }
+
+        if (
+          effectiveStepId === "stage_decision" &&
+          parsedInput.decision === "changes_requested" &&
+          (!parsedInput.feedback || parsedInput.feedback.trim().length < 3)
+        ) {
+          throw new WorkflowRuntimeError({
+            statusCode: 422,
+            code: "INVALID_WORKFLOW_INPUT",
+            message:
+              "Feedback humano (mínimo 3 caracteres) é obrigatório para changes_requested.",
+          });
+        }
+
+        const gateParsed = WorkflowGateTypeSchema.safeParse(
+          suspendPayloadObj?.gate
+        );
+        if (gateParsed.success) {
+          await options.db
+            .update(decisions)
+            .set({
+              status: parsedInput.decision,
+              humanFeedback: parsedInput.feedback ?? null,
+              resolvedBy: resolvedByUserId ?? null,
+              resolvedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(decisions.deliverableId, deliverableId),
+                eq(decisions.decisionType, gateParsed.data),
+                eq(decisions.status, "pending")
+              )
+            );
         }
 
         const run = await getWorkflow().createRun({
@@ -522,6 +670,189 @@ export async function createMastraRuntime(
       });
 
       return buildWorkflowState(deliverableId, organizationId);
+    },
+
+    async resolveDecision({
+      decisionId,
+      organizationId,
+      resolvedByUserId,
+      input,
+    }) {
+      const parsedDecisionInput = ResolveDecisionSchema.parse(input);
+
+      const [initialRow] = await options.db
+        .select({
+          decision: decisions,
+          deliverableTitle: deliverables.title,
+          projectId: projects.id,
+          projectName: projects.name,
+        })
+        .from(decisions)
+        .innerJoin(deliverables, eq(decisions.deliverableId, deliverables.id))
+        .innerJoin(projects, eq(deliverables.projectId, projects.id))
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(
+          and(
+            eq(decisions.id, decisionId),
+            eq(clients.organizationId, organizationId)
+          )
+        )
+        .limit(1);
+
+      if (!initialRow) {
+        throw new WorkflowRuntimeError({
+          statusCode: 404,
+          code: "DECISION_NOT_FOUND",
+          message: `Decisão '${decisionId}' não encontrada na organização.`,
+        });
+      }
+
+      const deliverableId = initialRow.decision.deliverableId;
+
+      const updatedDecisionRow = await withDeliverableLock(
+        deliverableId,
+        async (workerCtx) => {
+          const [lockedDecision] = await options.db
+            .select()
+            .from(decisions)
+            .where(eq(decisions.id, decisionId))
+            .limit(1);
+
+          if (!lockedDecision) {
+            throw new WorkflowRuntimeError({
+              statusCode: 404,
+              code: "DECISION_NOT_FOUND",
+              message: `Decisão '${decisionId}' não encontrada.`,
+            });
+          }
+
+          if (lockedDecision.status !== "pending") {
+            throw new WorkflowRuntimeError({
+              statusCode: 409,
+              code: "DECISION_ALREADY_RESOLVED",
+              message: `Decisão já resolvida com status '${lockedDecision.status}'.`,
+            });
+          }
+
+          const current = await findScopedDeliverable(
+            options.db,
+            deliverableId,
+            organizationId
+          );
+
+          if (!current.mastraRunId) {
+            throw new WorkflowRuntimeError({
+              statusCode: 409,
+              code: "WORKFLOW_NOT_SUSPENDED",
+              message: "Entregável não possui run Mastra suspenso.",
+            });
+          }
+
+          const snap = await getWorkflow().getWorkflowRunById(
+            current.mastraRunId
+          );
+          const suspended = snap
+            ? createWorkflowStateReader(snap).getSuspendedStep()
+            : undefined;
+
+          if (!snap || snap.status !== "suspended" || !suspended) {
+            throw new WorkflowRuntimeError({
+              statusCode: 409,
+              code: "WORKFLOW_NOT_SUSPENDED",
+              message: "Execução não está suspensa em nenhum portão humano.",
+            });
+          }
+
+          const effectiveStepId = extractSuspendedStepId(suspended);
+          const suspendPayloadObj =
+            suspended.suspendPayload &&
+            typeof suspended.suspendPayload === "object"
+              ? (suspended.suspendPayload as Record<string, unknown>)
+              : null;
+
+          if (
+            effectiveStepId === "stage_discovery" &&
+            parsedDecisionInput.status === "changes_requested" &&
+            typeof suspendPayloadObj?.roundNumber === "number" &&
+            suspendPayloadObj.roundNumber >= 3
+          ) {
+            throw new WorkflowRuntimeError({
+              statusCode: 422,
+              code: "INVALID_WORKFLOW_INPUT",
+              message:
+                "Limite máximo de 3 rodadas de Discovery atingido. Aprove ou rejeite.",
+            });
+          }
+
+          const updatedRows = await options.db
+            .update(decisions)
+            .set({
+              status: parsedDecisionInput.status,
+              humanFeedback: parsedDecisionInput.humanFeedback ?? null,
+              resolvedBy: resolvedByUserId ?? null,
+              resolvedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(eq(decisions.id, decisionId), eq(decisions.status, "pending"))
+            )
+            .returning();
+
+          const updated = updatedRows[0];
+          if (!updated) {
+            throw new WorkflowRuntimeError({
+              statusCode: 409,
+              code: "DECISION_ALREADY_RESOLVED",
+              message: "Decisão resolvida concorrentemente por outro operador.",
+            });
+          }
+
+          const run = await getWorkflow().createRun({
+            runId: current.mastraRunId,
+            resourceId: organizationId,
+          });
+
+          const result = await run.resume({
+            step: suspended.path,
+            resumeData: {
+              decision: parsedDecisionInput.status,
+              feedback: parsedDecisionInput.humanFeedback,
+            },
+            outputOptions: { includeState: true },
+          });
+
+          if (result.status === "failed") {
+            if (workerCtx.lastRuntimeError) {
+              throw workerCtx.lastRuntimeError;
+            }
+            if (result.error instanceof WorkflowRuntimeError) {
+              throw result.error;
+            }
+            throw new WorkflowRuntimeError({
+              statusCode: 500,
+              code: "EXECUTION_FAILED",
+              message: result.error?.message || "Falha ao retomar decisão.",
+              cause: result.error,
+            });
+          }
+
+          return updated;
+        }
+      );
+
+      const workflowState = await buildWorkflowState(
+        deliverableId,
+        organizationId
+      );
+
+      return {
+        decision: mapDecisionRow(updatedDecisionRow, {
+          deliverableTitle: initialRow.deliverableTitle,
+          projectId: initialRow.projectId,
+          projectName: initialRow.projectName,
+        }),
+        workflowState,
+      };
     },
 
     async close() {

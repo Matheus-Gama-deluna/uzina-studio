@@ -1,11 +1,15 @@
 import {
   BrownfieldMapSchema,
   ClientListResponseSchema,
+  DecisionListResponseSchema,
   DeliverableListResponseSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
+  ExecutionEventListResponseSchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
+  SecurityScanListResponseSchema,
+  SecurityScanResultSchema,
 } from "@uzina/contracts";
 
 const NOW = "2026-11-21T17:00:00.000Z";
@@ -218,4 +222,188 @@ export const mockWorkflowState = DeliverableWorkflowStateSchema.parse({
   contractTestFiles: [],
   stageHistory: ["stage_discovery"],
   updatedAt: NOW,
+});
+
+export const MOCK_DECISION_ID = "90000000-0000-4000-8000-000000000001";
+export const MOCK_SCAN_ID = "91000000-0000-4000-8000-000000000001";
+export const MOCK_FINDING_ID = "92000000-0000-4000-8000-000000000001";
+
+export const mockDecisions = DecisionListResponseSchema.parse({
+  items: [
+    {
+      id: MOCK_DECISION_ID,
+      deliverableId: MOCK_DELIVERABLE_ID,
+      deliverableTitle: "Autenticação Multi-Tenant e Cofre AES",
+      projectId: MOCK_PROJECT_ID,
+      projectName: "Portal Financeiro",
+      mastraStepId: "stage_decision",
+      decisionType: "pr_evidence_approve",
+      summary: "Pacote de Evidências pronto para aprovação de merge/PR",
+      payloadJson: {
+        gate: "pr_evidence_approve",
+        evidencePack: {
+          deliverableId: MOCK_DELIVERABLE_ID,
+          branchName: "uzina/auth-vault",
+          baseBranch: "main",
+          verifyAttempts: 1,
+          verifyPassed: true,
+          verifyChecks: [
+            {
+              name: "audit:tests",
+              passed: true,
+              durationMs: 42,
+              summary: "14 testes auditados sem anti-patterns.",
+            },
+            {
+              name: "typecheck + test",
+              passed: true,
+              durationMs: 850,
+              summary: "Todos os checks determinísticos verdes.",
+            },
+          ],
+          testAuditPassed: true,
+          testAuditViolationsCount: 0,
+          diffSummary: {
+            filesChanged: 4,
+            diffBytes: 1840,
+            preview: "+ export const verified = true;",
+          },
+          securitySummary: {
+            scanId: MOCK_SCAN_ID,
+            critical: 0,
+            high: 0,
+            medium: 1,
+            low: 0,
+            info: 0,
+            scannersRun: ["native_secrets", "native_ddl", "native_slopsquatting", "gitleaks"],
+            skippedScanners: ["gitleaks"],
+            gatePassed: true,
+          },
+          tokenSummary: {
+            totalInputTokens: 4200,
+            totalOutputTokens: 1120,
+            totalCacheReadTokens: 1800,
+            estimatedCostUsd: 0.029,
+          },
+          verifierVerdict: "approved",
+          verifierNotes: "Verifier independente validou contratos Zod e RBAC.",
+          finalizeInfo: null,
+        },
+      },
+      status: "pending",
+      humanFeedback: null,
+      resolvedBy: null,
+      resolvedAt: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ],
+});
+
+export const mockSecurityScanDetail = SecurityScanResultSchema.parse({
+  id: MOCK_SCAN_ID,
+  organizationId: MOCK_ORG_ID,
+  projectId: MOCK_PROJECT_ID,
+  deliverableId: MOCK_DELIVERABLE_ID,
+  mode: "embedded",
+  targetType: "git_diff",
+  targetRef: "uzina/auth-vault",
+  scannersRun: [
+    "native_secrets",
+    "native_ddl",
+    "native_slopsquatting",
+    "gitleaks",
+  ],
+  scannerStatuses: [
+    {
+      scanner: "native_secrets",
+      status: "executed",
+      binaryName: null,
+      installHint: null,
+      findingsCount: 0,
+      durationMs: 11,
+      errorMessage: null,
+    },
+    {
+      scanner: "gitleaks",
+      status: "skipped_missing_binary",
+      binaryName: "gitleaks",
+      installHint: "uzina-sec install-tools",
+      findingsCount: 0,
+      durationMs: 1,
+      errorMessage: "Binário (gitleaks) não encontrado no PATH.",
+    },
+  ],
+  summaryCountsJson: {
+    critical: 0,
+    high: 0,
+    medium: 1,
+    low: 0,
+    info: 0,
+    total: 1,
+    confirmedCount: 0,
+    suppressedCount: 0,
+    skippedScannersCount: 1,
+  },
+  status: "completed",
+  sarifRawJson: {
+    version: "2.1.0",
+    runs: [
+      {
+        tool: { driver: { name: "uzina-security-engine", version: "0.1.0" } },
+        results: [],
+      },
+    ],
+  },
+  findings: [
+    {
+      id: MOCK_FINDING_ID,
+      scanId: MOCK_SCAN_ID,
+      projectId: MOCK_PROJECT_ID,
+      ruleId: "uzina/unpinned-dependency",
+      scanner: "native_slopsquatting",
+      severity: "medium",
+      filePath: "package.json",
+      lineStart: 12,
+      title: "Dependência não pinada detectada",
+      description: "Pinagem estrita recomendada em produção.",
+      fingerprint: "f".repeat(64),
+      triageVerdict: "unknown",
+      triageRationale: "Severidade moderada aguardando revisão.",
+      suppressedInMemory: false,
+      povTestStatus: "not_applicable",
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ],
+  createdAt: NOW,
+  updatedAt: NOW,
+});
+
+export const mockSecurityScans = SecurityScanListResponseSchema.parse({
+  items: [
+    {
+      ...mockSecurityScanDetail,
+      sarifRawJson: undefined,
+      findings: undefined,
+    },
+  ],
+});
+
+export const mockExecutionEvents = ExecutionEventListResponseSchema.parse({
+  items: [
+    {
+      id: "93000000-0000-4000-8000-000000000001",
+      deliverableId: MOCK_DELIVERABLE_ID,
+      stage: "stage_verify",
+      actorRole: "verifier",
+      eventType: "verify_result",
+      tokensInput: 1200,
+      tokensOutput: 350,
+      cacheReadTokens: 600,
+      estimatedCostUsd: 0.0085,
+      payloadJson: { verifyPassed: true, attemptNumber: 1 },
+      createdAt: NOW,
+    },
+  ],
 });
