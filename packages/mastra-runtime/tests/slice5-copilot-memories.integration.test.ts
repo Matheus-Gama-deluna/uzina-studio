@@ -188,7 +188,23 @@ describe("@uzina/mastra-runtime — Slice 5 (Co-piloto Executivo & Memória em 3
     expect(titlesA).toContain("Sigilo Cliente A");
     expect(titlesA).not.toContain("Preferência Cliente B");
 
-    // Cross-org scope validation deve falhar
+    // Redação automática de segredos em createMemoryScoped e rejeição cross-org para client/project/deliverable
+    const redactedMemory = await createMemoryScoped(db, {
+      organizationId,
+      input: {
+        scopeType: "org",
+        scopeId: organizationId,
+        category: "convention",
+        title: "Segredo Redigido",
+        content: "Nunca usar sk-or-v1-1234567890abcdef1234567890abcdef no prompt.",
+      },
+    });
+    expect(redactedMemory.content).not.toContain(
+      "sk-or-v1-1234567890abcdef1234567890abcdef"
+    );
+    expect(redactedMemory.content).toContain("[REDACTED");
+
+    // Cross-org scope validation deve falhar para org, client, project e sourceDeliverableId
     const [otherOrg] = await db
       .insert(organizations)
       .values({
@@ -197,9 +213,46 @@ describe("@uzina/mastra-runtime — Slice 5 (Co-piloto Executivo & Memória em 3
       })
       .returning();
 
+    const [otherClient] = await db
+      .insert(clients)
+      .values({
+        organizationId: otherOrg!.id,
+        name: "Cliente Outra Org",
+        slug: `other-cli-${crypto.randomUUID().slice(0, 5)}`,
+      })
+      .returning();
+
+    const [otherProj] = await db
+      .insert(projects)
+      .values({
+        clientId: otherClient!.id,
+        name: "Proj Outra Org",
+        slug: `other-proj-${crypto.randomUUID().slice(0, 5)}`,
+      })
+      .returning();
+
     await expect(
       assertValidMemoryScope(db, organizationId, "org", otherOrg!.id)
     ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      assertValidMemoryScope(db, organizationId, "client", otherClient!.id)
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(
+      assertValidMemoryScope(db, organizationId, "project", otherProj!.id)
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(
+      createMemoryScoped(db, {
+        organizationId,
+        input: {
+          scopeType: "org",
+          scopeId: organizationId,
+          category: "architecture",
+          title: "Fonte Invasora",
+          content: "Tentativa de vincular entregável alheio.",
+          sourceDeliverableId: crypto.randomUUID(),
+        },
+      })
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   test("registra executiveCopilot sem ferramentas de escrita em disco/shell/merged e executa streaming + ações permitidas", async () => {
@@ -250,7 +303,8 @@ describe("@uzina/mastra-runtime — Slice 5 (Co-piloto Executivo & Memória em 3
 
     try {
       const copilotAgent = runtime.mastra.getAgent("executiveCopilot");
-      const registeredTools = Object.keys(await copilotAgent.listTools());
+      const registeredToolsMap = await copilotAgent.listTools();
+      const registeredTools = Object.keys(registeredToolsMap);
       expect(registeredTools.sort()).toEqual(
         [...EXECUTIVE_COPILOT_TOOL_IDS].sort()
       );
@@ -258,6 +312,16 @@ describe("@uzina/mastra-runtime — Slice 5 (Co-piloto Executivo & Memória em 3
       expect(registeredTools).not.toContain("write");
       expect(registeredTools).not.toContain("git");
       expect(registeredTools).not.toContain("merge_deliverable");
+
+      // Invariant AppSec: nenhuma tool expõe organizationId/userId/role no inputSchema para o LLM
+      for (const toolDef of Object.values(registeredToolsMap)) {
+        const schema = (toolDef as { inputSchema?: { shape?: Record<string, unknown> } })
+          .inputSchema;
+        const shapeKeys = Object.keys(schema?.shape ?? {});
+        expect(shapeKeys).not.toContain("organizationId");
+        expect(shapeKeys).not.toContain("userId");
+        expect(shapeKeys).not.toContain("role");
+      }
 
       // 1. Streaming de resumo + criação de rascunho (developer permitido)
       const draftEvents = [];
@@ -309,6 +373,51 @@ describe("@uzina/mastra-runtime — Slice 5 (Co-piloto Executivo & Memória em 3
         auditorEvents.push(ev);
       }
       expect(auditorEvents.some((e) => e.type === "error")).toBe(true);
+      const afterAuditorDelivs = await db
+        .select()
+        .from(deliverables)
+        .where(eq(deliverables.projectId, project!.id));
+      expect(
+        afterAuditorDelivs.some((d) => d.title === "Proibido Auditor")
+      ).toBe(false);
+
+      // 2b. Auditor também é bloqueado em trigger_security_scan e tentativa cross-tenant retorna erro
+      const auditorScanEvents = [];
+      for await (const ev of streamExecutiveCopilot({
+        db,
+        actor: { organizationId, userId, role: "auditor" },
+        request: {
+          messages: [{ role: "user", content: "Rodar scan" }],
+          action: {
+            type: "trigger_security_scan",
+            projectId: project!.id,
+          },
+        },
+      })) {
+        auditorScanEvents.push(ev);
+      }
+      expect(auditorScanEvents.some((e) => e.type === "error")).toBe(true);
+
+      const crossTenantEvents = [];
+      for await (const ev of streamExecutiveCopilot({
+        db,
+        actor: {
+          organizationId: crypto.randomUUID(),
+          userId,
+          role: "owner",
+        },
+        request: {
+          messages: [{ role: "user", content: "Rascunho cross-tenant" }],
+          action: {
+            type: "draft_deliverable",
+            projectId: project!.id,
+            title: "Cross Tenant Bloqueado",
+          },
+        },
+      })) {
+        crossTenantEvents.push(ev);
+      }
+      expect(crossTenantEvents.some((e) => e.type === "error")).toBe(true);
 
       // 3. Disparo de scan via Co-piloto executa @uzina/security-engine e detecta o segredo do repo
       const scanEvents = [];

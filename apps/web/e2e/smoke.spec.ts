@@ -69,19 +69,38 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
       page.getByText(`Entrega E2E ${suffix}`).first()
     ).toBeVisible();
 
-    for (const route of [
-      "/app/providers",
-      "/app/decisions",
-      "/app/security",
-      "/app/memories",
-    ]) {
-      await page.goto(route);
-      await expect(page.getByTestId("open-copilot-drawer")).toBeVisible();
+    const operationalRoutes = [
+      {
+        path: "/app/providers",
+        heading: "Provedores & Cofre Criptográfico",
+      },
+      {
+        path: "/app/decisions",
+        heading: "Caixa de Decisões & Pacote de Evidências",
+      },
+      {
+        path: "/app/security",
+        heading: "Auditoria de Segurança (@uzina/security-engine)",
+      },
+      {
+        path: "/app/memories",
+        heading: "Memórias (Organização, Cliente e Projeto)",
+      },
+    ];
+
+    for (const route of operationalRoutes) {
+      await page.goto(route.path);
+      await expect(
+        page.getByRole("heading", { name: route.heading })
+      ).toBeVisible();
     }
 
     await page.getByTestId("open-copilot-drawer").click();
     await page.getByRole("button", { name: "Resumo Executivo" }).click();
     await expect(page.getByText("read_workspace_overview")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/Resumo Executivo:\s*\d+\s*cliente\(s\)/)).toBeVisible({
       timeout: 15_000,
     });
 

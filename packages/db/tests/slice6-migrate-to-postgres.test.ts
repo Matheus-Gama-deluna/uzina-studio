@@ -10,6 +10,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import * as schema from "../src/schema/index.js";
 import {
   MIGRATION_TABLE_ORDER,
+  accounts,
   clients,
   decisions,
   deliverables,
@@ -18,13 +19,16 @@ import {
   executionEvents,
   memories,
   migrateDatabaseData,
+  organizations,
   projectRepositories,
   projects,
   providerProfiles,
   redactDatabaseUrl,
   securityFindings,
   securityScans,
+  sessions,
   users,
+  verifications,
   validatePostgresUrl,
 } from "../src/index.js";
 
@@ -209,6 +213,24 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       fingerprint: `fp-${suffix}`,
     });
 
+    await sourceDb.insert(sessions).values({
+      userId: user!.id,
+      token: `tok-${suffix}`,
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+
+    await sourceDb.insert(accounts).values({
+      userId: user!.id,
+      accountId: `acc-${suffix}`,
+      providerId: "credential",
+    });
+
+    await sourceDb.insert(verifications).values({
+      identifier: `migracao-${suffix}@uzina.local`,
+      value: `code-${suffix}`,
+      expiresAt: new Date(Date.now() + 600_000),
+    });
+
     await sourceDb.insert(executionEvents).values({
       deliverableId: deliverable!.id,
       stage: "stage_finalize",
@@ -216,6 +238,20 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       eventType: "stage_completed",
       payloadJson: { status: "merged" },
     });
+
+    // Inserir 2 clientes adicionais para exercitar batchSize: 2
+    await sourceDb.insert(clients).values([
+      {
+        organizationId,
+        name: `Cliente Batch 1 ${suffix}`,
+        slug: `cli-batch-1-${suffix}`,
+      },
+      {
+        organizationId,
+        name: `Cliente Batch 2 ${suffix}`,
+        slug: `cli-batch-2-${suffix}`,
+      },
+    ]);
 
     const dryReport = await migrateDatabaseData({
       sourceDb,
@@ -238,11 +274,12 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       targetDb,
       sourceDataDir: tempSourceDir,
       targetDatabaseUrl: "postgresql://uzina:secret@pg.internal:5432/uzina",
+      batchSize: 2,
     });
 
     expect(firstRun.dryRun).toBe(false);
     expect(firstRun.verified).toBe(true);
-    expect(firstRun.totalSourceRows).toBeGreaterThanOrEqual(13);
+    expect(firstRun.tables.every((t) => t.sourceCount >= 1 && t.matched)).toBe(true);
     expect(firstRun.totalTargetRows).toBe(firstRun.totalSourceRows);
 
     const [migratedProfile] = await targetDb
@@ -263,9 +300,53 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       targetDb,
       sourceDataDir: tempSourceDir,
       targetDatabaseUrl: "postgresql://uzina:secret@pg.internal:5432/uzina",
+      batchSize: 2,
     });
 
     expect(secondRun.verified).toBe(true);
     expect(secondRun.totalTargetRows).toBe(firstRun.totalTargetRows);
+  });
+
+  test("falha para pgdata inexistente e executa rollback transacional se falhar no meio da migração", async () => {
+    const missingDir = path.join(os.tmpdir(), `uzina-missing-${crypto.randomUUID()}`);
+    await expect(
+      migrateDatabaseData({
+        sourceDataDir: missingDir,
+        targetDatabaseUrl: "postgresql://uzina:secret@localhost:5432/uzina",
+      })
+    ).rejects.toThrow("Diretório PGlite de origem não encontrado");
+
+    const sourceClient = new PGlite();
+    const emptyTargetClient = new PGlite();
+    openClients.push(sourceClient, emptyTargetClient);
+
+    const sourceDb = drizzlePglite(sourceClient, { schema });
+    const badTargetDb = drizzlePglite(emptyTargetClient, { schema });
+
+    await migratePglite(sourceDb, { migrationsFolder: MIGRATIONS_FOLDER });
+    await migratePglite(badTargetDb, { migrationsFolder: MIGRATIONS_FOLDER });
+
+    const { organizationId } = await ensureDefaultOrgAndInternalClient(sourceDb);
+    await sourceDb.insert(users).values({
+      name: "Rollback User",
+      email: `rb-${crypto.randomUUID().slice(0, 6)}@uzina.local`,
+      organizationId,
+      role: "owner",
+    });
+
+    // Força erro na 2a tabela removendo 'users' no destino para validar atomicidade da transação
+    await emptyTargetClient.exec("DROP TABLE users CASCADE;");
+
+    await expect(
+      migrateDatabaseData({
+        sourceDb,
+        targetDb: badTargetDb,
+        targetDatabaseUrl: "postgresql://uzina:secret@localhost:5432/uzina",
+      })
+    ).rejects.toThrow();
+
+    // Se a transação sofreu rollback, organizations inserida no passo 1 não deve permanecer no destino
+    const leftoverOrgs = await badTargetDb.select().from(organizations);
+    expect(leftoverOrgs).toHaveLength(0);
   });
 });

@@ -133,7 +133,35 @@ describe("Slice 5 APIs — Memórias em 3 Escopos (Isolamento & RBAC) & Co-pilot
   });
 
   test("impõe isolamento entre clientes, RBAC de escrita por escopo e proteção anti-IDOR em /api/memories", async () => {
-    // 1. Developer bloqueado em memória org (403), permitido em client/project
+    // 0. Sem sessão -> 401 e UUID inválido -> 400
+    const unauthMemories = await getMemoriesRoute(
+      new Request("http://localhost:3000/api/memories")
+    );
+    expect(unauthMemories.status).toBe(401);
+
+    const invalidQuery = await getMemoriesRoute(
+      new Request("http://localhost:3000/api/memories?projectId=nao-uuid", {
+        headers: { cookie: ownerCookie },
+      })
+    );
+    expect(invalidQuery.status).toBe(400);
+
+    // 1. Auditor bloqueado em POST (403); Developer bloqueado em org/security_triage (403)
+    const auditorPostMem = await createMemoryRoute(
+      new Request("http://localhost:3000/api/memories", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: auditorCookie },
+        body: JSON.stringify({
+          scopeType: "client",
+          scopeId: clientAId,
+          category: "convention",
+          title: "Proibido Auditor",
+          content: "Auditor é somente leitura.",
+        }),
+      })
+    );
+    expect(auditorPostMem.status).toBe(403);
+
     const devOrgMem = await createMemoryRoute(
       new Request("http://localhost:3000/api/memories", {
         method: "POST",
@@ -149,6 +177,21 @@ describe("Slice 5 APIs — Memórias em 3 Escopos (Isolamento & RBAC) & Co-pilot
     );
     expect(devOrgMem.status).toBe(403);
 
+    const devTriageMem = await createMemoryRoute(
+      new Request("http://localhost:3000/api/memories", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: devCookie },
+        body: JSON.stringify({
+          scopeType: "client",
+          scopeId: clientAId,
+          category: "security_triage",
+          title: "Triagem Dev Bloqueada",
+          content: "Developer não suprime security_triage.",
+        }),
+      })
+    );
+    expect(devTriageMem.status).toBe(403);
+
     const ownerOrgMem = await createMemoryRoute(
       new Request("http://localhost:3000/api/memories", {
         method: "POST",
@@ -162,7 +205,26 @@ describe("Slice 5 APIs — Memórias em 3 Escopos (Isolamento & RBAC) & Co-pilot
         }),
       })
     );
-    expect(ownerOrgMem.status).toBe(201);
+    const ownerOrgMemJson = MemorySchema.parse(await ownerOrgMem.json());
+
+    const devPatchOrg = await patchMemoryRoute(
+      new Request(`http://localhost:3000/api/memories/${ownerOrgMemJson.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie: devCookie },
+        body: JSON.stringify({ title: "Dev Edit Org Proibido" }),
+      }),
+      { params: Promise.resolve({ id: ownerOrgMemJson.id }) }
+    );
+    expect(devPatchOrg.status).toBe(403);
+
+    const devDeleteOrg = await deleteMemoryRoute(
+      new Request(`http://localhost:3000/api/memories/${ownerOrgMemJson.id}`, {
+        method: "DELETE",
+        headers: { cookie: devCookie },
+      }),
+      { params: Promise.resolve({ id: ownerOrgMemJson.id }) }
+    );
+    expect(devDeleteOrg.status).toBe(403);
 
     const memClientARes = await createMemoryRoute(
       new Request("http://localhost:3000/api/memories", {
@@ -214,6 +276,7 @@ describe("Slice 5 APIs — Memórias em 3 Escopos (Isolamento & RBAC) & Co-pilot
         headers: { cookie: ownerCookie },
       })
     );
+    expect(listARes.status).toBe(200);
     const listA = MemoryListResponseSchema.parse(await listARes.json());
     expect(listA.items.map((m) => m.title)).toContain("Regra Banco A");
     expect(listA.items.map((m) => m.title)).not.toContain("Regra Projeto B");
@@ -281,5 +344,22 @@ describe("Slice 5 APIs — Memórias em 3 Escopos (Isolamento & RBAC) & Co-pilot
     const auditorBody = await sseAuditor.text();
     expect(auditorBody).toContain("event: error");
     expect(auditorBody).toContain("auditor");
+
+    // Auditor também bloqueado em trigger_security_scan via REST SSE
+    const sseAuditorScan = await postCopilotChat(
+      new Request("http://localhost:3000/api/copilot/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: auditorCookie },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "Rodar scan AppSec" }],
+          action: {
+            type: "trigger_security_scan",
+            projectId: projectAId,
+          },
+        }),
+      })
+    );
+    expect(sseAuditorScan.status).toBe(200);
+    expect(await sseAuditorScan.text()).toContain("event: error");
   });
 });

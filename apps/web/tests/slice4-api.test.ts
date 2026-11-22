@@ -13,8 +13,6 @@ import {
   deliverables,
   getDb,
   organizations,
-  projects,
-  clients,
   users,
 } from "@uzina/db";
 import { eq } from "drizzle-orm";
@@ -218,7 +216,7 @@ describe("Slice 4 APIs — Security Engine, Bearer Ingest, Decisions HITL, RBAC 
     );
     expect(badClientAllowlistRes.status).toBe(400);
 
-    // 2. DAST sem allowlist do servidor retorna 422 DAST_GUARD_BLOCKED
+    // 2. DAST sem allowlist do servidor retorna 422 DAST_GUARD_BLOCKED e staging_url com projectId fora da org retorna 404
     const blockedDastRes = await runSecurityScanRoute(
       new Request("http://localhost:3000/api/security/scans", {
         method: "POST",
@@ -230,6 +228,19 @@ describe("Slice 4 APIs — Security Engine, Bearer Ingest, Decisions HITL, RBAC 
       })
     );
     expect(blockedDastRes.status).toBe(422);
+
+    const crossProjectStagingRes = await runSecurityScanRoute(
+      new Request("http://localhost:3000/api/security/scans", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          projectId: crypto.randomUUID(),
+          targetType: "staging_url",
+          stagingUrl: "https://staging.example.com/app",
+        }),
+      })
+    );
+    expect(crossProjectStagingRes.status).toBe(404);
 
     // 3. Scan válido no projeto detecta segredo e aplica redação
     const scanRes = await runSecurityScanRoute(
@@ -358,6 +369,51 @@ describe("Slice 4 APIs — Security Engine, Bearer Ingest, Decisions HITL, RBAC 
     expect(ingestRes.status).toBe(201);
     const saved = SecurityScanResultSchema.parse(await ingestRes.json());
     expect(saved.mode).toBe("standalone");
+
+    // Developer NÃO pode injetar supressão em memória via ingest (403 FORBIDDEN)
+    const devSuppressIngestRes = await ingestSecurityScan(
+      new Request("http://localhost:3000/api/security/scans/ingest", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: devCookie,
+        },
+        body: JSON.stringify({
+          projectId,
+          targetType: "git_repo",
+          targetRef: "cli-standalone",
+          scannersRun: ["native_secrets"],
+          sarifRawJson: {
+            version: "2.1.0",
+            runs: [{ tool: { driver: { name: "uzina-sec" } }, results: [] }],
+          },
+          summaryCountsJson: {
+            critical: 1,
+            high: 0,
+            medium: 0,
+            low: 0,
+            info: 0,
+            total: 1,
+            confirmedCount: 0,
+            suppressedCount: 1,
+            skippedScannersCount: 0,
+          },
+          findings: [
+            {
+              ruleId: "uzina/bypass",
+              scanner: "native_secrets",
+              severity: "critical",
+              title: "Tentativa de supressão por developer",
+              description: "Bypass não autorizado",
+              fingerprint: "2".repeat(64),
+              triageVerdict: "false_positive",
+              suppressedInMemory: true,
+            },
+          ],
+        }),
+      })
+    );
+    expect(devSuppressIngestRes.status).toBe(403);
     expect(saved.findings![0]!.description).toContain("[REDACTED_GITHUB_TOKEN]");
 
     // Cross-org projectId deve falhar com 404
@@ -505,14 +561,34 @@ describe("Slice 4 APIs — Security Engine, Bearer Ingest, Decisions HITL, RBAC 
     // Limpa decisão de teste para manter DB consistente e evita dangling state
     await db.delete(decisions).where(eq(decisions.id, prDecision!.id));
 
-    // Valida que /workflow/resume também bloqueia developer se gate = pr_evidence_approve (via sanity check de resposta 409/403)
+    // Valida /workflow/resume diretamente: 400 UUID inválido, 403 auditor (sem role escrita), 404 cross-org
+    const resumeBadUuid = await resumeWorkflow(
+      new Request("http://localhost:3000/api/deliverables/bad-id/workflow/resume", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ decision: "approved" }),
+      }),
+      { params: Promise.resolve({ id: "bad-id" }) }
+    );
+    expect(resumeBadUuid.status).toBe(400);
+
+    const resumeCrossOrg = await resumeWorkflow(
+      new Request(
+        `http://localhost:3000/api/deliverables/${deliverableId}/workflow/resume`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie: otherOrgCookie },
+          body: JSON.stringify({ decision: "approved" }),
+        }
+      ),
+      { params: Promise.resolve({ id: deliverableId }) }
+    );
+    expect(resumeCrossOrg.status).toBe(404);
+
     const [curDeliv] = await db
       .select()
       .from(deliverables)
       .where(eq(deliverables.id, deliverableId));
     expect(curDeliv?.projectId).toBe(projectId);
-    expect(clients).toBeDefined();
-    expect(projects).toBeDefined();
-    expect(resumeWorkflow).toBeDefined();
   });
 });

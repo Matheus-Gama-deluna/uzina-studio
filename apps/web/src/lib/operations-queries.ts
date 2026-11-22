@@ -465,11 +465,24 @@ export async function resolveServerScanTarget(
   | { ok: false; statusCode: 404 | 422; code: string; message: string }
 > {
   if (input.targetType === "staging_url") {
+    const scoped = await assertScopedProjectOrDeliverable(db, organizationId, {
+      projectId: input.projectId ?? null,
+      deliverableId: input.deliverableId ?? null,
+    });
+    if (!scoped.ok) {
+      return {
+        ok: false,
+        statusCode: 404,
+        code: "NOT_FOUND",
+        message: scoped.message,
+      };
+    }
+
     return {
       ok: true,
       targetType: "staging_url",
       targetRef: input.stagingUrl!,
-      projectId: input.projectId ?? null,
+      projectId: scoped.resolvedProjectId,
       deliverableId: input.deliverableId ?? null,
     };
   }

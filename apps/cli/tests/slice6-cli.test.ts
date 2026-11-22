@@ -82,6 +82,24 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
     expect(startPlan.databaseMode).toBe("pglite");
     expect(startPlan.singleProcess).toBe(true);
 
+    const devOut: string[] = [];
+    const devCode = await runCli(
+      ["dev", "--port", "3005", "--host", "0.0.0.0", "--data-dir", tempDir, "--dry-run"],
+      {
+        env: {},
+        stdout: (line) => devOut.push(line),
+      }
+    );
+    expect(devCode).toBe(0);
+    const devPlan = JSON.parse(devOut[0]!) as {
+      mode: string;
+      port: number;
+      host: string;
+    };
+    expect(devPlan.mode).toBe("dev");
+    expect(devPlan.port).toBe(3005);
+    expect(devPlan.host).toBe("0.0.0.0");
+
     const doctorOut: string[] = [];
     const doctorCode = await runCli(["doctor", "--json", "--data-dir", tempDir], {
       env: {},
@@ -105,6 +123,28 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
     expect(doctorPayload.nodeOk).toBe(true);
     expect(doctorPayload.databaseMode).toBe("pglite");
     expect(doctorPayload.git.ok).toBe(true);
+
+    const doctorPgOut: string[] = [];
+    const doctorPgCode = await runCli(["doctor", "--json"], {
+      env: { DATABASE_URL: "postgresql://uzina:secret@pg.local:5432/uzina" },
+      stdout: (line) => doctorPgOut.push(line),
+      checkGitAvailable: () => ({ ok: false }),
+      securityDeps: {
+        commandRunner: async () => ({
+          exitCode: 127,
+          stdout: "",
+          stderr: "ENOENT",
+          missingBinary: true,
+        }),
+      },
+    });
+    expect(doctorPgCode).toBe(0);
+    const doctorPgPayload = JSON.parse(doctorPgOut[0]!) as {
+      databaseMode: string;
+      git: { ok: boolean };
+    };
+    expect(doctorPgPayload.databaseMode).toBe("postgres");
+    expect(doctorPgPayload.git.ok).toBe(false);
   });
 
   test("delega 'uzina sec scan' de forma stateless e mascara credenciais em 'uzina db migrate-to-postgres'", async () => {
@@ -158,5 +198,42 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
     expect(dbCode).toBe(0);
     expect(dbOut[0]).toContain("postgresql://***:***@db.prod.local:5432/uzina");
     expect(dbOut.join("\n")).not.toContain("TOP_SECRET_PASS_99");
+
+    // Erro contendo credencial nunca vaza senha no stderr e retorna exit 1
+    const dbErrOut: string[] = [];
+    const secretUrl =
+      "postgresql://uzina:TOP_SECRET_PASS_99@db.prod.local:5432/uzina";
+    const dbErrCode = await runCli(
+      ["db", "migrate-to-postgres", "--from", scanDir, "--to", secretUrl],
+      {
+        stderr: (line) => dbErrOut.push(line),
+        migrateImpl: async () => {
+          throw new Error(`Conexão recusada em ${secretUrl}`);
+        },
+      }
+    );
+    expect(dbErrCode).toBe(1);
+    expect(dbErrOut.join("\n")).toContain(
+      "postgresql://***:***@db.prod.local:5432/uzina"
+    );
+    expect(dbErrOut.join("\n")).not.toContain("TOP_SECRET_PASS_99");
+
+    // verified: false retorna exit 1
+    const unverifiedCode = await runCli(
+      ["db", "migrate-to-postgres", "--from", scanDir, "--to", secretUrl],
+      {
+        stdout: () => undefined,
+        migrateImpl: async (): Promise<MigrationReport> => ({
+          dryRun: false,
+          verified: false,
+          targetRedacted: "postgresql://***:***@db.prod.local:5432/uzina",
+          mastraLibsqlDetected: false,
+          totalSourceRows: 4,
+          totalTargetRows: 2,
+          tables: [],
+        }),
+      }
+    );
+    expect(unverifiedCode).toBe(1);
   });
 });

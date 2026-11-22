@@ -6,7 +6,7 @@ import {
   assertScopedProjectOrDeliverable,
   persistIngestedSecurityScan,
 } from "@/lib/operations-queries";
-import { WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
+import { VAULT_WRITE_ROLES, WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +57,24 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, {
       error: parsed.error.issues[0]?.message ?? "Payload SARIF inválido.",
       code: "VALIDATION_ERROR",
+    });
+  }
+
+  const requiresPrivilegedTriage = (parsed.data.findings ?? []).some(
+    (finding) =>
+      finding.suppressedInMemory === true ||
+      (finding.triageVerdict === "false_positive" &&
+        (finding.severity === "critical" || finding.severity === "high"))
+  );
+
+  if (
+    requiresPrivilegedTriage &&
+    !VAULT_WRITE_ROLES.includes(guard.actor.role)
+  ) {
+    return jsonError(403, {
+      error:
+        "Apenas owner/admin pode ingerir supressões ou falsos positivos críticos/altos.",
+      code: "FORBIDDEN",
     });
   }
 

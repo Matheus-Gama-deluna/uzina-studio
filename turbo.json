@@ -3,6 +3,8 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["UZINA_STANDALONE"],
+      "passThroughEnv": ["UZINA_STANDALONE", "NEXT_TELEMETRY_DISABLED"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "typecheck": {

@@ -124,7 +124,8 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * **Playwright E2E (`apps/web/e2e/smoke.spec.ts`):** fluxo ponta a ponta em Chromium contra servidor de produção (`GET /api/health` + signup -> projeto -> entrega -> páginas operacionais -> Co-piloto SSE).
 * **Validação & Verificadores:**
   * `node scripts/check-no-ee.mjs`: exit `0`.
-  * Verify Gate sem cache: `pnpm turbo run build --force` (**8/8** pacotes, 0 warnings Turbopack) + `node scripts/audit-tests.mjs` (**43 arquivos, 154 testes, 0 violações**) + `pnpm turbo run typecheck lint test --force` (**30/30 tasks**, **400 passed | 1 skipped** `postgres-live.test.ts`).
-  * `pnpm --filter @uzina/web test:e2e`: **2 passed (27.1s)** (0 console errors, 0 pageerrors, 0 HTTP `>=500`, 0 overflow horizontal).
-  * Standalone Docker build (`UZINA_STANDALONE=1`): `apps/web/.next/standalone/apps/web/server.js` gerado com sucesso (`STANDALONE_BUILD=True STANDALONE_EXISTS=True`).
-* **Marco Atingido:** **Fase 1 (MVP) 100% Concluída** (`Slices 0 → 6`). Próximas ações: revisão e merge das Pull Requests das branches `feat/slice-01-*` a `feat/slice-06-*` para `main` via GitHub.
+  * Verify Gate sem cache contra PostgreSQL 16 + `pgvector` live (`TEST_DATABASE_URL`): `pnpm turbo run build --force` (**8/8** pacotes) + `node scripts/audit-tests.mjs` (**43 arquivos, 155 testes, 0 violações**) + `pnpm turbo run typecheck lint test --force` (**30/30 tasks**, **402 passed | 0 skipped** — `postgres-live.test.ts` verde!).
+  * `pnpm --filter @uzina/web test:e2e`: **2 passed (11.2s)** (0 console errors, 0 pageerrors, 0 HTTP `>=500`, 0 overflow horizontal).
+  * **Docker & PostgreSQL Live:** `docker build` multi-stage validado (UID `1001`, 4 scanners verificados com `sha256sum -c`: `gitleaks 8.24.2`, `trivy 0.76.2`, `osv-scanner 2.0.0`, `opengrep 2.0.0`), stack completa `docker-compose.yml` saudável (`PG=healthy APP=healthy`, E2E HTTP/Auth/Postgres/SSE `DOCKER_FULLSTACK_E2E_OK`) e `uzina db migrate-to-postgres` validado 2x contra `pgvector:pg16` (idempotente, senha mascarada).
+  * **Revisões & Hardening:** `appsec-auditor` (corrigidos `staging_url` anti-IDOR, isolamento `requestContext` nas tools do Co-piloto, RBAC de supressão no `/ingest`, hardening Docker/Compose), `test-critic` (lacunas sanadas em todos os pacotes) e `factory-verifier` (**PASS**).
+* **Marco Atingido:** **Fase 1 (MVP) 100% Concluída e Validada em Todas as Camadas** (`Slices 0 → 6`). Próximas ações: abertura/merge da Pull Request para `main` via GitHub.

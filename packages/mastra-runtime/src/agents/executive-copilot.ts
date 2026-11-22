@@ -22,6 +22,7 @@ import {
   runSecurityScan,
   type RunSecurityScanDeps,
 } from "@uzina/security-engine";
+import { redactSensitiveText } from "@uzina/core";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { resolveHierarchicalMemories } from "../memories.js";
@@ -44,6 +45,7 @@ const WRITE_ROLES = new Set<OrgRole>(["owner", "admin", "developer"]);
 export interface ExecutiveCopilotDeps {
   db: UzinaDb;
   securityRunnerDeps?: RunSecurityScanDeps;
+  actor?: CopilotExecutionActor;
 }
 
 export interface CopilotExecutionActor {
@@ -336,18 +338,45 @@ export async function triggerSecurityScanScoped(
   };
 }
 
+function resolveTrustedCopilotActor(
+  deps: ExecutiveCopilotDeps,
+  context?: { requestContext?: { get?: (key: string) => unknown } }
+): CopilotExecutionActor {
+  const fromContext = context?.requestContext?.get?.("actor");
+  if (
+    fromContext &&
+    typeof fromContext === "object" &&
+    "organizationId" in fromContext &&
+    "userId" in fromContext &&
+    "role" in fromContext
+  ) {
+    return fromContext as CopilotExecutionActor;
+  }
+  if (deps.actor) {
+    return deps.actor;
+  }
+  throw new Error(
+    "COPILOT_ACTOR_REQUIRED: ator autenticado deve ser injetado via contexto do servidor."
+  );
+}
+
 export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
   const readOverviewTool = createTool({
     id: "read_workspace_overview",
     description:
       "Lê clientes, projetos, entregáveis, decisões pendentes, auditorias AppSec e memórias hierárquicas da organização.",
     inputSchema: z.object({
-      organizationId: z.uuid(),
       clientId: z.uuid().optional(),
       projectId: z.uuid().optional(),
     }),
-    execute: async (inputData) =>
-      readWorkspaceOverviewScoped(deps.db, inputData),
+    execute: async (inputData, context) => {
+      const actor = resolveTrustedCopilotActor(deps, context);
+      return readWorkspaceOverviewScoped(deps.db, {
+        organizationId: actor.organizationId,
+        clientId: inputData.clientId,
+        projectId: inputData.projectId,
+      });
+    },
   });
 
   const draftDeliverableTool = createTool({
@@ -355,26 +384,21 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
     description:
       "Cria exclusivamente um rascunho de entregável no estágio inicial 'discovery'.",
     inputSchema: z.object({
-      organizationId: z.uuid(),
-      userId: z.string(),
-      role: z.enum(["owner", "admin", "developer", "auditor"]),
       projectId: z.uuid(),
       title: z.string().trim().min(3).max(200),
       description: z.string().trim().max(4000).optional(),
       hasUi: z.boolean().optional(),
     }),
-    execute: async (inputData) =>
-      createDraftDeliverableScoped(deps.db, {
-        actor: {
-          organizationId: inputData.organizationId,
-          userId: inputData.userId,
-          role: inputData.role,
-        },
+    execute: async (inputData, context) => {
+      const actor = resolveTrustedCopilotActor(deps, context);
+      return createDraftDeliverableScoped(deps.db, {
+        actor,
         projectId: inputData.projectId,
         title: inputData.title,
         description: inputData.description,
         hasUi: inputData.hasUi,
-      }),
+      });
+    },
   });
 
   const triggerSecurityScanTool = createTool({
@@ -382,21 +406,16 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
     description:
       "Dispara uma auditoria de segurança @uzina/security-engine sobre um projeto da organização.",
     inputSchema: z.object({
-      organizationId: z.uuid(),
-      userId: z.string(),
-      role: z.enum(["owner", "admin", "developer", "auditor"]),
       projectId: z.uuid(),
     }),
-    execute: async (inputData) =>
-      triggerSecurityScanScoped(deps.db, {
-        actor: {
-          organizationId: inputData.organizationId,
-          userId: inputData.userId,
-          role: inputData.role,
-        },
+    execute: async (inputData, context) => {
+      const actor = resolveTrustedCopilotActor(deps, context);
+      return triggerSecurityScanScoped(deps.db, {
+        actor,
         projectId: inputData.projectId,
         securityRunnerDeps: deps.securityRunnerDeps,
-      }),
+      });
+    },
   });
 
   return new Agent({
@@ -585,13 +604,17 @@ export async function* streamExecutiveCopilot(params: {
       finishReason: "completed",
     };
   } catch (error) {
+    const rawMsg =
+      error instanceof Error
+        ? error.message
+        : "Erro ao executar Co-piloto Executivo.";
+    const safeMsg = redactSensitiveText(
+      rawMsg.replace(/[A-Za-z]:\\[^\s]+|\/[^\s]+\/[^\s]+/g, "[path]")
+    );
     yield {
       type: "error",
       code: "COPILOT_EXECUTION_ERROR",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Erro ao executar Co-piloto Executivo.",
+      message: safeMsg,
     };
   }
 }

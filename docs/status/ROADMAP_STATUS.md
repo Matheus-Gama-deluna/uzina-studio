@@ -48,6 +48,6 @@ flowchart LR
 | **pnpm** | `12.21.0` | Sim | Instalado globalmente via npm (`save-exact=true` no `.npmrc`) |
 | **Git** | `2.51.0.windows.1` | Sim | Repositório inicializado em `main` |
 | **Remote GitHub (`origin`)** | Conectado (`Matheus-Gama-deluna/uzina-studio`) | Sim (para push/PR) | Branch `main` sincronizada via HTTPS (`git push -u origin main`) |
-| **Docker / PostgreSQL** | Não instalado | Não no Slice 0 | PGlite valida banco local; Postgres validado via `TEST_DATABASE_URL` ou Docker sob demanda |
+| **Docker / PostgreSQL** | `Docker 29.10.0` + `Compose v5.8.0` (WSL2 Ubuntu) + `pgvector:pg16` | Validado no Slice 6 | Stack full-stack (`docker-compose.yml`), `postgres-live.test.ts` e `migrate-to-postgres` validados ao vivo |
 | **GitHub CLI (`gh`)** | Não instalado | Apenas no Slice 4 | Usado para `gh pr create` automático; fallback local disponível |
 | **OpenCode CLI** | Não instalado | Apenas no Slice 2+ | Integrado via SDK/bridge com fallback/mock de integração até instalação |
