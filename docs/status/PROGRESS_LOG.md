@@ -97,3 +97,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `browser` (`flash`): **PASS** em `/app/decisions` e `/app/security` (Desktop `1440×900` Dark/Light e Mobile `390×844`, zero console errors, zero HTTP `>=500`, zero overflow horizontal).
   * *(Observação de cota: subagentes finais `test-critic`, `appsec-auditor` e `factory-verifier` não reexecutados no fechamento por limite de cota solicitado pelo usuário.)*
 * **Próximo passo:** Planejar e executar o **Slice 5 (Co-piloto Executivo `.network()` & Memória em 3 Escopos)**.
+
+---
+
+## 2026-11-22 — Slice 5: Co-piloto Executivo & Memória em 3 Escopos (`feat/slice-05-copilot-memories`)
+
+* **Entregue:**
+  * `@uzina/contracts`: schemas Zod `.strict()` em `src/memories.ts` (`MemoryCategorySchema`, `CreateMemorySchema`, `UpdateMemorySchema`) e `src/copilot.ts` (`CopilotChatRequestSchema`, `CopilotStreamEventSchema`, `CopilotCapabilitiesSchema`) (`115/115` testes).
+  * `@uzina/db`: tabela #8 `memories` (`packages/db/src/schema/memories.ts`) com `scopeType` (`org | client | project`), `scopeId`, `category`, FK opcional `sourceDeliverableId` (`set null`), índice composto `(scopeType, scopeId, category)` e migração `0005_talented_turbo.sql` (`25 passed | 1 skipped`).
+  * `@uzina/mastra-runtime`: serviço `src/memories.ts` (`assertValidMemoryScope`, `resolveHierarchicalMemories` sem vazamento entre clientes, `formatMemoriesForPrompt` com redação), agente `executiveCopilot` (`src/agents/executive-copilot.ts` com apenas `read_workspace_overview`, `draft_deliverable` e `trigger_security_scan` — bloqueio comprovado de escrita em disco/shell/`merged`) e injeção/extração automática no `deliverableLifecycle` (`15/15` testes).
+  * `apps/web`: APIs `/api/memories`, `/api/memories/[id]`, `/api/copilot/chat` (SSE), MSW + `contract-drift.test.ts`, página `/app/memories`, drawer global `CopilotDrawer` no `CockpitShell` e atalho no `CommandPalette` (`24/24` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * Verify Gate sem cache: `pnpm turbo run build --force` (**7/7**, 0 warnings Turbopack) + `node scripts/audit-tests.mjs` (**41 arquivos, 147 testes, 0 violações**) + `pnpm turbo run typecheck lint test --force` (**27/27 tasks**, **380 passed | 1 skipped** `postgres-live.test.ts`).
+  * `browser` (`flash`): **PASS** em `/app/memories` e no `CopilotDrawer` via SSE (Desktop `1440×900` Dark/Light e Mobile `390×844`, 0 erros de console, 0 HTTP `>=500`, 0 overflow horizontal).
+* **Próximo passo:** Executar o **Slice 6 (Empacotamento, Migração & Release — CLI `uzina`, `migrate-to-postgres`, Docker, CI/CD & Playwright E2E — Marco Fase 1 Completa)**.

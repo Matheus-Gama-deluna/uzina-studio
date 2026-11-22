@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ClientListResponse, ProjectListResponse } from "@uzina/contracts";
 import {
+  Bot,
+  Brain,
   Building2,
   ClipboardCheck,
   Command,
@@ -19,6 +21,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { CommandPalette } from "./command-palette";
+import { CopilotDrawer } from "./copilot-drawer";
 import { ThemeToggle } from "./theme-toggle";
 
 interface CockpitActor {
@@ -50,6 +53,7 @@ export function CockpitShell({
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   const clientsQuery = useQuery({
     queryKey: ["clients"],
@@ -129,6 +133,19 @@ export function CockpitShell({
           >
             <ShieldAlert className="size-4" strokeWidth={1.75} />
             <span>Auditoria AppSec</span>
+          </Link>
+
+          <Link
+            href="/app/memories"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+              pathname.startsWith("/app/memories")
+                ? "bg-accent-subtle text-accent"
+                : "text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            }`}
+          >
+            <Brain className="size-4" strokeWidth={1.75} />
+            <span>Memórias</span>
           </Link>
 
           <Link
@@ -280,14 +297,30 @@ export function CockpitShell({
               <span className="font-medium text-fg-primary">
                 {pathname.includes("/studio")
                   ? "Estúdio Visual"
-                  : pathname.startsWith("/app/providers")
-                    ? "Provedores & Cofre"
-                    : "Torre de Controle"}
+                  : pathname.startsWith("/app/decisions")
+                    ? "Caixa de Decisões"
+                    : pathname.startsWith("/app/security")
+                      ? "Auditoria AppSec"
+                      : pathname.startsWith("/app/memories")
+                        ? "Memórias"
+                        : pathname.startsWith("/app/providers")
+                          ? "Provedores & Cofre"
+                          : "Torre de Controle"}
               </span>
             </nav>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCopilotOpen(true)}
+              data-testid="open-copilot-drawer"
+              aria-label="Abrir Co-piloto Executivo"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 text-xs font-medium text-accent transition-colors hover:bg-accent-subtle/80"
+            >
+              <Bot className="size-3.5" strokeWidth={1.75} />
+              <span className="hidden sm:inline">Co-piloto</span>
+            </button>
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
@@ -309,6 +342,7 @@ export function CockpitShell({
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <CopilotDrawer open={copilotOpen} onOpenChange={setCopilotOpen} />
     </div>
   );
 }

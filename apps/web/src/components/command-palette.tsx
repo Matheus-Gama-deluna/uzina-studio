@@ -2,6 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  Brain,
   ClipboardCheck,
   Command,
   Kanban,
@@ -21,7 +22,7 @@ interface CommandItem {
   label: string;
   hint: string;
   action: () => void;
-  icon: "board" | "decisions" | "security" | "providers" | "theme";
+  icon: "board" | "decisions" | "security" | "memories" | "providers" | "theme";
 }
 
 export function CommandPalette({
@@ -74,6 +75,16 @@ export function CommandPalette({
         icon: "security",
         action: () => {
           router.push("/app/security");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "nav-memories",
+        label: "Ir para Memórias (Org / Cliente / Projeto)",
+        hint: "/app/memories",
+        icon: "memories",
+        action: () => {
+          router.push("/app/memories");
           onOpenChange(false);
         },
       },
@@ -188,6 +199,12 @@ export function CommandPalette({
                       )}
                       {item.icon === "security" && (
                         <ShieldAlert
+                          className="size-4 text-accent"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "memories" && (
+                        <Brain
                           className="size-4 text-accent"
                           strokeWidth={1.75}
                         />

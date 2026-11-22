@@ -46,6 +46,7 @@ import {
   decisions,
   deliverables,
   designAssets,
+  memories,
   projectRepositories,
   projects,
   providerProfiles,
@@ -72,6 +73,10 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { WorkflowRuntimeError } from "../errors.js";
 import { recordExecutionEvent } from "../event-bus.js";
+import {
+  formatMemoriesForPrompt,
+  resolveHierarchicalMemories,
+} from "../memories.js";
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -1715,6 +1720,13 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         masterKey: deps.masterKey,
       });
 
+      const contractMemories = await resolveHierarchicalMemories(db, {
+        organizationId: currentState.organizationId,
+        projectId: row.projectId,
+        limit: 12,
+      });
+      const contractMemoriesText = formatMemoriesForPrompt(contractMemories);
+
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       let sessionResult;
       try {
@@ -1735,8 +1747,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           prompt: [
             `stage_contract_and_tests para entregável '${row.title}'.`,
             currentState.specMarkdown ?? "",
+            contractMemoriesText,
             "Escreva contratos e testes automatizados que falham inicialmente (RED) antes da implementação.",
-          ].join("\n\n"),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         });
       } finally {
         heartbeat.stop();
@@ -1966,9 +1981,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         masterKey: deps.masterKey,
       });
 
+      const buildMemories = await resolveHierarchicalMemories(db, {
+        organizationId: currentState.organizationId,
+        projectId: row.projectId,
+        limit: 12,
+      });
+      const buildMemoriesText = formatMemoriesForPrompt(buildMemories);
+
       const promptParts = [
         `stage_build para entregável '${row.title}'.`,
         currentState.specMarkdown ?? "",
+        buildMemoriesText || null,
         `Arquivos de contrato/teste pré-criados: ${inputData.contractTestFiles.join(", ") || "(nenhum listado)"}.`,
         nextFeedback
           ? `Orientação humana para retomada: ${nextFeedback}`
@@ -3061,6 +3084,16 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           updatedAt: new Date(),
         })
         .where(eq(deliverables.id, row.id));
+
+      await db.insert(memories).values({
+        organizationId: currentState.organizationId,
+        scopeType: "project",
+        scopeId: row.projectId,
+        category: "architecture",
+        title: `Entrega concluída: ${row.title}`,
+        content: `Finalizada via ${outcome.mode} (${worktreeHandle.branchName}). ${updatedPack?.verifierNotes ?? ""}`.trim(),
+        sourceDeliverableId: row.id,
+      });
 
       const nextHistory = appendStageHistory(
         currentState.stageHistory,

@@ -3,9 +3,11 @@ import {
   BrownfieldMapSchema,
   ClientListResponseSchema,
   ClientSchema,
+  CopilotChatRequestSchema,
   CreateClientSchema,
   CreateDeliverableSchema,
   CreateDesignAssetReferenceSchema,
+  CreateMemorySchema,
   CreateProjectSchema,
   CreateProviderProfileSchema,
   DecisionListResponseSchema,
@@ -17,6 +19,8 @@ import {
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
   IngestSecurityScanSchema,
+  MemoryListResponseSchema,
+  MemorySchema,
   ProjectListResponseSchema,
   ProjectSchema,
   ProviderProfileListResponseSchema,
@@ -29,6 +33,7 @@ import {
   SecurityScanResultSchema,
   UpdateDesignAssetSchema,
   UpdateFindingTriageSchema,
+  UpdateMemorySchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
 } from "@uzina/contracts";
@@ -37,6 +42,7 @@ import { http, HttpResponse } from "msw";
 import {
   MOCK_DECISION_ID,
   MOCK_FINDING_ID,
+  MOCK_MEMORY_ID,
   MOCK_ORG_ID,
   MOCK_PROJECT_ID,
   MOCK_SCAN_ID,
@@ -46,6 +52,7 @@ import {
   mockDeliverables,
   mockDesignAssets,
   mockExecutionEvents,
+  mockMemories,
   mockProjects,
   mockProviders,
   mockSecurityScanDetail,
@@ -627,6 +634,95 @@ export const handlers = [
     const ev = mockExecutionEvents.items[0]!;
     const sse = `id: ${ev.id}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`;
     return new HttpResponse(sse, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
+  }),
+
+  http.get("*/api/memories", ({ request }) => {
+    const url = new URL(request.url);
+    const err = checkSimulatedState(url);
+    if (err) return err;
+    if (url.searchParams.get("state") === "empty") {
+      return HttpResponse.json(MemoryListResponseSchema.parse({ items: [] }));
+    }
+    return HttpResponse.json(MemoryListResponseSchema.parse(mockMemories));
+  }),
+
+  http.post("*/api/memories", async ({ request }) => {
+    const parsed = CreateMemorySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const now = new Date().toISOString();
+    return HttpResponse.json(
+      MemorySchema.parse({
+        id: crypto.randomUUID(),
+        organizationId: MOCK_ORG_ID,
+        scopeType: parsed.data.scopeType,
+        scopeId: parsed.data.scopeId,
+        category: parsed.data.category,
+        title: parsed.data.title,
+        content: parsed.data.content,
+        sourceDeliverableId: parsed.data.sourceDeliverableId ?? null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      { status: 201 }
+    );
+  }),
+
+  http.patch("*/api/memories/:id", async ({ request, params }) => {
+    const parsed = UpdateMemorySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const base = mockMemories.items[0]!;
+    return HttpResponse.json(
+      MemorySchema.parse({
+        ...base,
+        id: String(params.id ?? MOCK_MEMORY_ID),
+        category: parsed.data.category ?? base.category,
+        title: parsed.data.title ?? base.title,
+        content: parsed.data.content ?? base.content,
+        updatedAt: new Date().toISOString(),
+      })
+    );
+  }),
+
+  http.delete("*/api/memories/:id", () => {
+    return HttpResponse.json({ deleted: true });
+  }),
+
+  http.post("*/api/copilot/chat", async ({ request }) => {
+    const parsed = CopilotChatRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const frames = [
+      `event: tool_call\ndata: ${JSON.stringify({ type: "tool_call", toolName: "read_workspace_overview", input: {} })}\n\n`,
+      `event: token\ndata: ${JSON.stringify({ type: "token", text: "Resumo Executivo: workspace saudável com decisões e memórias isoladas." })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ type: "done", toolsUsed: ["read_workspace_overview"], finishReason: "completed" })}\n\n`,
+    ].join("");
+    return new HttpResponse(frames, {
       status: 200,
       headers: { "content-type": "text/event-stream; charset=utf-8" },
     });

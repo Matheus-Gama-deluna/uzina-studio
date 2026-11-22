@@ -6,6 +6,7 @@ import {
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
   ExecutionEventListResponseSchema,
+  MemoryListResponseSchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
   SecurityScanListResponseSchema,
@@ -404,6 +405,38 @@ export const mockExecutionEvents = ExecutionEventListResponseSchema.parse({
       estimatedCostUsd: 0.0085,
       payloadJson: { verifyPassed: true, attemptNumber: 1 },
       createdAt: NOW,
+    },
+  ],
+});
+
+export const MOCK_MEMORY_ID = "94000000-0000-4000-8000-000000000001";
+
+export const mockMemories = MemoryListResponseSchema.parse({
+  items: [
+    {
+      id: MOCK_MEMORY_ID,
+      organizationId: MOCK_ORG_ID,
+      scopeType: "org",
+      scopeId: MOCK_ORG_ID,
+      category: "convention",
+      title: "Contratos Zod Strict em Todas as Rotas",
+      content:
+        "Payloads externos devem sempre usar schemas .strict() de @uzina/contracts.",
+      sourceDeliverableId: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+    {
+      id: "94000000-0000-4000-8000-000000000002",
+      organizationId: MOCK_ORG_ID,
+      scopeType: "project",
+      scopeId: MOCK_PROJECT_ID,
+      category: "architecture",
+      title: "Persistência Dual-Mode PGlite + Postgres",
+      content: "Usar Drizzle pg-core compatível com PGlite local e Postgres+pgvector.",
+      sourceDeliverableId: MOCK_DELIVERABLE_ID,
+      createdAt: NOW,
+      updatedAt: NOW,
     },
   ],
 });

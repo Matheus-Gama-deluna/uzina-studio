@@ -44,10 +44,10 @@
   - [x] CLI standalone `uzina-sec` (`scan`, `doctor`, `install-tools` — encapsulada em `uzina sec` no Slice 6) + aba Auditoria de Segurança (`/app/security`)
   - [x] Caixa de Decisões HITL (`/app/decisions`) + Pacote de Evidências + `stage_finalize` (branch local / `gh pr create --draft`) — Verify Gate `368 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações), `browser` QA **PASS** (`feat/slice-04-verify-security-engine-decisions`)
 
-- [ ] **Slice 5 — Co-piloto Executivo & Memória em 3 Escopos** (*Vertical Slice*)
-  - [ ] Co-piloto Executivo (Mastra `.network()`, read-only + rascunho) no drawer global via SSE
-  - [ ] Teste comprovando bloqueio de escrita de código e shell no Co-piloto
-  - [ ] CRUD e injeção automática de `memories` (`org | client | project`) com isolamento comprovado entre clientes
+- [x] **Slice 5 — Co-piloto Executivo & Memória em 3 Escopos** (*Vertical Slice*)
+  - [x] Co-piloto Executivo (Mastra `Agent`, read-only + rascunho + trigger scan) no drawer global via SSE
+  - [x] Teste comprovando bloqueio de escrita de código e shell no Co-piloto
+  - [x] CRUD e injeção automática de `memories` (`org | client | project`) com isolamento comprovado entre clientes — Verify Gate `380 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações), `browser` QA **PASS** (`feat/slice-05-copilot-memories`)
 
 - [ ] **Slice 6 — Empacotamento, Migração & Release (`npx` + Docker)** (*Marco Fase 1 Completa*)
   - [ ] `apps/cli` (`uzina start`, `uzina dev`, `uzina sec scan`, `uzina db migrate-to-postgres`)

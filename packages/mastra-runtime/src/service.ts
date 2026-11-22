@@ -40,6 +40,7 @@ import type { ExecutionWorkspace, OpenCodeTransport } from "@uzina/opencode-brid
 import type { RunSecurityScanDeps } from "@uzina/security-engine";
 import { and, desc, eq } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
+import { createExecutiveCopilotAgent } from "./agents/executive-copilot.js";
 import {
   closeMastraStorage,
   getMastraStorageSingleton,
@@ -282,10 +283,18 @@ export async function createMastraRuntime(
     skillsDir: options.skillsDir,
   });
 
+  const executiveCopilot = createExecutiveCopilotAgent({
+    db: options.db,
+    securityRunnerDeps: options.securityRunnerDeps,
+  });
+
   const mastra = new Mastra({
     storage,
     workflows: {
       deliverableLifecycle,
+    },
+    agents: {
+      executiveCopilot,
     },
   });
 

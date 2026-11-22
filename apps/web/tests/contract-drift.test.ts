@@ -11,6 +11,8 @@ import {
   DesignAssetListResponseSchema,
   DesignAssetSchema,
   GenerateDesignMdResponseSchema,
+  MemoryListResponseSchema,
+  MemorySchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
   ResolveDecisionResponseSchema,
@@ -22,12 +24,21 @@ import { closeDb } from "@uzina/db";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
+import { POST as postCopilotChat } from "../src/app/api/copilot/chat/route";
 import { GET as getDecisions } from "../src/app/api/decisions/route";
 import { POST as resolveDecisionRoute } from "../src/app/api/decisions/[id]/resolve/route";
 import { GET as getDeliverableEvents } from "../src/app/api/deliverables/[id]/events/route";
 import { GET as getWorkflow } from "../src/app/api/deliverables/[id]/workflow/route";
 import { POST as resumeWorkflow } from "../src/app/api/deliverables/[id]/workflow/resume/route";
 import { POST as startWorkflow } from "../src/app/api/deliverables/[id]/workflow/start/route";
+import {
+  DELETE as deleteMemoryRoute,
+  PATCH as patchMemoryRoute,
+} from "../src/app/api/memories/[id]/route";
+import {
+  GET as getMemoriesRoute,
+  POST as createMemoryRoute,
+} from "../src/app/api/memories/route";
 import { POST as runBrownfieldScan } from "../src/app/api/projects/[id]/brownfield-scan/route";
 import { GET as getDeliverables, POST as createDeliverable } from "../src/app/api/projects/[id]/deliverables/route";
 import {
@@ -581,6 +592,98 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       const sseBody = await realEventsRes.text();
       expect(sseBody).toContain("event: stage_change");
+
+      // Slice 5: Memories & Executive Copilot SSE (MSW vs Rotas Reais)
+      const mswMemRes = await fetch("http://msw.local/api/memories");
+      expect(mswMemRes.status).toBe(200);
+      MemoryListResponseSchema.parse(await mswMemRes.json());
+
+      const mswCreateMemRes = await fetch("http://msw.local/api/memories", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scopeType: "project",
+          scopeId: mswProjectId,
+          category: "convention",
+          title: "Drift Memória",
+          content: "Validação Zod alinhada.",
+        }),
+      });
+      expect(mswCreateMemRes.status).toBe(201);
+      MemorySchema.parse(await mswCreateMemRes.json());
+
+      const mswCopilotRes = await fetch("http://msw.local/api/copilot/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "Resumo" }],
+        }),
+      });
+      expect(mswCopilotRes.status).toBe(200);
+      expect(await mswCopilotRes.text()).toContain("event: token");
+
+      const realCreateMemRes = await createMemoryRoute(
+        new Request("http://localhost:3000/api/memories", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            scopeType: "project",
+            scopeId: projectId,
+            category: "architecture",
+            title: "Regra Real Drift",
+            content: "Arquitetura modular verificada.",
+          }),
+        })
+      );
+      expect(realCreateMemRes.status).toBe(201);
+      const createdMem = MemorySchema.parse(await realCreateMemRes.json());
+
+      const realListMemRes = await getMemoriesRoute(
+        new Request(`http://localhost:3000/api/memories?projectId=${projectId}`, {
+          headers: { cookie },
+        })
+      );
+      expect(realListMemRes.status).toBe(200);
+      MemoryListResponseSchema.parse(await realListMemRes.json());
+
+      const realPatchMemRes = await patchMemoryRoute(
+        new Request(`http://localhost:3000/api/memories/${createdMem.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ title: "Regra Atualizada" }),
+        }),
+        { params: Promise.resolve({ id: createdMem.id }) }
+      );
+      expect(realPatchMemRes.status).toBe(200);
+      MemorySchema.parse(await realPatchMemRes.json());
+
+      const realCopilotRes = await postCopilotChat(
+        new Request("http://localhost:3000/api/copilot/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "Resuma o projeto" }],
+            projectId,
+          }),
+        })
+      );
+      expect(realCopilotRes.status).toBe(200);
+      expect(realCopilotRes.headers.get("content-type")).toContain(
+        "text/event-stream"
+      );
+      expect(await realCopilotRes.text()).toContain("event: done");
+
+      const realDeleteMemRes = await deleteMemoryRoute(
+        new Request(`http://localhost:3000/api/memories/${createdMem.id}`, {
+          method: "DELETE",
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: createdMem.id }) }
+      );
+      expect(realDeleteMemRes.status).toBe(200);
+      expect(
+        (await realDeleteMemRes.json()) as { deleted: boolean }
+      ).toMatchObject({ deleted: true });
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }
