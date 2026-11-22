@@ -18,6 +18,7 @@ import {
 } from "@uzina/db";
 import { and, desc, eq, inArray, or, type SQL } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
+import { indexMemoryChunks } from "./qmd.js";
 
 export function mapMemoryRow(row: typeof memories.$inferSelect): Memory {
   return MemorySchema.parse({
@@ -241,7 +242,9 @@ export async function createMemoryScoped(
     })
     .returning();
 
-  return mapMemoryRow(created!);
+  const mapped = mapMemoryRow(created!);
+  await indexMemoryChunks(db, mapped);
+  return mapped;
 }
 
 export async function listMemoriesScoped(
@@ -341,7 +344,12 @@ export async function updateMemoryScoped(
     )
     .returning();
 
-  return updated ? mapMemoryRow(updated) : null;
+  if (!updated) {
+    return null;
+  }
+  const mapped = mapMemoryRow(updated);
+  await indexMemoryChunks(db, mapped);
+  return mapped;
 }
 
 export async function deleteMemoryScoped(

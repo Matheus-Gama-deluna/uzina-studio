@@ -141,3 +141,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Dossiês: `slice-07` (QMD/embeddings), `slice-08` (codebase-intel), `slice-09` (Estúdio Visual + Stitch), `slice-10` (Docker workspace + FinOps).
   * Atualizados: `.uzina/slices-checklist.md`, `docs/status/ROADMAP_STATUS.md`, `.uzina/steering.md`, `AGENTS.md`.
 * **Próximo passo:** Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) do Slice 7 e criação da branch `feat/slice-07-qmd-hybrid-memory`.
+
+---
+
+## 2026-11-22 — Slice 7: Motor QMD Híbrido (`BM25 + Vetor 384d + RRF`) & Busca em `/app/memories` (`feat/slice-07-qmd-hybrid-memory`)
+
+* **Entregue:**
+  * `@uzina/contracts`: schemas Zod `.strict()` em `src/qmd.ts` (`QmdSearchRequestSchema`, `QmdSearchHitSchema`, `QmdSearchResponseSchema`, `QmdReindexRequestSchema`, `QmdReindexResponseSchema`, `QmdStatusSchema`) (`126/126` testes).
+  * `@uzina/core`: `src/qmd.ts` (`chunkMarkdownByHeadings`, `tokenizeForQmd`, `computeBm25Scores`, `cosineSimilarity`, `reciprocalRankFusion`, `formatQmdSnippet`, `buildDirectoryContextTree`, `createDeterministicEmbeddingProvider` 384d) exportado via subpath `@uzina/core/qmd` (`141/141` testes).
+  * `@uzina/db`: tabela #17 `memory_chunks` (`packages/db/src/schema/memory-chunks.ts`), migração `0006_natural_obadiah_stane.sql` e inclusão em `MIGRATION_TABLE_ORDER`/`TABLE_REGISTRY` (`36 passed | 0 skipped` em PostgreSQL + `pgvector` live).
+  * `@uzina/mastra-runtime`: `src/qmd.ts` (`indexMemoryChunks`, `reindexWorkspaceQmd`, `searchQmdScoped` com backfill incremental automático, isolamento `org/client/project` e `redactSensitiveText`) integrado a `createMemoryScoped`/`updateMemoryScoped` (`16/16` testes).
+  * `apps/web` & `apps/cli`: `POST /api/memories/search` (`READ_ROLES`), `POST /api/qmd/reindex` (`VAULT_WRITE_ROLES`), MSW + Contract Drift Check, UI de busca híbrida QMD em `/app/memories` (`25/25` testes) e subcomando `uzina memory search <query>` (`13/13` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `pnpm turbo run build --force` (`8/8` pacotes), `node scripts/audit-tests.mjs` (`48 arquivos, 165 testes, 0 violações`).
+  * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` no PostgreSQL 16 + `pgvector`: **`30/30` tasks**, **`421 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (11.7s)`**.
+  * `browser` (`flash`): **PASS** em `/app/memories` (criação de `adr-qmd-cache`, reindexação `352` chunks, busca `"Reciprocal Rank Fusion"` com `5` hits e scores `RRF / BM25 / Vec` `tabular-nums`, `0` erros de console/HTTP `>=500`/overflow em Desktop Dark/Light e Mobile).
+* **Próximo passo:** Abertura/merge de PR do Slice 7 para `main` e início do **Slice 8 (`@uzina/codebase-intel`)**.

@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Fase 1 (MVP) Completa e integrada na `main` (`a4ec6d5`)**. **Fase 2 planejada** (blueprint, ADR-004 e dossiês criados) → **Próximo passo:** Plan Gate EGM e execução do **Slice 7 (Motor QMD Híbrido & Embeddings Locais)** na branch `feat/slice-07-qmd-hybrid-memory`.
+> **Estado Atual:** ★ **Slice 7 (Motor QMD Híbrido) concluído na branch `feat/slice-07-qmd-hybrid-memory`** (`421 passed | 0 skipped` em PostgreSQL + `pgvector` live). → **Próximo passo:** Abertura/merge de PR do Slice 7 e início do **Slice 8 (`@uzina/codebase-intel`)**.
 
 ---
 
@@ -15,8 +15,8 @@ flowchart LR
     S3 --> S4["Slice 4: .uzina/verify, AppSec v1 & Caixa de Decisões ★ Marco #1 (CONCLUÍDO)"]
     S4 --> S5["Slice 5: Co-piloto Executivo & Memória 3 Escopos (CONCLUÍDO)"]
     S5 --> S6["Slice 6: CLI npx, Migração PG & Docker ★ Fase 1 Completa (CONCLUÍDO)"]
-    S6 --> S7["Slice 7: Motor QMD Híbrido & Embeddings Locais (PRÓXIMO)"]
-    S7 --> S8["Slice 8: Codebase Intelligence, Grafo AST & Proveniência"]
+    S6 --> S7["Slice 7: Motor QMD Híbrido & Embeddings Locais (CONCLUÍDO)"]
+    S7 --> S8["Slice 8: Codebase Intelligence, Grafo AST & Proveniência (PRÓXIMO)"]
     S8 --> S9["Slice 9: Estúdio Visual 3 Níveis & Google Stitch"]
     S9 --> S10["Slice 10: DockerExecutionWorkspace & FinOps de Tokens ★ Fase 2"]
 ```
@@ -41,7 +41,7 @@ flowchart LR
 | **Slice 4 — Verify, AppSec v1 & Decisões ★** | *Vertical Slice + Dual-Mode* | Auditor de testes, `@uzina/security-engine` (SARIF + 4 adaptadores + triagem), CLI `uzina-sec`, Caixa de Decisões HITL + PR (**Marco Utilizável #1**) | **Sim** (`readiness` + `design`) | [slice-04](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-04-verify-security-engine-decisions.md) | 🟢 Concluído (`feat/slice-04-verify-security-engine-decisions`) |
 | **Slice 5 — Co-piloto & Memória 3 Escopos** | *Vertical Slice* | Co-piloto Executivo (read-only + rascunho + trigger scan) via SSE + `memories` (`org \| client \| project`) isoladas | Seletiva (`readiness`) | [slice-05](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-05-copilot-memories.md) | 🟢 Concluído (`feat/slice-05-copilot-memories`) |
 | **Slice 6 — Empacotamento & Release ★** | *Release Engineering* | `apps/cli` (`uzina start`, `dev`, `sec`, `migrate-to-postgres`, `doctor`), Dockerfile multi-stage + `docker-compose.yml`, GH Actions, Playwright E2E (**Fase 1 Completa**) | Seletiva (`readiness`) | [slice-06](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-06-packaging-release.md) | 🟢 Concluído (`feat/slice-06-packaging-release`) |
-| **Slice 7 — Motor QMD & Embeddings Locais** | *Contract-First + Domain-First* | Chunking por headings, BM25 + vetor 384d + RRF, `multilingual-e5-small` ONNX + fallback offline, busca em `/app/memories` | **Sim** (`readiness` + `design`) | [slice-07](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md) | ⚪ Planejado (Fase 2) |
+| **Slice 7 — Motor QMD & Embeddings Locais** | *Contract-First + Domain-First* | Chunking por headings, BM25 + vetor 384d + RRF, `EmbeddingProvider` + fallback offline, busca em `/app/memories` | **Sim** (`readiness` + `design`) | [slice-07](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md) | 🟢 Concluído (`feat/slice-07-qmd-hybrid-memory`) |
 | **Slice 8 — Codebase Intelligence** | *Domain-First + Vertical Slice* | `@uzina/codebase-intel`: Context Tree, esqueleto p/ Prompt Cache, grafo AST incremental, proveniência, tools cirúrgicas | **Sim** (`readiness` + `design`) | [slice-08](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-08-codebase-intel-ast-graph-provenance.md) | ⚪ Planejado (Fase 2) |
 | **Slice 9 — Estúdio Visual & Google Stitch** | *Contract-First + Frontend-First* | `DesignPrototypeAdapter` 3 níveis, Stitch (MCP + importação), tokens W3C, preview sandboxed, handoff | **Sim** (`readiness` + `appsec`) | [slice-09](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-09-visual-studio-3levels-google-stitch.md) | ⚪ Planejado (Fase 2) |
 | **Slice 10 — Docker Workspace & FinOps ★** | *Domain-First + Release Eng.* | `DockerExecutionWorkspace`, `token_savings_events`, painel `/app/finops` | **Sim** (`readiness` + `design` + `appsec`) | [slice-10](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-10-docker-workspace-token-finops.md) | ⚪ Planejado (Fase 2) |

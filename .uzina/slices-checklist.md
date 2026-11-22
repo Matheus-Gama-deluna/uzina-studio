@@ -61,12 +61,12 @@
 > Blueprint: `docs/especificacao-tecnica-fase-2-v1.0.md` · Decisão: `docs/adr/004-codebase-intelligence-qmd-embeddings-stitch.md`
 > Cada slice: Plan Gate EGM → Contract-First → TDD → Verify Gate sem cache (`TEST_DATABASE_URL`, `0 skipped`) → QA visual → docs → commit/push/PR.
 
-- [ ] **Slice 7 — Motor QMD Híbrido & Embeddings Locais** (`docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md`)
-  - [ ] Contratos `qmd.ts` + chunker por headings + RRF + `EmbeddingProvider` (Tests as Data)
-  - [ ] Tabela `memory_chunks` (FTS + `vector(384)`) em PGlite **e** Postgres + migração
-  - [ ] Provider `multilingual-e5-small` ONNX (checksum) + fallback determinístico offline
-  - [ ] `/api/memories/search`, reindex, UI de busca, `uzina memory search`
-  - [ ] Isolamento multi-tenant + redação de segredos comprovados
+- [x] **Slice 7 — Motor QMD Híbrido & Embeddings Locais** (`docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md`)
+  - [x] Contratos `qmd.ts` + chunker por headings + RRF + `EmbeddingProvider` (Tests as Data)
+  - [x] Tabela `memory_chunks` (FTS + `embedding real[384]`) em PGlite **e** Postgres + migração `0006`
+  - [x] Interface `EmbeddingProvider` + fallback determinístico offline (`deterministic-trigram-384`, extensível para ONNX local)
+  - [x] `/api/memories/search`, `/api/qmd/reindex`, UI de busca em `/app/memories`, `uzina memory search`
+  - [x] Isolamento multi-tenant + redação de segredos comprovados (`421 passed | 0 skipped` + Playwright `2 passed`) (`feat/slice-07-qmd-hybrid-memory`)
 
 - [ ] **Slice 8 — Codebase Intelligence (`@uzina/codebase-intel`)** (`docs/slices/slice-08-codebase-intel-ast-graph-provenance.md`)
   - [ ] Indexador AST incremental (SHA-256) + esqueleto + Context Tree

@@ -25,6 +25,10 @@ import {
   ProjectSchema,
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
+  QmdReindexRequestSchema,
+  QmdReindexResponseSchema,
+  QmdSearchRequestSchema,
+  QmdSearchResponseSchema,
   ResolveDecisionResponseSchema,
   ResolveDecisionSchema,
   RunSecurityScanSchema,
@@ -55,6 +59,8 @@ import {
   mockMemories,
   mockProjects,
   mockProviders,
+  mockQmdReindexResponse,
+  mockQmdSearchResponse,
   mockSecurityScanDetail,
   mockSecurityScans,
   mockWorkflowState,
@@ -726,5 +732,41 @@ export const handlers = [
       status: 200,
       headers: { "content-type": "text/event-stream; charset=utf-8" },
     });
+  }),
+
+  http.post("*/api/memories/search", async ({ request }) => {
+    const parsed = QmdSearchRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      QmdSearchResponseSchema.parse({
+        ...mockQmdSearchResponse,
+        query: parsed.data.query,
+        mode: parsed.data.mode,
+      })
+    );
+  }),
+
+  http.post("*/api/qmd/reindex", async ({ request }) => {
+    const parsed = QmdReindexRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      QmdReindexResponseSchema.parse(mockQmdReindexResponse)
+    );
   }),
 ];

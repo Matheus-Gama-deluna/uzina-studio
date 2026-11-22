@@ -43,6 +43,13 @@
       "when": 1795354258567,
       "tag": "0005_talented_turbo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795382479330,
+      "tag": "0006_natural_obadiah_stane",
+      "breakpoints": true
     }
   ]
 }

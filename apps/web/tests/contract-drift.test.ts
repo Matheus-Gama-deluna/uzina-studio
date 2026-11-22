@@ -15,6 +15,8 @@ import {
   MemorySchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
+  QmdReindexResponseSchema,
+  QmdSearchResponseSchema,
   ResolveDecisionResponseSchema,
   SecurityFindingDTOSchema,
   SecurityScanListResponseSchema,
@@ -39,6 +41,8 @@ import {
   GET as getMemoriesRoute,
   POST as createMemoryRoute,
 } from "../src/app/api/memories/route";
+import { POST as searchMemoriesQmdRoute } from "../src/app/api/memories/search/route";
+import { POST as reindexQmdRoute } from "../src/app/api/qmd/reindex/route";
 import { POST as runBrownfieldScan } from "../src/app/api/projects/[id]/brownfield-scan/route";
 import { GET as getDeliverables, POST as createDeliverable } from "../src/app/api/projects/[id]/deliverables/route";
 import {
@@ -656,6 +660,46 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realPatchMemRes.status).toBe(200);
       MemorySchema.parse(await realPatchMemRes.json());
+
+      const mswQmdSearchRes = await fetch("http://msw.local/api/memories/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "Arquitetura modular", mode: "hybrid" }),
+      });
+      expect(mswQmdSearchRes.status).toBe(200);
+      QmdSearchResponseSchema.parse(await mswQmdSearchRes.json());
+
+      const realQmdSearchRes = await searchMemoriesQmdRoute(
+        new Request("http://localhost:3000/api/memories/search", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            query: "Arquitetura modular",
+            mode: "hybrid",
+            projectId,
+          }),
+        })
+      );
+      expect(realQmdSearchRes.status).toBe(200);
+      QmdSearchResponseSchema.parse(await realQmdSearchRes.json());
+
+      const mswQmdReindexRes = await fetch("http://msw.local/api/qmd/reindex", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ includeDocs: false }),
+      });
+      expect(mswQmdReindexRes.status).toBe(200);
+      QmdReindexResponseSchema.parse(await mswQmdReindexRes.json());
+
+      const realQmdReindexRes = await reindexQmdRoute(
+        new Request("http://localhost:3000/api/qmd/reindex", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ includeDocs: false }),
+        })
+      );
+      expect(realQmdReindexRes.status).toBe(200);
+      QmdReindexResponseSchema.parse(await realQmdReindexRes.json());
 
       const realCopilotRes = await postCopilotChat(
         new Request("http://localhost:3000/api/copilot/chat", {
