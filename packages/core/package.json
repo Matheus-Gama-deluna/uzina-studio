@@ -41,6 +41,10 @@
     "./test-auditor": {
       "types": "./dist/test-auditor.d.ts",
       "import": "./dist/test-auditor.js"
+    },
+    "./qmd": {
+      "types": "./dist/qmd.d.ts",
+      "import": "./dist/qmd.js"
     }
   },
   "scripts": {

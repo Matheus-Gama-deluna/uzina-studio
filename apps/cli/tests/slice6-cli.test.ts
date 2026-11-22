@@ -18,6 +18,7 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
     [["dev", "--port", "3005", "--host", "0.0.0.0", "--dry-run"], "dev"],
     [["doctor", "--json"], "doctor"],
     [["sec", "scan", ".", "--format", "summary"], "sec"],
+    [["memory", "search", "cofre AES", "--mode", "hybrid", "--limit", "3"], "memory:search"],
     [
       [
         "db",
@@ -235,5 +236,26 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
       }
     );
     expect(unverifiedCode).toBe(1);
+
+    // uzina memory search stateless sobre .uzina/ e docs/
+    const qmdRoot = fs.mkdtempSync(path.join(os.tmpdir(), "uzina-cli-qmd-"));
+    tempDirs.push(qmdRoot);
+    fs.mkdirSync(path.join(qmdRoot, "docs"), { recursive: true });
+    fs.writeFileSync(
+      path.join(qmdRoot, "docs", "arquitetura.md"),
+      "# Segurança\nTodas as chaves usam AES-256-GCM e VAULT_WRITE_ROLES.\n"
+    );
+    const memOut: string[] = [];
+    const memCode = await runCli(
+      ["memory", "search", "VAULT_WRITE_ROLES", "--mode", "hybrid", "--root", qmdRoot],
+      { stdout: (line) => memOut.push(line) }
+    );
+    expect(memCode).toBe(0);
+    const memJson = JSON.parse(memOut[0]!) as {
+      totalChunks: number;
+      hits: Array<{ sourcePath: string; snippet: string }>;
+    };
+    expect(memJson.totalChunks).toBeGreaterThanOrEqual(1);
+    expect(memJson.hits[0]?.sourcePath).toBe("docs/arquitetura.md");
   });
 });

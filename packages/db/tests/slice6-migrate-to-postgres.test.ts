@@ -18,6 +18,7 @@ import {
   ensureDefaultOrgAndInternalClient,
   executionEvents,
   memories,
+  memoryChunks,
   migrateDatabaseData,
   organizations,
   projectRepositories,
@@ -153,14 +154,32 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       title: "DESIGN.md",
     });
 
-    await sourceDb.insert(memories).values({
+    const [mem] = await sourceDb
+      .insert(memories)
+      .values({
+        organizationId,
+        scopeType: "org",
+        scopeId: organizationId,
+        category: "architecture",
+        title: "Memória Preservada",
+        content: "Usar Drizzle pg-core em PGlite e Postgres.",
+        sourceDeliverableId: deliverable!.id,
+      })
+      .returning();
+
+    await sourceDb.insert(memoryChunks).values({
       organizationId,
+      sourceType: "memory",
+      memoryId: mem!.id,
       scopeType: "org",
       scopeId: organizationId,
-      category: "architecture",
-      title: "Memória Preservada",
+      headingPath: "Memória Preservada",
+      lineStart: 1,
+      lineEnd: 1,
       content: "Usar Drizzle pg-core em PGlite e Postgres.",
-      sourceDeliverableId: deliverable!.id,
+      contentHash: `hash-${suffix}`,
+      embedding: Array.from({ length: 384 }, (_, idx) => (idx === 0 ? 1 : 0)),
+      embeddingModel: "deterministic-trigram-384",
     });
 
     await sourceDb.insert(decisions).values({

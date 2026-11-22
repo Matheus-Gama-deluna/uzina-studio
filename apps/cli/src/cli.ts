@@ -3,6 +3,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  QmdSearchModeSchema,
+  type QmdSearchMode,
+} from "@uzina/contracts";
+import {
+  assertPathInsideWorkspace,
+  chunkMarkdownByHeadings,
+  computeBm25Scores,
+  cosineSimilarity,
+  createDeterministicEmbeddingProvider,
+  formatQmdSnippet,
+  reciprocalRankFusion,
+  redactSensitiveText,
+} from "@uzina/core";
+import {
   migrateDatabaseData,
   redactDatabaseUrl,
   resolveDataDir,
@@ -46,13 +60,24 @@ const DoctorOptionsSchema = z
   })
   .strict();
 
+const MemorySearchOptionsSchema = z
+  .object({
+    command: z.literal("memory:search"),
+    query: z.string().trim().min(2, "Consulta QMD exige ao menos 2 caracteres."),
+    mode: QmdSearchModeSchema.default("hybrid"),
+    limit: z.number().int().min(1).max(10).default(5),
+    rootDir: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
 export type ParsedCliCommand =
   | { command: "help" }
   | { command: "version" }
   | z.infer<typeof StartDevOptionsSchema>
   | { command: "sec"; args: string[] }
   | z.infer<typeof MigrateOptionsSchema>
-  | z.infer<typeof DoctorOptionsSchema>;
+  | z.infer<typeof DoctorOptionsSchema>
+  | z.infer<typeof MemorySearchOptionsSchema>;
 
 export interface SpawnServerPlan {
   mode: "start" | "dev";
@@ -202,6 +227,51 @@ export function parseCliCommand(argv: string[]): ParsedCliCommand {
     });
   }
 
+  if (first === "memory") {
+    const subcommand = argv[1];
+    if (subcommand !== "search") {
+      throw new Error(
+        `Subcomando 'memory ${subcommand ?? ""}' não suportado. Use: uzina memory search "<consulta>" [--mode hybrid|lexical|vector] [--limit 5]`
+      );
+    }
+
+    let mode: QmdSearchMode = "hybrid";
+    let limit = 5;
+    let rootDir: string | undefined;
+    const queryParts: string[] = [];
+
+    for (let i = 2; i < argv.length; i += 1) {
+      const arg = argv[i]!;
+      if (arg === "--mode") {
+        mode = QmdSearchModeSchema.parse(readNextFlagValue(argv, i, arg));
+        i += 1;
+      } else if (arg === "--limit") {
+        const rawLim = readNextFlagValue(argv, i, arg);
+        const parsedLim = Number(rawLim);
+        if (!Number.isInteger(parsedLim)) {
+          throw new Error(`Limite inválido em --limit: '${rawLim}'.`);
+        }
+        limit = parsedLim;
+        i += 1;
+      } else if (arg === "--root") {
+        rootDir = readNextFlagValue(argv, i, arg);
+        i += 1;
+      } else if (arg.startsWith("--")) {
+        throw new Error(`Flag desconhecida para 'memory search': ${arg}`);
+      } else {
+        queryParts.push(arg);
+      }
+    }
+
+    return MemorySearchOptionsSchema.parse({
+      command: "memory:search",
+      query: queryParts.join(" "),
+      mode,
+      limit,
+      rootDir,
+    });
+  }
+
   throw new Error(`Comando desconhecido: '${first}'. Execute 'uzina --help'.`);
 }
 
@@ -330,6 +400,7 @@ function getHelpText(): string {
     "  uzina start [--port 3000] [--host 127.0.0.1] [--data-dir ./data] [--dry-run]",
     "  uzina dev [--port 3000] [--host 127.0.0.1] [--data-dir ./data] [--dry-run]",
     "  uzina sec <scan [dir] | doctor | install-tools> [...]",
+    "  uzina memory search <consulta> [--mode hybrid|lexical|vector] [--limit 5] [--root <dir>]",
     "  uzina db migrate-to-postgres --from <dataDir> --to <DATABASE_URL> [--dry-run]",
     "  uzina doctor [--json] [--data-dir ./data]",
     "  uzina --version | --help",
@@ -477,6 +548,96 @@ export async function runCli(
     }
 
     return nodeOk ? 0 : 1;
+  }
+
+  if (parsed.command === "memory:search") {
+    const resolvedRoot = path.resolve(parsed.rootDir ?? cwd);
+    const mdFiles: Array<{ relPath: string; absPath: string }> = [];
+    const walkDocs = (dir: string) => {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name.startsWith(".env") || entry.name === ".master-key") continue;
+        const abs = assertPathInsideWorkspace(resolvedRoot, path.join(dir, entry.name));
+        if (entry.isDirectory()) {
+          walkDocs(abs);
+        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+          mdFiles.push({
+            relPath: path.relative(resolvedRoot, abs).replace(/\\/g, "/"),
+            absPath: abs,
+          });
+        }
+      }
+    };
+    for (const sub of [".uzina", "docs"]) {
+      const candidate = path.join(resolvedRoot, sub);
+      if (fs.existsSync(candidate)) {
+        walkDocs(assertPathInsideWorkspace(resolvedRoot, candidate));
+      }
+    }
+
+    const docsChunks = mdFiles.flatMap((file) => {
+      const content = redactSensitiveText(fs.readFileSync(file.absPath, "utf8"));
+      return chunkMarkdownByHeadings(content, {
+        defaultHeading: path.basename(file.relPath, ".md"),
+      }).map((chunk, idx) => ({
+        id: `${file.relPath}:${idx}`,
+        sourcePath: file.relPath,
+        headingPath: chunk.headingPath,
+        lineStart: chunk.lineStart,
+        lineEnd: chunk.lineEnd,
+        content: chunk.content,
+      }));
+    });
+
+    const provider = createDeterministicEmbeddingProvider();
+    const bm25 = computeBm25Scores(
+      parsed.query,
+      docsChunks.map((c) => ({ id: c.id, text: `${c.headingPath} ${c.content}` }))
+    );
+    const queryVec = await provider.embedQuery(parsed.query);
+    const docVecs = await provider.embedDocuments(docsChunks.map((c) => c.content));
+    const vecScores = new Map<string, number>();
+    docsChunks.forEach((c, idx) => {
+      vecScores.set(c.id, Math.max(0, cosineSimilarity(queryVec, docVecs[idx]!)));
+    });
+
+    const ranked =
+      parsed.mode === "lexical"
+        ? reciprocalRankFusion([docsChunks.map((c) => ({ id: c.id, score: bm25.get(c.id) ?? 0 }))])
+        : parsed.mode === "vector"
+          ? reciprocalRankFusion([docsChunks.map((c) => ({ id: c.id, score: vecScores.get(c.id) ?? 0 }))])
+          : reciprocalRankFusion([
+              docsChunks.map((c) => ({ id: c.id, score: bm25.get(c.id) ?? 0 })),
+              docsChunks.map((c) => ({ id: c.id, score: vecScores.get(c.id) ?? 0 })),
+            ]);
+
+    const byId = new Map(docsChunks.map((c) => [c.id, c]));
+    const hits = ranked.slice(0, parsed.limit).map((r) => {
+      const chunk = byId.get(r.id)!;
+      return {
+        sourcePath: chunk.sourcePath,
+        headingPath: chunk.headingPath,
+        lineStart: chunk.lineStart,
+        lineEnd: chunk.lineEnd,
+        snippet: formatQmdSnippet(chunk.content),
+        rrf: r.rrf,
+      };
+    });
+
+    stdout(
+      JSON.stringify(
+        {
+          query: parsed.query,
+          mode: parsed.mode,
+          embeddingModel: provider.id,
+          totalChunks: docsChunks.length,
+          hits,
+        },
+        null,
+        2
+      )
+    );
+    return 0;
   }
 
   return 1;

@@ -9,6 +9,8 @@ import {
   MemoryListResponseSchema,
   ProjectListResponseSchema,
   ProviderProfileListResponseSchema,
+  QmdReindexResponseSchema,
+  QmdSearchResponseSchema,
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
 } from "@uzina/contracts";
@@ -439,4 +441,43 @@ export const mockMemories = MemoryListResponseSchema.parse({
       updatedAt: NOW,
     },
   ],
+});
+
+export const mockQmdSearchResponse = QmdSearchResponseSchema.parse({
+  query: "Zod strict",
+  mode: "hybrid",
+  embeddingModel: "deterministic-trigram-384",
+  degraded: true,
+  totalCandidates: 2,
+  contextTree: [
+    {
+      directory: "memories/org",
+      summary: "Contratos Zod Strict em Todas as Rotas",
+      chunkCount: 1,
+    },
+  ],
+  hits: [
+    {
+      id: "95000000-0000-4000-8000-000000000001",
+      sourceType: "memory",
+      memoryId: MOCK_MEMORY_ID,
+      sourcePath: null,
+      scopeType: "org",
+      scopeId: MOCK_ORG_ID,
+      headingPath: "Contratos Zod Strict em Todas as Rotas",
+      lineStart: 1,
+      lineEnd: 2,
+      snippet:
+        "Payloads externos devem sempre usar schemas .strict() de @uzina/contracts.",
+      scores: { bm25: 2.1, vector: 0.85, rrf: 0.032787 },
+    },
+  ],
+});
+
+export const mockQmdReindexResponse = QmdReindexResponseSchema.parse({
+  indexedMemories: 2,
+  indexedDocFiles: 4,
+  totalChunks: 12,
+  embeddingModel: "deterministic-trigram-384",
+  degraded: true,
 });

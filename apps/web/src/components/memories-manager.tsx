@@ -8,6 +8,9 @@ import type {
   MemoryListResponse,
   MemoryScope,
   ProjectListResponse,
+  QmdReindexResponse,
+  QmdSearchMode,
+  QmdSearchResponse,
 } from "@uzina/contracts";
 import {
   AlertCircle,
@@ -16,6 +19,8 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Search,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
@@ -77,6 +82,10 @@ export function MemoriesManager() {
   const [newContent, setNewContent] = useState("");
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackOk, setFeedbackOk] = useState<string | null>(null);
+
+  const [qmdQuery, setQmdQuery] = useState("");
+  const [qmdMode, setQmdMode] = useState<QmdSearchMode>("hybrid");
+  const [qmdResult, setQmdResult] = useState<QmdSearchResponse | null>(null);
 
   const clientsQuery = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
   const projectsQuery = useQuery({
@@ -180,6 +189,57 @@ export function MemoriesManager() {
       setFeedbackError(err.message);
     },
   });
+
+  const qmdSearchMutation = useMutation({
+    mutationFn: async (payload: { query: string; mode: QmdSearchMode }) => {
+      const res = await fetch("/api/memories/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await res.json()) as QmdSearchResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Falha na busca híbrida QMD.");
+      return body;
+    },
+    onSuccess: (data) => {
+      setFeedbackError(null);
+      setQmdResult(data);
+    },
+    onError: (err: Error) => {
+      setFeedbackError(err.message);
+    },
+  });
+
+  const qmdReindexMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/qmd/reindex", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ includeDocs: true, force: false }),
+      });
+      const body = (await res.json()) as QmdReindexResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Falha ao reindexar QMD.");
+      return body;
+    },
+    onSuccess: (data) => {
+      setFeedbackError(null);
+      setFeedbackOk(
+        `Índice QMD atualizado: ${data.totalChunks} chunk(s) (${data.indexedMemories} memórias, ${data.indexedDocFiles} arquivos .md).`
+      );
+    },
+    onError: (err: Error) => {
+      setFeedbackError(err.message);
+    },
+  });
+
+  function handleQmdSearch(e: FormEvent) {
+    e.preventDefault();
+    if (qmdQuery.trim().length < 2) {
+      setFeedbackError("Digite ao menos 2 caracteres para buscar no QMD.");
+      return;
+    }
+    qmdSearchMutation.mutate({ query: qmdQuery.trim(), mode: qmdMode });
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -373,6 +433,127 @@ export function MemoriesManager() {
           <span>{feedbackOk}</span>
         </div>
       )}
+
+      <section className="space-y-3 rounded-lg border border-border-subtle bg-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-medium text-fg-primary">
+              <Sparkles className="size-3.5 text-accent" strokeWidth={1.75} />
+              <span>Busca Híbrida QMD (BM25 + Vetor 384d + RRF)</span>
+            </div>
+            <p className="text-[11px] text-fg-secondary">
+              Consulta bilíngue PT-BR / EN sobre memórias e documentos Markdown
+              indexados (`.uzina/`, `docs/`).
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="qmd-reindex-btn"
+            disabled={qmdReindexMutation.isPending}
+            onClick={() => qmdReindexMutation.mutate()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-inset px-3 py-1.5 text-xs font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+          >
+            {qmdReindexMutation.isPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
+            <span>Reindexar Docs &amp; Memórias</span>
+          </button>
+        </div>
+
+        <form onSubmit={handleQmdSearch} className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            data-testid="qmd-search-input"
+            value={qmdQuery}
+            onChange={(e) => setQmdQuery(e.target.value)}
+            placeholder="Buscar regra, decisão ou identificador (ex.: VAULT_WRITE_ROLES, isolamento de clientes)..."
+            aria-label="Consulta QMD"
+            className="min-w-[240px] flex-1 rounded-md border border-border-default bg-inset px-3 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
+          />
+          <select
+            data-testid="qmd-search-mode"
+            aria-label="Modo de busca QMD"
+            value={qmdMode}
+            onChange={(e) => setQmdMode(e.target.value as QmdSearchMode)}
+            className="rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-xs text-fg-secondary focus:border-accent focus:outline-none"
+          >
+            <option value="hybrid">Híbrido (RRF)</option>
+            <option value="lexical">Léxico (BM25)</option>
+            <option value="vector">Semântico (384d)</option>
+          </select>
+          <button
+            type="submit"
+            data-testid="qmd-search-submit"
+            disabled={qmdSearchMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-base transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {qmdSearchMutation.isPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Search className="size-3.5" />
+            )}
+            <span>Buscar QMD</span>
+          </button>
+        </form>
+
+        {qmdResult && (
+          <div className="space-y-2.5 border-t border-border-subtle pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-fg-muted">
+              <span className="font-mono tabular-nums">
+                {qmdResult.hits.length} resultado(s) de {qmdResult.totalCandidates}{" "}
+                chunks · modelo: {qmdResult.embeddingModel}
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {qmdResult.contextTree.map((node) => (
+                  <span
+                    key={node.directory}
+                    className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-[10px] text-fg-secondary tabular-nums"
+                  >
+                    {node.directory} ({node.chunkCount})
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {qmdResult.hits.length === 0 ? (
+              <p className="text-xs text-fg-secondary">
+                Nenhum trecho relevante encontrado no índice QMD.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {qmdResult.hits.map((hit) => (
+                  <div
+                    key={hit.id}
+                    data-testid="qmd-hit-card"
+                    className="rounded-md border border-border-subtle bg-inset p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-fg-primary">
+                        {hit.headingPath}
+                      </span>
+                      <span className="font-mono text-[10px] text-accent tabular-nums">
+                        RRF {hit.scores.rrf.toFixed(4)} · BM25{" "}
+                        {hit.scores.bm25.toFixed(2)} · Vec{" "}
+                        {hit.scores.vector.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="mt-1 font-mono text-[10px] text-fg-muted tabular-nums">
+                      {hit.sourcePath
+                        ? `${hit.sourcePath}#L${hit.lineStart}-L${hit.lineEnd}`
+                        : `memory:${hit.scopeType}#L${hit.lineStart}-L${hit.lineEnd}`}
+                    </p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-fg-secondary">
+                      {hit.snippet}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1.5">
