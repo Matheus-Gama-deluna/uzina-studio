@@ -462,6 +462,13 @@ export function ProjectStudio({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/app/projects/${projectId}/code`}
+            className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-surface px-2.5 py-1 text-xs font-medium text-fg-secondary transition-colors hover:border-border-default hover:text-fg-primary"
+          >
+            <FileCode2 className="size-3.5" strokeWidth={1.75} />
+            <span>Mapa do Código</span>
+          </Link>
           {activeProject && (
             <span className="rounded border border-border-subtle bg-inset px-2.5 py-1 font-mono text-[11px] text-fg-secondary tabular-nums">
               Maturidade {activeProject.maturityScore ?? "—"} / 100

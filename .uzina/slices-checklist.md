@@ -68,11 +68,11 @@
   - [x] `/api/memories/search`, `/api/qmd/reindex`, UI de busca em `/app/memories`, `uzina memory search`
   - [x] Isolamento multi-tenant + redação de segredos comprovados (`421 passed | 0 skipped` + Playwright `2 passed`) (`feat/slice-07-qmd-hybrid-memory`)
 
-- [ ] **Slice 8 — Codebase Intelligence (`@uzina/codebase-intel`)** (`docs/slices/slice-08-codebase-intel-ast-graph-provenance.md`)
-  - [ ] Indexador AST incremental (SHA-256) + esqueleto + Context Tree
-  - [ ] Tabelas `codebase_*` e `decision_provenance` + hooks `stage_build`/`stage_finalize`
-  - [ ] 5 tools somente leitura (Co-piloto/OpenCode) + adaptadores opcionais com degradação
-  - [ ] Redução de tokens ≥ 80% medida em fixture
+- [x] **Slice 8 — Codebase Intelligence (`@uzina/codebase-intel`)** (`docs/slices/slice-08-codebase-intel-ast-graph-provenance.md`)
+  - [x] Indexador AST incremental (SHA-256) + esqueleto + Context Tree
+  - [x] Tabelas `codebase_*` e `decision_provenance` + hooks `stage_finalize` (`0007_peaceful_grandmaster.sql`)
+  - [x] Consultas somente leitura (`/api/projects/[id]/codebase*`) + adaptadores opcionais com degradação `skipped_missing_binary`
+  - [x] Redução de tokens ≥ 80% medida em fixture e QA visual em `/app/projects/[id]/code` (`444 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-08-codebase-intel`)
 
 - [ ] **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch** (`docs/slices/slice-09-visual-studio-3levels-google-stitch.md`)
   - [ ] `DesignPrototypeAdapter` + sanitizador HTML + extrator de tokens W3C

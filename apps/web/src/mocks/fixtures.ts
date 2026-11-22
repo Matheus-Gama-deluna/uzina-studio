@@ -1,7 +1,12 @@
 import {
   BrownfieldMapSchema,
   ClientListResponseSchema,
+  CodebaseReindexResponseSchema,
+  CodebaseTreeResponseSchema,
   DecisionListResponseSchema,
+  ProvenanceListResponseSchema,
+  SymbolGraphResponseSchema,
+  SymbolSliceResponseSchema,
   DeliverableListResponseSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
@@ -480,4 +485,122 @@ export const mockQmdReindexResponse = QmdReindexResponseSchema.parse({
   totalChunks: 12,
   embeddingModel: "deterministic-trigram-384",
   degraded: true,
+});
+
+export const mockCodebaseTreeResponse = CodebaseTreeResponseSchema.parse({
+  projectId: MOCK_PROJECT_ID,
+  repositoryId: MOCK_REPO_ID,
+  filesCount: 2,
+  symbolsCount: 2,
+  edgesCount: 1,
+  directories: [
+    {
+      directory: "src/services",
+      fileCount: 1,
+      summary: "1 arquivo(s) (function) — createDeliverable",
+    },
+    {
+      directory: "src/app",
+      fileCount: 1,
+      summary: "1 arquivo(s) (route) — POST",
+    },
+  ],
+  skeleton: {
+    repositoryId: MOCK_REPO_ID,
+    entriesCount: 2,
+    skeletonText:
+      "# src/services/deliverables.ts\n  [function] export async function createDeliverable(input: unknown) (src/services/deliverables.ts#L1-L20)",
+    tokensEstimated: 32,
+    baselineTokens: 280,
+    savingsPercent: 88.6,
+    maxTokensBudget: 2000,
+  },
+  adapters: [
+    {
+      adapter: "qmd",
+      status: "ok",
+      version: "builtin-slice-7",
+      detail: "Motor híbrido QMD nativo integrado.",
+    },
+    {
+      adapter: "repomix",
+      status: "skipped_missing_binary",
+      version: null,
+      detail: "Binário 'repomix' ausente; fallback AST nativo ativo.",
+    },
+    {
+      adapter: "ast_grep",
+      status: "skipped_missing_binary",
+      version: null,
+      detail: "Binário 'sg' ausente; fallback AST nativo ativo.",
+    },
+    {
+      adapter: "codebase_memory_mcp",
+      status: "skipped_missing_binary",
+      version: null,
+      detail: "Binário 'codebase-memory-mcp' ausente; fallback AST nativo ativo.",
+    },
+  ],
+});
+
+export const mockCodebaseReindexResponse = CodebaseReindexResponseSchema.parse({
+  projectId: MOCK_PROJECT_ID,
+  repositoryId: MOCK_REPO_ID,
+  indexedFiles: 2,
+  skippedUnchangedFiles: 0,
+  removedFiles: 0,
+  totalSymbols: 2,
+  totalEdges: 1,
+  tokensBaseline: 280,
+  tokensSkeleton: 32,
+  savingsPercent: 88.6,
+});
+
+export const mockSymbolGraphResponse = SymbolGraphResponseSchema.parse({
+  query: "createDeliverable",
+  nodes: [
+    {
+      id: "96000000-0000-4000-8000-000000000001",
+      fileId: "97000000-0000-4000-8000-000000000001",
+      filePath: "src/services/deliverables.ts",
+      kind: "function",
+      name: "createDeliverable",
+      signature: "export async function createDeliverable(input: unknown)",
+      lineStart: 1,
+      lineEnd: 20,
+      exported: true,
+      citation: "src/services/deliverables.ts#L1-L20",
+    },
+  ],
+  edges: [],
+  tokensEstimated: 18,
+});
+
+export const mockSymbolSliceResponse = SymbolSliceResponseSchema.parse({
+  path: "src/services/deliverables.ts",
+  symbol: "createDeliverable",
+  kind: "function",
+  lineStart: 1,
+  lineEnd: 20,
+  citation: "src/services/deliverables.ts#L1-L20",
+  code: "export async function createDeliverable(input: unknown) {\n  return { ok: true };\n}",
+  tokensEstimated: 20,
+  baselineFileTokens: 200,
+  savingsPercent: 90,
+});
+
+export const mockProvenanceListResponse = ProvenanceListResponseSchema.parse({
+  projectId: MOCK_PROJECT_ID,
+  entries: [
+    {
+      id: "98000000-0000-4000-8000-000000000001",
+      organizationId: MOCK_ORG_ID,
+      deliverableId: MOCK_DELIVERABLE_ID,
+      decisionId: null,
+      memoryId: MOCK_MEMORY_ID,
+      symbolId: "96000000-0000-4000-8000-000000000001",
+      filePath: "src/services/deliverables.ts",
+      createdAt: NOW,
+    },
+  ],
 });

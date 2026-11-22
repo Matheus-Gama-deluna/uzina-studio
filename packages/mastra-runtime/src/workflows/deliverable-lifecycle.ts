@@ -77,6 +77,7 @@ import {
   formatMemoriesForPrompt,
   resolveHierarchicalMemories,
 } from "../memories.js";
+import { recordDeliverableProvenance } from "../codebase.js";
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -3085,15 +3086,49 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         })
         .where(eq(deliverables.id, row.id));
 
-      await db.insert(memories).values({
+      const [insertedMemory] = await db
+        .insert(memories)
+        .values({
+          organizationId: currentState.organizationId,
+          scopeType: "project",
+          scopeId: row.projectId,
+          category: "architecture",
+          title: `Entrega concluída: ${row.title}`,
+          content: `Finalizada via ${outcome.mode} (${worktreeHandle.branchName}). ${updatedPack?.verifierNotes ?? ""}`.trim(),
+          sourceDeliverableId: row.id,
+        })
+        .returning();
+
+      const [latestApprovedDecision] = await db
+        .select({ id: decisions.id })
+        .from(decisions)
+        .where(
+          and(
+            eq(decisions.deliverableId, row.id),
+            eq(decisions.status, "approved")
+          )
+        )
+        .orderBy(desc(decisions.resolvedAt))
+        .limit(1);
+
+      const provenancePaths = [
+        ...(inputData.contractTestFiles ?? []),
+        ...(updatedPack?.diffSummary?.preview
+          ? parseChangedFilesFromDiff(updatedPack.diffSummary.preview)
+          : []),
+      ];
+
+      await recordDeliverableProvenance(db, {
         organizationId: currentState.organizationId,
-        scopeType: "project",
-        scopeId: row.projectId,
-        category: "architecture",
-        title: `Entrega concluída: ${row.title}`,
-        content: `Finalizada via ${outcome.mode} (${worktreeHandle.branchName}). ${updatedPack?.verifierNotes ?? ""}`.trim(),
-        sourceDeliverableId: row.id,
-      });
+        deliverableId: row.id,
+        repositoryId: row.repositoryId,
+        decisionId: latestApprovedDecision?.id ?? null,
+        memoryId: insertedMemory?.id ?? null,
+        filePaths:
+          provenancePaths.length > 0
+            ? provenancePaths
+            : [`deliverable:${row.id}`],
+      }).catch(() => undefined);
 
       const nextHistory = appendStageHistory(
         currentState.stageHistory,

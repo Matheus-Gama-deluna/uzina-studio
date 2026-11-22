@@ -5,7 +5,11 @@ import {
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
+  CodebaseReindexResponseSchema,
+  CodebaseTreeResponseSchema,
   DecisionListResponseSchema,
+  ProvenanceListResponseSchema,
+  SymbolGraphResponseSchema,
   DeliverableListResponseSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
@@ -44,6 +48,10 @@ import {
 import { POST as searchMemoriesQmdRoute } from "../src/app/api/memories/search/route";
 import { POST as reindexQmdRoute } from "../src/app/api/qmd/reindex/route";
 import { POST as runBrownfieldScan } from "../src/app/api/projects/[id]/brownfield-scan/route";
+import { GET as getCodebaseProvenanceRoute } from "../src/app/api/projects/[id]/codebase/provenance/route";
+import { POST as reindexCodebaseRoute } from "../src/app/api/projects/[id]/codebase/reindex/route";
+import { GET as getCodebaseRoute } from "../src/app/api/projects/[id]/codebase/route";
+import { POST as queryCodebaseSymbolsRoute } from "../src/app/api/projects/[id]/codebase/symbols/route";
 import { GET as getDeliverables, POST as createDeliverable } from "../src/app/api/projects/[id]/deliverables/route";
 import {
   DELETE as deleteDesignAsset,
@@ -728,6 +736,70 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       expect(
         (await realDeleteMemRes.json()) as { deleted: boolean }
       ).toMatchObject({ deleted: true });
+
+      const mswCbTree = await fetch(
+        `http://msw.local/api/projects/${projectId}/codebase`
+      );
+      expect(mswCbTree.status).toBe(200);
+      CodebaseTreeResponseSchema.parse(await mswCbTree.json());
+
+      const realCbReindex = await reindexCodebaseRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/codebase/reindex`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({}),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realCbReindex.status).toBe(200);
+      CodebaseReindexResponseSchema.parse(await realCbReindex.json());
+
+      const realCbTree = await getCodebaseRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/codebase`, {
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realCbTree.status).toBe(200);
+      CodebaseTreeResponseSchema.parse(await realCbTree.json());
+
+      const mswCbSymbols = await fetch(
+        `http://msw.local/api/projects/${projectId}/codebase/symbols`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ symbol: "createDeliverable" }),
+        }
+      );
+      expect(mswCbSymbols.status).toBe(200);
+      SymbolGraphResponseSchema.parse(await mswCbSymbols.json());
+
+      const realCbSymbols = await queryCodebaseSymbolsRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/codebase/symbols`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ symbol: "hello" }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realCbSymbols.status).toBe(200);
+      SymbolGraphResponseSchema.parse(await realCbSymbols.json());
+
+      const mswCbProv = await fetch(
+        `http://msw.local/api/projects/${projectId}/codebase/provenance`
+      );
+      expect(mswCbProv.status).toBe(200);
+      ProvenanceListResponseSchema.parse(await mswCbProv.json());
+
+      const realCbProv = await getCodebaseProvenanceRoute(
+        new Request(
+          `http://localhost:3000/api/projects/${projectId}/codebase/provenance`,
+          { headers: { cookie } }
+        ),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realCbProv.status).toBe(200);
+      ProvenanceListResponseSchema.parse(await realCbProv.json());
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

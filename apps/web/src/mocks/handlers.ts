@@ -3,6 +3,9 @@ import {
   BrownfieldMapSchema,
   ClientListResponseSchema,
   ClientSchema,
+  CodebaseReindexRequestSchema,
+  CodebaseReindexResponseSchema,
+  CodebaseTreeResponseSchema,
   CopilotChatRequestSchema,
   CreateClientSchema,
   CreateDeliverableSchema,
@@ -25,6 +28,7 @@ import {
   ProjectSchema,
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
+  ProvenanceListResponseSchema,
   QmdReindexRequestSchema,
   QmdReindexResponseSchema,
   QmdSearchRequestSchema,
@@ -35,6 +39,10 @@ import {
   SecurityFindingDTOSchema,
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
+  SymbolGraphQuerySchema,
+  SymbolGraphResponseSchema,
+  SymbolSliceRequestSchema,
+  SymbolSliceResponseSchema,
   UpdateDesignAssetSchema,
   UpdateFindingTriageSchema,
   UpdateMemorySchema,
@@ -52,17 +60,22 @@ import {
   MOCK_SCAN_ID,
   mockBrownfieldMap,
   mockClients,
+  mockCodebaseReindexResponse,
+  mockCodebaseTreeResponse,
   mockDecisions,
   mockDeliverables,
   mockDesignAssets,
   mockExecutionEvents,
   mockMemories,
   mockProjects,
+  mockProvenanceListResponse,
   mockProviders,
   mockQmdReindexResponse,
   mockQmdSearchResponse,
   mockSecurityScanDetail,
   mockSecurityScans,
+  mockSymbolGraphResponse,
+  mockSymbolSliceResponse,
   mockWorkflowState,
 } from "./fixtures";
 
@@ -767,6 +780,87 @@ export const handlers = [
     }
     return HttpResponse.json(
       QmdReindexResponseSchema.parse(mockQmdReindexResponse)
+    );
+  }),
+
+  http.get("*/api/projects/:id/codebase", ({ params }) => {
+    return HttpResponse.json(
+      CodebaseTreeResponseSchema.parse({
+        ...mockCodebaseTreeResponse,
+        projectId: String(params.id ?? mockCodebaseTreeResponse.projectId),
+      })
+    );
+  }),
+
+  http.post("*/api/projects/:id/codebase/reindex", async ({ request, params }) => {
+    const text = await request.text();
+    const body = text.trim() ? JSON.parse(text) : {};
+    const parsed = CodebaseReindexRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      CodebaseReindexResponseSchema.parse({
+        ...mockCodebaseReindexResponse,
+        projectId: String(params.id ?? mockCodebaseReindexResponse.projectId),
+      })
+    );
+  }),
+
+  http.post("*/api/projects/:id/codebase/symbols", async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    if (body && body.mode === "slice") {
+      const rest = { ...body };
+      delete rest.mode;
+      const parsedSlice = SymbolSliceRequestSchema.safeParse(rest);
+      if (!parsedSlice.success) {
+        return HttpResponse.json(
+          ApiErrorSchema.parse({
+            error: parsedSlice.error.issues[0]?.message ?? "Payload inválido",
+            code: "VALIDATION_ERROR",
+          }),
+          { status: 400 }
+        );
+      }
+      return HttpResponse.json(
+        SymbolSliceResponseSchema.parse({
+          ...mockSymbolSliceResponse,
+          path: parsedSlice.data.path,
+          symbol: parsedSlice.data.symbol,
+        })
+      );
+    }
+
+    const parsedGraph = SymbolGraphQuerySchema.safeParse(body);
+    if (!parsedGraph.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsedGraph.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      SymbolGraphResponseSchema.parse({
+        ...mockSymbolGraphResponse,
+        query: parsedGraph.data.symbol,
+      })
+    );
+  }),
+
+  http.get("*/api/projects/:id/codebase/provenance", ({ params }) => {
+    return HttpResponse.json(
+      ProvenanceListResponseSchema.parse({
+        ...mockProvenanceListResponse,
+        projectId: String(params.id ?? mockProvenanceListResponse.projectId),
+      })
     );
   }),
 ];
