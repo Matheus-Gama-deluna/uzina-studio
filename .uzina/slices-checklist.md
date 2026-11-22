@@ -74,10 +74,10 @@
   - [x] Consultas somente leitura (`/api/projects/[id]/codebase*`) + adaptadores opcionais com degradação `skipped_missing_binary`
   - [x] Redução de tokens ≥ 80% medida em fixture e QA visual em `/app/projects/[id]/code` (`444 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-08-codebase-intel`)
 
-- [ ] **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch** (`docs/slices/slice-09-visual-studio-3levels-google-stitch.md`)
-  - [ ] `DesignPrototypeAdapter` + sanitizador HTML + extrator de tokens W3C
-  - [ ] Conector Stitch (MCP stdio + importação) com credencial no Cofre
-  - [ ] Preview sandboxed (CSP + `iframe sandbox`) + gate `prototype_approve` + handoff `.uzina/prototypes/`
+- [x] **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch** (`docs/slices/slice-09-visual-studio-3levels-google-stitch.md`)
+  - [x] `DesignPrototypeAdapter` + sanitizador HTML anti-XSS + extrator de tokens W3C (`@uzina/core/prototypes`)
+  - [x] Conector Stitch (MCP stdio `shell: false` + importação HTML/Tailwind com `413` > 2 MiB)
+  - [x] Preview sandboxed (`CSP default-src 'none'` + `<iframe sandbox="">`) + aprovação/handoff `.uzina/prototypes/` (`464 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-09-visual-studio-stitch`)
 
 - [ ] **Slice 10 — Docker Workspace & FinOps de Tokens** (`docs/slices/slice-10-docker-workspace-token-finops.md`)
   - [ ] `DockerExecutionWorkspace` (hardening + limpeza) com suíte de contrato compartilhada

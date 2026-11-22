@@ -45,6 +45,10 @@
     "./qmd": {
       "types": "./dist/qmd.d.ts",
       "import": "./dist/qmd.js"
+    },
+    "./prototypes": {
+      "types": "./dist/prototypes.d.ts",
+      "import": "./dist/prototypes.js"
     }
   },
   "scripts": {

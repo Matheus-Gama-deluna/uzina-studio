@@ -12,6 +12,7 @@ import {
   CreateDesignAssetReferenceSchema,
   CreateMemorySchema,
   CreateProjectSchema,
+  CreatePrototypeRequestSchema,
   CreateProviderProfileSchema,
   DecisionListResponseSchema,
   DeliverableListResponseSchema,
@@ -19,6 +20,8 @@ import {
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
   DesignAssetSchema,
+  DesignPrototypeListResponseSchema,
+  DesignPrototypeSchema,
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
   IngestSecurityScanSchema,
@@ -39,6 +42,8 @@ import {
   SecurityFindingDTOSchema,
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
+  StitchMcpSyncRequestSchema,
+  StitchMcpSyncResponseSchema,
   SymbolGraphQuerySchema,
   SymbolGraphResponseSchema,
   SymbolSliceRequestSchema,
@@ -46,6 +51,7 @@ import {
   UpdateDesignAssetSchema,
   UpdateFindingTriageSchema,
   UpdateMemorySchema,
+  UpdatePrototypeApprovalSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
 } from "@uzina/contracts";
@@ -65,6 +71,7 @@ import {
   mockDecisions,
   mockDeliverables,
   mockDesignAssets,
+  mockDesignPrototypes,
   mockExecutionEvents,
   mockMemories,
   mockProjects,
@@ -74,6 +81,7 @@ import {
   mockQmdSearchResponse,
   mockSecurityScanDetail,
   mockSecurityScans,
+  mockStitchSyncResponse,
   mockSymbolGraphResponse,
   mockSymbolSliceResponse,
   mockWorkflowState,
@@ -862,5 +870,94 @@ export const handlers = [
         projectId: String(params.id ?? mockProvenanceListResponse.projectId),
       })
     );
+  }),
+
+  http.get("*/api/projects/:id/prototypes", () => {
+    return HttpResponse.json(
+      DesignPrototypeListResponseSchema.parse(mockDesignPrototypes)
+    );
+  }),
+
+  http.post("*/api/projects/:id/prototypes", async ({ request, params }) => {
+    const parsed = CreatePrototypeRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const base = mockDesignPrototypes.items[0]!;
+    return HttpResponse.json(
+      DesignPrototypeSchema.parse({
+        ...base,
+        projectId: String(params.id ?? base.projectId),
+        level: parsed.data.level,
+        source: parsed.data.source,
+        title: parsed.data.title,
+      }),
+      { status: 201 }
+    );
+  }),
+
+  http.patch(
+    "*/api/projects/:id/prototypes/:prototypeId",
+    async ({ request, params }) => {
+      const parsed = UpdatePrototypeApprovalSchema.safeParse(
+        await request.json()
+      );
+      if (!parsed.success) {
+        return HttpResponse.json(
+          ApiErrorSchema.parse({
+            error: parsed.error.issues[0]?.message ?? "Payload inválido",
+            code: "VALIDATION_ERROR",
+          }),
+          { status: 400 }
+        );
+      }
+      const base = mockDesignPrototypes.items[0]!;
+      return HttpResponse.json(
+        DesignPrototypeSchema.parse({
+          ...base,
+          id: String(params.prototypeId ?? base.id),
+          projectId: String(params.id ?? base.projectId),
+          approved: parsed.data.approved,
+          handoffPath: parsed.data.approved
+            ? `.uzina/prototypes/${String(params.prototypeId ?? base.id)}`
+            : null,
+        })
+      );
+    }
+  ),
+
+  http.post("*/api/projects/:id/prototypes/stitch", async ({ request }) => {
+    const text = await request.text();
+    const body = text.trim() ? JSON.parse(text) : {};
+    const parsed = StitchMcpSyncRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      StitchMcpSyncResponseSchema.parse(mockStitchSyncResponse)
+    );
+  }),
+
+  http.get("*/api/prototypes/:id/preview", () => {
+    return new HttpResponse("<main><h1>Preview Mock</h1></main>", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy":
+          "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data: https:;",
+      },
+    });
   }),
 ];

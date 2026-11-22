@@ -175,3 +175,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Revalidação final pós-ajuste Mobile de `project-codebase-map.tsx`: `typecheck`, `lint`, `next build`, `vitest run` (`26 passed`) e `test:e2e` (`2 passed (11.7s)`).
   * `browser` (`flash`): **PASS** em `/app/projects/[id]/code` (Desktop Dark/Light `1440×900` e Mobile `390×844` após correção de overflow horizontal, `0` erros de console, `0` HTTP `>= 500`, `0` overflow).
 * **Próximo passo:** Abertura/merge de PR e início do **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch**.
+
+---
+
+## 2026-11-22 — Slice 9: Estúdio Visual 3 Níveis & Google Stitch (`feat/slice-09-visual-studio-stitch`)
+
+* **Entregue:**
+  * `@uzina/contracts`: `src/prototypes.ts` + `"prototype_approve"` em `DecisionTypeSchema`/`WorkflowGateTypeSchema` (`146/146` testes).
+  * `@uzina/core`: `src/prototypes.ts` (exportado em `@uzina/core/prototypes`) com `sanitizePrototypeHtml`, `extractW3CDesignTokens`, `generateMermaidWireframeFromSpec`, `renderTokensToDesignMdSection` (`149/149` testes).
+  * `@uzina/db`: tabela #22 `design_prototypes` (`src/schema/prototypes.ts`), migração `0008_old_marvex.sql` e inclusão em `MIGRATION_TABLE_ORDER` (`38 passed | 0 skipped` em PostgreSQL 16 + `pgvector` live).
+  * `@uzina/mastra-runtime`: `src/prototypes.ts` (armazenamento em `${UZINA_DATA_DIR}/uploads/prototypes/`, cliente Stitch MCP stdio via `execFile` `shell: false`, aprovação + handoff `.uzina/prototypes/<id>/` + sync `DESIGN.md`) (`19/19` testes).
+  * `@uzina/web`: 4 rotas REST (`/api/projects/[id]/prototypes*` + `/api/prototypes/[id]/preview` com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data: https:;`), MSW + `contract-drift.test.ts` e `StitchPrototypesPanel` no Estúdio Visual (`27/27` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `pnpm turbo run build --force` (`9/9` pacotes), `node scripts/audit-tests.mjs` (`58 arquivos, 183 testes, 0 violações`).
+  * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` no PostgreSQL 16 + `pgvector` live: **`34/34` tasks**, **`464 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (11.9s)`**.
+  * `browser` (`flash`): **PASS** em `/app/projects/[id]/studio` (importação HTML com `<script>` neutralizado, tokens W3C, `<iframe sandbox="">`, aprovação/handoff, degradação graciosa de Stitch MCP, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
+* **Próximo passo:** Abertura/merge de PR e início do **Slice 10 — `DockerExecutionWorkspace` & FinOps de Tokens**.
