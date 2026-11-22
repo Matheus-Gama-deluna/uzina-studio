@@ -49,7 +49,7 @@
   - [x] Teste comprovando bloqueio de escrita de código e shell no Co-piloto
   - [x] CRUD e injeção automática de `memories` (`org | client | project`) com isolamento comprovado entre clientes — Verify Gate `380 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações), `browser` QA **PASS** (`feat/slice-05-copilot-memories`)
 
-- [ ] **Slice 6 — Empacotamento, Migração & Release (`npx` + Docker)** (*Marco Fase 1 Completa*)
-  - [ ] `apps/cli` (`uzina start`, `uzina dev`, `uzina sec scan`, `uzina db migrate-to-postgres`)
-  - [ ] `Dockerfile` multi-stage (com os 4 scanners pré-instalados) + `docker-compose.yml`
-  - [ ] GitHub Actions (GHCR + npm) + suíte Playwright E2E completa
+- [x] **Slice 6 — Empacotamento, Migração & Release (`npx` + Docker)** (*Marco Fase 1 Completa*)
+  - [x] `apps/cli` (`uzina start`, `uzina dev`, `uzina sec`, `uzina db migrate-to-postgres`, `uzina doctor`) + motor idempotente `migrateDatabaseData` em `@uzina/db` (`16` tabelas em ordem topológica)
+  - [x] `Dockerfile` multi-stage (com os 4 scanners pré-instalados) + `docker-compose.yml` (`UZINA_STANDALONE=1` validado)
+  - [x] GitHub Actions (`ci.yml` + `release.yml` GHCR + npm) + suíte Playwright E2E (`2 passed`) — Verify Gate `400 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações) (`feat/slice-06-packaging-release`)

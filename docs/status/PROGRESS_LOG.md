@@ -112,3 +112,19 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Verify Gate sem cache: `pnpm turbo run build --force` (**7/7**, 0 warnings Turbopack) + `node scripts/audit-tests.mjs` (**41 arquivos, 147 testes, 0 violações**) + `pnpm turbo run typecheck lint test --force` (**27/27 tasks**, **380 passed | 1 skipped** `postgres-live.test.ts`).
   * `browser` (`flash`): **PASS** em `/app/memories` e no `CopilotDrawer` via SSE (Desktop `1440×900` Dark/Light e Mobile `390×844`, 0 erros de console, 0 HTTP `>=500`, 0 overflow horizontal).
 * **Próximo passo:** Executar o **Slice 6 (Empacotamento, Migração & Release — CLI `uzina`, `migrate-to-postgres`, Docker, CI/CD & Playwright E2E — Marco Fase 1 Completa)**.
+
+---
+
+## 2026-11-22 — Slice 6: Empacotamento, Migração & Release (`feat/slice-06-packaging-release`) ★ Marco Fase 1 Completa
+
+* **Entregue:**
+  * `@uzina/db`: motor idempotente `migrate-to-postgres.ts` (`migrateDatabaseData`, `MIGRATION_TABLE_ORDER` nas 16 tabelas Drizzle em transação única no destino, validação e redação `redactDatabaseUrl`) (`33 passed | 1 skipped` `postgres-live.test.ts`).
+  * `@uzina/security-engine` + `apps/cli` (`@uzina/cli`): binário unificado `uzina` / `uzina-studio` (`start`, `dev`, `sec` *stateless*, `db migrate-to-postgres`, `doctor --json`) com validação Zod (`12/12` testes).
+  * **Docker & CI/CD:** `output: "standalone"` condicional (`UZINA_STANDALONE=1`) em `apps/web/next.config.ts`, `.dockerignore`, `Dockerfile` multi-stage (`node:22-slim`, usuário não-root `uzina`, 4 scanners AppSec), `docker-compose.yml` (`pgvector/pgvector:pg16` + `uzina`), `.github/workflows/ci.yml` e `.github/workflows/release.yml`, e `README.md` atualizado.
+  * **Playwright E2E (`apps/web/e2e/smoke.spec.ts`):** fluxo ponta a ponta em Chromium contra servidor de produção (`GET /api/health` + signup -> projeto -> entrega -> páginas operacionais -> Co-piloto SSE).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * Verify Gate sem cache: `pnpm turbo run build --force` (**8/8** pacotes, 0 warnings Turbopack) + `node scripts/audit-tests.mjs` (**43 arquivos, 154 testes, 0 violações**) + `pnpm turbo run typecheck lint test --force` (**30/30 tasks**, **400 passed | 1 skipped** `postgres-live.test.ts`).
+  * `pnpm --filter @uzina/web test:e2e`: **2 passed (27.1s)** (0 console errors, 0 pageerrors, 0 HTTP `>=500`, 0 overflow horizontal).
+  * Standalone Docker build (`UZINA_STANDALONE=1`): `apps/web/.next/standalone/apps/web/server.js` gerado com sucesso (`STANDALONE_BUILD=True STANDALONE_EXISTS=True`).
+* **Marco Atingido:** **Fase 1 (MVP) 100% Concluída** (`Slices 0 → 6`). Próximas ações: revisão e merge das Pull Requests das branches `feat/slice-01-*` a `feat/slice-06-*` para `main` via GitHub.

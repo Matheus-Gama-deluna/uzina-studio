@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  ...(process.env.UZINA_STANDALONE === "1"
+    ? { output: "standalone" as const }
+    : {}),
   serverExternalPackages: [
     "@electric-sql/pglite",
     "pg",

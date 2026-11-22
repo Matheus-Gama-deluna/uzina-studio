@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: uzina-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-uzina}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no ambiente ou .env}
+      POSTGRES_DB: ${POSTGRES_DB:-uzina_prod}
+    volumes:
+      - uzina_postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uzina} -d ${POSTGRES_DB:-uzina_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  uzina:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uzina-studio
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${UZINA_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      UZINA_DATA_DIR: /data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-uzina}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-uzina_prod}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Defina BETTER_AUTH_SECRET no ambiente ou .env}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Defina MASTER_ENCRYPTION_KEY no ambiente ou .env}
+      UZINA_STRICT_SECRETS: "1"
+    volumes:
+      - uzina_app_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  uzina_postgres_data:
+  uzina_app_data:

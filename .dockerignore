@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+data
+*.log
+.env
+.env.*
+!.env.example
+playwright-report
+test-results
+.worktrees

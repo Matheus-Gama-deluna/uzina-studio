@@ -1,0 +1,36 @@
+{
+  "name": "@uzina/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "uzina": "./dist/index.js",
+    "uzina-studio": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint -c ../../eslint.config.mjs .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@uzina/contracts": "workspace:*",
+    "@uzina/core": "workspace:*",
+    "@uzina/db": "workspace:*",
+    "@uzina/security-engine": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "5.9.3",
+    "vitest": "5.1.1"
+  }
+}

@@ -13,6 +13,7 @@
     "lint": "turbo run lint",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:e2e": "pnpm --filter @uzina/web test:e2e",
     "verify": "node scripts/check-no-ee.mjs && pnpm turbo run build && node scripts/audit-tests.mjs && pnpm turbo run typecheck lint test",
     "dev": "turbo run dev"
   },

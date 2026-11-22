@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP)
 
-> **Estado Atual:** `Slice 5 concluído (Co-piloto Executivo via SSE & Memória hierárquica em 3 escopos)` na branch `feat/slice-05-copilot-memories` → **Próximo passo:** Executar o **Slice 6 (Empacotamento, Migração & Release — CLI `uzina`, `migrate-to-postgres`, Docker, CI/CD & Playwright E2E — Marco Fase 1 Completa)**.
+> **Estado Atual:** ★ **Fase 1 (MVP) Completa — Slice 6 concluído (`@uzina/cli`, `migrate-to-postgres`, Dockerfile/Compose, GitHub Actions & Playwright E2E)** na branch `feat/slice-06-packaging-release`. Todos os Vertical Slices `0 → 6` entregues e verificados.
 
 ---
 
@@ -14,7 +14,7 @@ flowchart LR
     S2 --> S3["Slice 3: Workflow Mastra, Descoberta & Estúdio Visual (CONCLUÍDO)"]
     S3 --> S4["Slice 4: .uzina/verify, AppSec v1 & Caixa de Decisões ★ Marco #1 (CONCLUÍDO)"]
     S4 --> S5["Slice 5: Co-piloto Executivo & Memória 3 Escopos (CONCLUÍDO)"]
-    S5 --> S6["Slice 6: CLI npx, Migração PG & Docker ★ Fase 1 Completa (PRÓXIMO)"]
+    S5 --> S6["Slice 6: CLI npx, Migração PG & Docker ★ Fase 1 Completa (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -36,7 +36,7 @@ flowchart LR
 | **Slice 3 — Workflow Mastra & Estúdio Visual** | *Contract-First + Vertical Slice* | `@uzina/mastra-runtime` (`suspend`/`resume` + lock SQL), Entrevista 5 pilares, Strategy Router, Estúdio Visual Lite (`.uzina/DESIGN.md`) | **Sim** (`readiness` + `design` + `details`) | [slice-03](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-03-mastra-workflow-visual-studio.md) | 🟢 Concluído (`feat/slice-03-mastra-workflow-visual-studio`) |
 | **Slice 4 — Verify, AppSec v1 & Decisões ★** | *Vertical Slice + Dual-Mode* | Auditor de testes, `@uzina/security-engine` (SARIF + 4 adaptadores + triagem), CLI `uzina-sec`, Caixa de Decisões HITL + PR (**Marco Utilizável #1**) | **Sim** (`readiness` + `design`) | [slice-04](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-04-verify-security-engine-decisions.md) | 🟢 Concluído (`feat/slice-04-verify-security-engine-decisions`) |
 | **Slice 5 — Co-piloto & Memória 3 Escopos** | *Vertical Slice* | Co-piloto Executivo (read-only + rascunho + trigger scan) via SSE + `memories` (`org \| client \| project`) isoladas | Seletiva (`readiness`) | [slice-05](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-05-copilot-memories.md) | 🟢 Concluído (`feat/slice-05-copilot-memories`) |
-| **Slice 6 — Empacotamento & Release ★** | *Release Engineering* | `apps/cli` (`uzina start`, `migrate-to-postgres`), Dockerfile multi-stage + `docker-compose.yml`, GH Actions, Playwright E2E (**Fase 1 Completa**) | Seletiva (`readiness`) | *A criar* | ⚪ Planejado |
+| **Slice 6 — Empacotamento & Release ★** | *Release Engineering* | `apps/cli` (`uzina start`, `dev`, `sec`, `migrate-to-postgres`, `doctor`), Dockerfile multi-stage + `docker-compose.yml`, GH Actions, Playwright E2E (**Fase 1 Completa**) | Seletiva (`readiness`) | [slice-06](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-06-packaging-release.md) | 🟢 Concluído (`feat/slice-06-packaging-release`) |
 
 ---
 
