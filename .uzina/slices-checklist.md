@@ -1,4 +1,4 @@
-# Checklist de Implementação — Uzina Studio (Fase 1 MVP · 7 Vertical Slices)
+# Checklist de Implementação — Uzina Studio (Fase 1 MVP · Slices 0–6 | Fase 2 · Slices 7–10)
 
 > **Regra de Ouro:** Não avançar para o Slice N+1 enquanto o Slice N não passar integralmente em `pnpm verify`, tiver seu Dossiê atualizado em `docs/slices/` e for aprovado pelo usuário.
 > **Painel de Status:** Consulte `docs/status/ROADMAP_STATUS.md` para a visão executiva consolidada.
@@ -53,3 +53,32 @@
   - [x] `apps/cli` (`uzina start`, `uzina dev`, `uzina sec`, `uzina db migrate-to-postgres`, `uzina doctor`) + motor idempotente `migrateDatabaseData` em `@uzina/db` (`16` tabelas em ordem topológica)
   - [x] `Dockerfile` multi-stage (com os 4 scanners pré-instalados) + `docker-compose.yml` (`UZINA_STANDALONE=1` validado)
   - [x] GitHub Actions (`ci.yml` + `release.yml` GHCR + npm) + suíte Playwright E2E (`2 passed`) — Verify Gate `400 passed | 1 skipped` (`postgres-live.test.ts`), `audit:tests` (`0` violações) (`feat/slice-06-packaging-release`)
+
+
+---
+
+## Fase 2 — Codebase Intelligence, Memória QMD & Estúdio Visual (Google Stitch)
+> Blueprint: `docs/especificacao-tecnica-fase-2-v1.0.md` · Decisão: `docs/adr/004-codebase-intelligence-qmd-embeddings-stitch.md`
+> Cada slice: Plan Gate EGM → Contract-First → TDD → Verify Gate sem cache (`TEST_DATABASE_URL`, `0 skipped`) → QA visual → docs → commit/push/PR.
+
+- [ ] **Slice 7 — Motor QMD Híbrido & Embeddings Locais** (`docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md`)
+  - [ ] Contratos `qmd.ts` + chunker por headings + RRF + `EmbeddingProvider` (Tests as Data)
+  - [ ] Tabela `memory_chunks` (FTS + `vector(384)`) em PGlite **e** Postgres + migração
+  - [ ] Provider `multilingual-e5-small` ONNX (checksum) + fallback determinístico offline
+  - [ ] `/api/memories/search`, reindex, UI de busca, `uzina memory search`
+  - [ ] Isolamento multi-tenant + redação de segredos comprovados
+
+- [ ] **Slice 8 — Codebase Intelligence (`@uzina/codebase-intel`)** (`docs/slices/slice-08-codebase-intel-ast-graph-provenance.md`)
+  - [ ] Indexador AST incremental (SHA-256) + esqueleto + Context Tree
+  - [ ] Tabelas `codebase_*` e `decision_provenance` + hooks `stage_build`/`stage_finalize`
+  - [ ] 5 tools somente leitura (Co-piloto/OpenCode) + adaptadores opcionais com degradação
+  - [ ] Redução de tokens ≥ 80% medida em fixture
+
+- [ ] **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch** (`docs/slices/slice-09-visual-studio-3levels-google-stitch.md`)
+  - [ ] `DesignPrototypeAdapter` + sanitizador HTML + extrator de tokens W3C
+  - [ ] Conector Stitch (MCP stdio + importação) com credencial no Cofre
+  - [ ] Preview sandboxed (CSP + `iframe sandbox`) + gate `prototype_approve` + handoff `.uzina/prototypes/`
+
+- [ ] **Slice 10 — Docker Workspace & FinOps de Tokens** (`docs/slices/slice-10-docker-workspace-token-finops.md`)
+  - [ ] `DockerExecutionWorkspace` (hardening + limpeza) com suíte de contrato compartilhada
+  - [ ] `token_savings_events` + `/app/finops`

@@ -6,6 +6,7 @@ Leia este arquivo integralmente antes de criar ou editar qualquer arquivo neste 
 - **Produto Oficial:** **Uzina Studio** — Fábrica de Software com IA 100% open-source e self-hosted.
 - **Convenção do Monorepo:** pacotes `@uzina/*`, CLI `uzina`, pasta de artefatos `.uzina/` e variável de diretório local `UZINA_DATA_DIR` (ver `docs/adr/001-identidade-uzina-studio.md` para mapeamento contra os termos `.factory/` / `FACTORY_DATA_DIR` das specs originais).
 - **Blueprint Técnico Obrigatório (Fase 1):** `docs/especificacao-tecnica-fase-1-v1.1.md` (13 tabelas Drizzle + 8 skills em `packages/skills/`).
+- **Blueprint Técnico Obrigatório (Fase 2 — Slices 7–10):** `docs/especificacao-tecnica-fase-2-v1.0.md` + `docs/adr/004-codebase-intelligence-qmd-embeddings-stitch.md` (QMD híbrido, `@uzina/codebase-intel`, Google Stitch, `DockerExecutionWorkspace`). `@uzina/codebase-intel` importa apenas `@uzina/contracts` e `@uzina/core`.
 - **Visão de Produto e Arquitetura (v2.10):** `docs/especificacao-produto-arquitetura-v2.10.md`.
 - **Painel de Status & Progresso:** `docs/status/ROADMAP_STATUS.md`, `docs/status/PROGRESS_LOG.md` e `.uzina/slices-checklist.md`.
 - **Constituição de Engenharia:** `.uzina/steering.md`.

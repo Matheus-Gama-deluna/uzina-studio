@@ -129,3 +129,15 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * **Docker & PostgreSQL Live:** `docker build` multi-stage validado (UID `1001`, 4 scanners verificados com `sha256sum -c`: `gitleaks 8.24.2`, `trivy 0.76.2`, `osv-scanner 2.0.0`, `opengrep 2.0.0`), stack completa `docker-compose.yml` saudável (`PG=healthy APP=healthy`, E2E HTTP/Auth/Postgres/SSE `DOCKER_FULLSTACK_E2E_OK`) e `uzina db migrate-to-postgres` validado 2x contra `pgvector:pg16` (idempotente, senha mascarada).
   * **Revisões & Hardening:** `appsec-auditor` (corrigidos `staging_url` anti-IDOR, isolamento `requestContext` nas tools do Co-piloto, RBAC de supressão no `/ingest`, hardening Docker/Compose), `test-critic` (lacunas sanadas em todos os pacotes) e `factory-verifier` (**PASS**).
 * **Marco Atingido:** **Fase 1 (MVP) 100% Concluída e Validada em Todas as Camadas** (`Slices 0 → 6`). Próximas ações: abertura/merge da Pull Request para `main` via GitHub.
+
+
+---
+
+## 2026-11-22 — Planejamento da Fase 2 (Slices 7–10) — pré-código
+
+* **Entregue (somente documentação):**
+  * `docs/especificacao-tecnica-fase-2-v1.0.md` (escopo, fronteiras, schema, QMD, codebase-intel, Stitch, Docker/FinOps, riscos).
+  * `docs/adr/004-codebase-intelligence-qmd-embeddings-stitch.md` (decisão: QMD híbrido + `multilingual-e5-small` + grafo AST + Google Stitch; Figma adiado).
+  * Dossiês: `slice-07` (QMD/embeddings), `slice-08` (codebase-intel), `slice-09` (Estúdio Visual + Stitch), `slice-10` (Docker workspace + FinOps).
+  * Atualizados: `.uzina/slices-checklist.md`, `docs/status/ROADMAP_STATUS.md`, `.uzina/steering.md`, `AGENTS.md`.
+* **Próximo passo:** Plan Gate EGM (`egm-implementation-readiness` + `egm-design`) do Slice 7 e criação da branch `feat/slice-07-qmd-hybrid-memory`.

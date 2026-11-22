@@ -7,3 +7,5 @@
 - **Higiene de Prompt Cache:** Roteamento fixo por papel; prefixo estático (system prompt + `.uzina/steering.md` + `.uzina/DESIGN.md`); nunca alternar modelo LLM no meio de uma sessão OpenCode.
 - **Qualidade de Testes:** Isolamento Spec → Teste, zero mocks internos em integração, auditor estático de *test anti-patterns*, `test.each` para 3+ casos equivalentes e Contract Drift Check.
 - **Segurança:** Cofre AES-256-GCM (IV 12 bytes, AuthTag 16 bytes) para chaves de provedor, uploads servidos apenas por rota autenticada `GET /api/assets/:id`, `@uzina/security-engine` dual-mode (SARIF 2.1.0 + triagem em 3 vereditos + degradação graciosa `skipped_missing_binary`).
+
+- **Fase 2 (Slices 7–10):** blueprint em `docs/especificacao-tecnica-fase-2-v1.0.md` e decisão em `docs/adr/004-codebase-intelligence-qmd-embeddings-stitch.md`. Memória Markdown via QMD (BM25 + vetor 384d + RRF, embeddings locais `multilingual-e5-small` com fallback determinístico); código via `@uzina/codebase-intel` (esqueleto no prefixo de Prompt Cache, grafo AST incremental, proveniência); protótipos via Google Stitch com sanitização/sandbox; ferramentas de codebase são **somente leitura**.
