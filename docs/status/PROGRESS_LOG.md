@@ -208,4 +208,4 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` no PostgreSQL 16 + `pgvector` live: **`34/34` tasks**, **`480 passed | 0 skipped`**.
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (14.2s)`**.
   * `browser` (`flash`): **PASS** em `/app/finops` (4 KPIs, breakdown por técnica, registro manual `12000 → 1200` atualizando para `10.800` economizados e `90% Cache Hit Rate`, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
-* **Marco Atingido:** **Fase 2 (Slices 7–10) 100% Concluída e Validada em Todas as Camadas**. Próximo passo: abertura/merge das Pull Requests para `main`.
+* **Marco Atingido:** **Fase 2 (Slices 7–10) 100% Concluída, Validada em Todas as Camadas e Integrada na `main`**. Próximo passo: planejamento da Fase 3 ou operação em produção.

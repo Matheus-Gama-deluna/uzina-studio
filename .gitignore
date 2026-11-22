@@ -18,6 +18,7 @@ test-results/
 
 # Dados locais, Worktrees e Artefatos Efêmeros
 data/
+.uzina-data/
 .worktrees/
 *.db
 *.db-shm

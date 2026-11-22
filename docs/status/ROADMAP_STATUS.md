@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Fase 2 (Slices 7–10) 100% Concluída** (`feat/slice-07` → `feat/slice-10-docker-workspace-finops`, `480 passed | 0 skipped` em PostgreSQL + `pgvector` live). → **Próximo passo:** Abertura/merge das Pull Requests dos Slices 7–10 na `main`.
+> **Estado Atual:** ★ **Fase 2 (Slices 7–10) 100% Concluída e integrada na `main`** (`480 passed | 0 skipped` em PostgreSQL + `pgvector` live, Playwright `2 passed`). → **Próximo passo:** Planejamento da **Fase 3** ou uso operacional em produção.
 
 ---
 
