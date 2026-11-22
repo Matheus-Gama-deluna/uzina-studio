@@ -1,5 +1,11 @@
-import type { TokenSavingsTechnique } from "@uzina/contracts";
+import type {
+  AstEngineMode,
+  EmbeddingEngineMode,
+  TokenSavingsTechnique,
+  WorkspaceKind,
+} from "@uzina/contracts";
 import {
+  boolean,
   index,
   integer,
   pgTable,
@@ -34,3 +40,37 @@ export const tokenSavingsEvents = pgTable(
     ),
   ]
 );
+
+export const engineConfigs = pgTable("engine_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .unique()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  embeddingMode: text("embedding_mode")
+    .$type<EmbeddingEngineMode>()
+    .notNull()
+    .default("deterministic"),
+  ollamaBaseUrl: text("ollama_base_url")
+    .notNull()
+    .default("http://127.0.0.1:11434"),
+  ollamaEmbeddingModel: text("ollama_embedding_model")
+    .notNull()
+    .default("bge-m3"),
+  astMode: text("ast_mode")
+    .$type<AstEngineMode>()
+    .notNull()
+    .default("polyglot"),
+  workspaceKind: text("workspace_kind")
+    .$type<WorkspaceKind>()
+    .notNull()
+    .default("worktree"),
+  skeletonMaxTokens: integer("skeleton_max_tokens").notNull().default(2000),
+  qmdTopK: integer("qmd_top_k").notNull().default(5),
+  autoInjectInRunner: boolean("auto_inject_in_runner").notNull().default(true),
+  dockerCpuLimit: text("docker_cpu_limit").notNull().default("1.0"),
+  dockerMemoryLimit: text("docker_memory_limit").notNull().default("512m"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

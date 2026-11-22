@@ -16,6 +16,7 @@ import {
   DesignAssetSchema,
   DesignPrototypeListResponseSchema,
   DesignPrototypeSchema,
+  EngineConfigResponseSchema,
   FinopsSummarySchema,
   GenerateDesignMdResponseSchema,
   MemoryListResponseSchema,
@@ -35,6 +36,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
 import { POST as postCopilotChat } from "../src/app/api/copilot/chat/route";
+import { GET as getEngineConfigRoute } from "../src/app/api/finops/config/route";
 import { GET as getFinopsSummaryRoute } from "../src/app/api/finops/summary/route";
 import { GET as getDecisions } from "../src/app/api/decisions/route";
 import { POST as resolveDecisionRoute } from "../src/app/api/decisions/[id]/resolve/route";
@@ -913,6 +915,18 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realFinops.status).toBe(200);
       FinopsSummarySchema.parse(await realFinops.json());
+
+      const mswEngineCfg = await fetch("http://msw.local/api/finops/config");
+      expect(mswEngineCfg.status).toBe(200);
+      EngineConfigResponseSchema.parse(await mswEngineCfg.json());
+
+      const realEngineCfg = await getEngineConfigRoute(
+        new Request("http://localhost:3000/api/finops/config", {
+          headers: { cookie },
+        })
+      );
+      expect(realEngineCfg.status).toBe(200);
+      EngineConfigResponseSchema.parse(await realEngineCfg.json());
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

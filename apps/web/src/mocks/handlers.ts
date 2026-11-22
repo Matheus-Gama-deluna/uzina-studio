@@ -22,6 +22,7 @@ import {
   DesignAssetSchema,
   DesignPrototypeListResponseSchema,
   DesignPrototypeSchema,
+  EngineConfigResponseSchema,
   FinopsSummarySchema,
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
@@ -51,6 +52,7 @@ import {
   SymbolSliceRequestSchema,
   SymbolSliceResponseSchema,
   UpdateDesignAssetSchema,
+  UpdateEngineConfigSchema,
   UpdateFindingTriageSchema,
   UpdateMemorySchema,
   UpdatePrototypeApprovalSchema,
@@ -74,6 +76,7 @@ import {
   mockDeliverables,
   mockDesignAssets,
   mockDesignPrototypes,
+  mockEngineConfigResponse,
   mockExecutionEvents,
   mockFinopsSummary,
   mockMemories,
@@ -980,5 +983,42 @@ export const handlers = [
       );
     }
     return HttpResponse.json(mockFinopsSummary.recentEvents[0]!, { status: 201 });
+  }),
+
+  http.get("*/api/finops/config", () => {
+    return HttpResponse.json(
+      EngineConfigResponseSchema.parse(mockEngineConfigResponse)
+    );
+  }),
+
+  http.put("*/api/finops/config", async ({ request }) => {
+    const parsed = UpdateEngineConfigSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      EngineConfigResponseSchema.parse({
+        ...mockEngineConfigResponse,
+        config: {
+          ...mockEngineConfigResponse.config,
+          ...parsed.data,
+          updatedAt: new Date().toISOString(),
+        },
+        activeEmbeddingProviderId:
+          parsed.data.embeddingMode === "onnx_e5_small"
+            ? "onnx-e5-small-384"
+            : mockEngineConfigResponse.activeEmbeddingProviderId,
+        degraded:
+          parsed.data.embeddingMode === "onnx_e5_small"
+            ? false
+            : mockEngineConfigResponse.degraded,
+      })
+    );
   }),
 ];

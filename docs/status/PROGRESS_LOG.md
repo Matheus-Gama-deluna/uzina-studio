@@ -209,3 +209,21 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (14.2s)`**.
   * `browser` (`flash`): **PASS** em `/app/finops` (4 KPIs, breakdown por técnica, registro manual `12000 → 1200` atualizando para `10.800` economizados e `90% Cache Hit Rate`, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
 * **Marco Atingido:** **Fase 2 (Slices 7–10) 100% Concluída, Validada em Todas as Camadas e Integrada na `main`**. Próximo passo: planejamento da Fase 3 ou operação em produção.
+
+---
+
+## 2026-11-22 — Slice 11: Configuração Dinâmica de Motores, Embeddings Semânticos & AST Poliglota (`feat/slice-11-dynamic-engines-polyglot-ast`)
+
+* **Entregue:**
+  * `@uzina/contracts`: `src/finops.ts` (`EmbeddingEngineModeSchema`, `AstEngineModeSchema`, `EngineOptionTelemetrySchema`, `EngineConfigSchema`, `UpdateEngineConfigSchema.strict()` com `HttpUrlSchema` anti-IMDS, `EngineConfigResponseSchema`) (`152/152` testes).
+  * `@uzina/core`: `src/qmd.ts` (`createSemanticE5EmbeddingProvider` `onnx-e5-small-384` com suporte bilíngue PT-BR ↔ EN, `createOllamaEmbeddingProvider` com fallback gracioso offline e `ENGINE_OPTIONS_CATALOG`) (`150/150` testes).
+  * `@uzina/codebase-intel`: `src/polyglot-indexer.ts` (`.py`, `.go`, `.rs`, `.sql`, `.java`, `.cs`), integração em `scanCodebaseWorkspace(..., { astMode })` e `readSymbolSliceFromWorkspace` com `assertPathInsideWorkspace` e `redactSensitiveText` (`13/13` testes).
+  * `@uzina/db`: tabela #24 `engine_configs` (`src/schema/finops.ts`), migração `0010_breezy_snowbird.sql` e inclusão em `MIGRATION_TABLE_ORDER`/`TABLE_REGISTRY` (`39 passed | 0 skipped` em PostgreSQL 16 + `pgvector` live).
+  * `@uzina/mastra-runtime`: `src/finops.ts` (`getEngineConfigScoped`, `updateEngineConfigScoped`, `resolveOrganizationEmbeddingProvider`, `createOrganizationExecutionWorkspace`, `buildAutoInjectedCodebaseContext` gravando `prompt_cache`), conectados a `qmd.ts` e `codebase.ts` (`22/22` testes).
+  * `@uzina/web`: `/api/finops/config` (`GET`/`PUT`/`POST`), `<EngineConfigPanel />` com matriz Consumo × Benefício em `/app/finops`, MSW + `contract-drift.test.ts` (`28/28` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `pnpm turbo run build --force` (`9/9` pacotes), `node scripts/audit-tests.mjs` (`63 arquivos, 196 testes, 0 violações`).
+  * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` no PostgreSQL 16 + `pgvector` live: **`34/34` tasks**, **`487 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (12.5s)`**.
+  * `browser` (`flash`): **PASS** em `/app/finops` (hot-reload `onnx_e5_small`, `polyglot`, `2500` persistido após reload sem restart, `7/7` cards de telemetria, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
+* **Próximo passo:** Planejamento da **Fase 3** ou uso operacional em produção.

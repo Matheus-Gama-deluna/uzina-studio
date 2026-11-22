@@ -1,4 +1,5 @@
 import {
+  EngineConfigResponseSchema,
   FinopsSummarySchema,
   TokenSavingsEventSchema,
 } from "@uzina/contracts";
@@ -7,6 +8,10 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
+import {
+  GET as getEngineConfig,
+  PUT as updateEngineConfig,
+} from "../src/app/api/finops/config/route";
 import {
   GET as getFinopsSummary,
   POST as recordFinopsEvent,
@@ -136,5 +141,40 @@ describe("Slice 10 APIs — /api/finops/summary (RBAC & Isolamento Multi-tenant)
     expect(otherRes.status).toBe(200);
     const otherSummary = FinopsSummarySchema.parse(await otherRes.json());
     expect(otherSummary.totalTokensSaved).toBe(0);
+
+    // Hot-reload /api/finops/config (403 para auditor, 200 para owner, sem restart)
+    const cfgForbidden = await updateEngineConfig(
+      new Request("http://localhost:3000/api/finops/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie: auditorCookie },
+        body: JSON.stringify({ embeddingMode: "onnx_e5_small" }),
+      })
+    );
+    expect(cfgForbidden.status).toBe(403);
+
+    const cfgPut = await updateEngineConfig(
+      new Request("http://localhost:3000/api/finops/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({
+          embeddingMode: "onnx_e5_small",
+          astMode: "polyglot",
+          autoInjectInRunner: true,
+        }),
+      })
+    );
+    expect(cfgPut.status).toBe(200);
+    const updatedCfg = EngineConfigResponseSchema.parse(await cfgPut.json());
+    expect(updatedCfg.activeEmbeddingProviderId).toBe("onnx-e5-small-384");
+
+    const cfgGet = await getEngineConfig(
+      new Request("http://localhost:3000/api/finops/config", {
+        headers: { cookie: ownerCookie },
+      })
+    );
+    expect(cfgGet.status).toBe(200);
+    expect(
+      EngineConfigResponseSchema.parse(await cfgGet.json()).config.embeddingMode
+    ).toBe("onnx_e5_small");
   });
 });

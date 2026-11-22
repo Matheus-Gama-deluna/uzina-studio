@@ -11,6 +11,10 @@ import type {
 } from "@uzina/contracts";
 import { assertPathInsideWorkspace, redactSensitiveText } from "@uzina/core";
 import { estimateTokens } from "./skeleton.js";
+import {
+  detectPolyglotLanguage,
+  indexPolyglotSourceText,
+} from "./polyglot-indexer.js";
 import { indexSourceText } from "./ts-indexer.js";
 
 const BLOCKED_FILENAMES = new Set([".master-key", ".env"]);
@@ -173,7 +177,9 @@ export function readSymbolSliceFromWorkspace(
   );
 
   if (!target) {
-    const parsed = indexSourceText(normalizedPath, rawContent);
+    const parsed = detectPolyglotLanguage(normalizedPath)
+      ? indexPolyglotSourceText(normalizedPath, rawContent)
+      : indexSourceText(normalizedPath, rawContent);
     const draft = parsed.symbols.find((s) => s.name === request.symbol);
     if (draft) {
       target = {

@@ -37,7 +37,10 @@ import {
 } from "@uzina/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
-import { recordTokenSavingsEventScoped } from "./finops.js";
+import {
+  getEngineConfigScoped,
+  recordTokenSavingsEventScoped,
+} from "./finops.js";
 
 async function resolveScopedProjectAndRepo(
   db: UzinaDb,
@@ -187,9 +190,12 @@ export async function syncRepositoryCodebase(
     };
   }
 
+  const cfgRes = await getEngineConfigScoped(db, {
+    organizationId: params.organizationId,
+  });
   const rootDir = params.workspaceRoot ?? repo.localPath ?? process.cwd();
   const scan = fs.existsSync(/*turbopackIgnore: true*/ rootDir)
-    ? scanCodebaseWorkspace(rootDir)
+    ? scanCodebaseWorkspace(rootDir, { astMode: cfgRes.config.astMode })
     : { files: [], edges: [] };
 
   const existingFiles = await db
@@ -293,6 +299,7 @@ export async function syncRepositoryCodebase(
     files: finalGraph.files,
     symbols: finalGraph.symbols,
     edges: finalGraph.edges,
+    maxTokens: cfgRes.config.skeletonMaxTokens,
   });
 
   if (skeleton.baselineTokens > 0) {

@@ -1,18 +1,32 @@
 import {
+  EngineConfigResponseSchema,
   FinopsSummaryRequestSchema,
   FinopsSummarySchema,
   RecordTokenSavingsSchema,
   TokenSavingsTechniqueSchema,
+  UpdateEngineConfigSchema,
+  type EngineConfig,
+  type EngineConfigResponse,
   type FinopsSummary,
   type FinopsSummaryRequest,
   type RecordTokenSavings,
   type TokenSavingsEvent,
   type TokenSavingsTechnique,
+  type UpdateEngineConfig,
   type WorkspaceKind,
 } from "@uzina/contracts";
 import {
+  ENGINE_OPTIONS_CATALOG,
+  createDeterministicEmbeddingProvider,
+  createOllamaEmbeddingProvider,
+  createSemanticE5EmbeddingProvider,
+  type EmbeddingProvider,
+} from "@uzina/core";
+import {
   clients,
   deliverables,
+  engineConfigs,
+  organizations,
   projects,
   tokenSavingsEvents,
   type UzinaDb,
@@ -23,6 +37,8 @@ import {
   type ExecutionWorkspace,
 } from "@uzina/opencode-bridge";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { getProjectCodebaseTreeScoped } from "./codebase.js";
+import { searchQmdScoped } from "./qmd.js";
 
 // Preço médio de referência ($3.00 / 1M input tokens) apenas para estimativa FinOps
 const USD_PER_MILLION_INPUT_TOKENS = 3.0;
@@ -221,7 +237,7 @@ export async function getFinopsSummaryScoped(
 
   return FinopsSummarySchema.parse({
     organizationId: params.organizationId,
-    workspaceKind: resolveConfiguredWorkspaceKind(params.env),
+    workspaceKind: (await getEngineConfigScoped(db, { organizationId: params.organizationId, env: params.env })).config.workspaceKind,
     totalEvents: rows.length,
     totalTokensBaseline,
     totalTokensActual,
@@ -233,4 +249,287 @@ export async function getFinopsSummaryScoped(
     byTechnique,
     recentEvents: rows.slice(0, parsed.limit).map(toTokenSavingsEventDto),
   });
+}
+
+function toEngineConfigDto(
+  row: typeof engineConfigs.$inferSelect
+): EngineConfig {
+  return {
+    organizationId: row.organizationId,
+    embeddingMode: row.embeddingMode,
+    ollamaBaseUrl: row.ollamaBaseUrl,
+    ollamaEmbeddingModel: row.ollamaEmbeddingModel,
+    astMode: row.astMode,
+    workspaceKind: row.workspaceKind,
+    skeletonMaxTokens: row.skeletonMaxTokens,
+    qmdTopK: row.qmdTopK,
+    autoInjectInRunner: row.autoInjectInRunner,
+    dockerCpuLimit: row.dockerCpuLimit,
+    dockerMemoryLimit: row.dockerMemoryLimit,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export function buildProviderFromConfig(config: Pick<EngineConfig, "embeddingMode" | "ollamaBaseUrl" | "ollamaEmbeddingModel">): EmbeddingProvider {
+  if (config.embeddingMode === "onnx_e5_small") {
+    return createSemanticE5EmbeddingProvider();
+  }
+  if (config.embeddingMode === "ollama") {
+    return createOllamaEmbeddingProvider({
+      baseUrl: config.ollamaBaseUrl,
+      model: config.ollamaEmbeddingModel,
+    });
+  }
+  return createDeterministicEmbeddingProvider();
+}
+
+export async function getEngineConfigScoped(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    env?: Record<string, string | undefined>;
+  }
+): Promise<EngineConfigResponse> {
+  const env = params.env ?? process.env;
+  const [existing] = await db
+    .select()
+    .from(engineConfigs)
+    .where(eq(engineConfigs.organizationId, params.organizationId))
+    .limit(1);
+
+  let row = existing;
+  let fallbackConfig: EngineConfig | null = null;
+  if (!row) {
+    const defaultEmbedding =
+      env.UZINA_EMBEDDINGS === "e5" || env.UZINA_EMBEDDINGS === "onnx_e5_small"
+        ? "onnx_e5_small"
+        : env.UZINA_EMBEDDINGS === "ollama"
+          ? "ollama"
+          : "deterministic";
+    const defaultAst =
+      env.UZINA_AST_MODE === "ts_native" ? "ts_native" : "polyglot";
+    const defaultWorkspace = resolveConfiguredWorkspaceKind(env);
+
+    const [orgExists] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, params.organizationId))
+      .limit(1);
+
+    if (!orgExists) {
+      fallbackConfig = {
+        organizationId: params.organizationId,
+        embeddingMode: defaultEmbedding,
+        ollamaBaseUrl: "http://127.0.0.1:11434",
+        ollamaEmbeddingModel: "bge-m3",
+        astMode: defaultAst,
+        workspaceKind: defaultWorkspace,
+        skeletonMaxTokens: 2000,
+        qmdTopK: 5,
+        autoInjectInRunner: true,
+        dockerCpuLimit: "1.0",
+        dockerMemoryLimit: "512m",
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      const [inserted] = await db
+        .insert(engineConfigs)
+        .values({
+          organizationId: params.organizationId,
+          embeddingMode: defaultEmbedding,
+          astMode: defaultAst,
+          workspaceKind: defaultWorkspace,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (inserted) {
+        row = inserted;
+      } else {
+        const [refetched] = await db
+          .select()
+          .from(engineConfigs)
+          .where(eq(engineConfigs.organizationId, params.organizationId))
+          .limit(1);
+        row = refetched!;
+      }
+    }
+  }
+
+  const config = fallbackConfig ?? toEngineConfigDto(row!);
+  const provider = buildProviderFromConfig(config);
+
+  return EngineConfigResponseSchema.parse({
+    config,
+    catalog: ENGINE_OPTIONS_CATALOG,
+    activeEmbeddingProviderId: provider.id,
+    degraded: provider.degraded,
+  });
+}
+
+export async function updateEngineConfigScoped(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    input: UpdateEngineConfig;
+  }
+): Promise<EngineConfigResponse> {
+  const parsed = UpdateEngineConfigSchema.parse(params.input);
+  await getEngineConfigScoped(db, { organizationId: params.organizationId });
+
+  const [updated] = await db
+    .update(engineConfigs)
+    .set({
+      ...(parsed.embeddingMode !== undefined
+        ? { embeddingMode: parsed.embeddingMode }
+        : {}),
+      ...(parsed.ollamaBaseUrl !== undefined
+        ? { ollamaBaseUrl: parsed.ollamaBaseUrl }
+        : {}),
+      ...(parsed.ollamaEmbeddingModel !== undefined
+        ? { ollamaEmbeddingModel: parsed.ollamaEmbeddingModel }
+        : {}),
+      ...(parsed.astMode !== undefined ? { astMode: parsed.astMode } : {}),
+      ...(parsed.workspaceKind !== undefined
+        ? { workspaceKind: parsed.workspaceKind }
+        : {}),
+      ...(parsed.skeletonMaxTokens !== undefined
+        ? { skeletonMaxTokens: parsed.skeletonMaxTokens }
+        : {}),
+      ...(parsed.qmdTopK !== undefined ? { qmdTopK: parsed.qmdTopK } : {}),
+      ...(parsed.autoInjectInRunner !== undefined
+        ? { autoInjectInRunner: parsed.autoInjectInRunner }
+        : {}),
+      ...(parsed.dockerCpuLimit !== undefined
+        ? { dockerCpuLimit: parsed.dockerCpuLimit }
+        : {}),
+      ...(parsed.dockerMemoryLimit !== undefined
+        ? { dockerMemoryLimit: parsed.dockerMemoryLimit }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(engineConfigs.organizationId, params.organizationId))
+    .returning();
+
+  const config = toEngineConfigDto(updated!);
+  const provider = buildProviderFromConfig(config);
+
+  return EngineConfigResponseSchema.parse({
+    config,
+    catalog: ENGINE_OPTIONS_CATALOG,
+    activeEmbeddingProviderId: provider.id,
+    degraded: provider.degraded,
+  });
+}
+
+export async function resolveOrganizationEmbeddingProvider(
+  db: UzinaDb,
+  organizationId: string
+): Promise<EmbeddingProvider> {
+  const res = await getEngineConfigScoped(db, { organizationId });
+  return buildProviderFromConfig(res.config);
+}
+
+export async function createOrganizationExecutionWorkspace(
+  db: UzinaDb,
+  organizationId: string
+): Promise<ExecutionWorkspace> {
+  const res = await getEngineConfigScoped(db, { organizationId });
+  if (res.config.workspaceKind === "docker") {
+    return new DockerExecutionWorkspace({
+      cpus: res.config.dockerCpuLimit,
+      memory: res.config.dockerMemoryLimit,
+    });
+  }
+  return new LocalGitWorktreeWorkspace();
+}
+
+export async function buildAutoInjectedCodebaseContext(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    projectId: string;
+    deliverableId?: string | null;
+    queryText: string;
+    workspaceRoot?: string;
+  }
+): Promise<{
+  enabled: boolean;
+  contextMarkdown: string;
+  tokensBaseline: number;
+  tokensActual: number;
+  tokensSaved: number;
+}> {
+  const cfgRes = await getEngineConfigScoped(db, {
+    organizationId: params.organizationId,
+  });
+  if (!cfgRes.config.autoInjectInRunner) {
+    return {
+      enabled: false,
+      contextMarkdown: "",
+      tokensBaseline: 0,
+      tokensActual: 0,
+      tokensSaved: 0,
+    };
+  }
+
+  const tree = await getProjectCodebaseTreeScoped(db, {
+    organizationId: params.organizationId,
+    projectId: params.projectId,
+    workspaceRoot: params.workspaceRoot,
+  }).catch(() => null);
+
+  const qmd =
+    params.queryText.trim().length >= 2
+      ? await searchQmdScoped(db, {
+          organizationId: params.organizationId,
+          request: {
+            query: params.queryText.slice(0, 400),
+            projectId: params.projectId,
+            mode: "hybrid",
+            limit: cfgRes.config.qmdTopK,
+          },
+        }).catch(() => null)
+      : null;
+
+  const parts: string[] = [];
+  if (tree?.skeleton.skeletonText) {
+    parts.push(
+      `### Esqueleto AST (${cfgRes.config.astMode})\n\`\`\`\n${tree.skeleton.skeletonText}\n\`\`\``
+    );
+  }
+  if (qmd && qmd.hits.length > 0) {
+    const qmdLines = qmd.hits.map(
+      (h) => `- [${h.headingPath}] (${h.sourcePath ?? h.scopeType}#L${h.lineStart}-L${h.lineEnd}): ${h.snippet}`
+    );
+    parts.push(`### Memórias & Docs QMD (${qmd.embeddingModel})\n${qmdLines.join("\n")}`);
+  }
+
+  const contextMarkdown = parts.join("\n\n");
+  const tokensActual = Math.max(0, Math.ceil(contextMarkdown.length / 4));
+  const tokensBaseline = Math.max(
+    tokensActual,
+    tree?.skeleton.baselineTokens ?? tokensActual
+  );
+  const tokensSaved = Math.max(0, tokensBaseline - tokensActual);
+
+  if (tokensBaseline > 0 && tokensActual > 0) {
+    await recordTokenSavingsEventScoped(db, {
+      organizationId: params.organizationId,
+      input: {
+        deliverableId: params.deliverableId ?? null,
+        technique: "prompt_cache",
+        tokensBaseline,
+        tokensActual,
+      },
+    }).catch(() => undefined);
+  }
+
+  return {
+    enabled: true,
+    contextMarkdown,
+    tokensBaseline,
+    tokensActual,
+    tokensSaved,
+  };
 }

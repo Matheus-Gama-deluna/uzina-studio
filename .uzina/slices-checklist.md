@@ -82,3 +82,9 @@
 - [x] **Slice 10 — Docker Workspace & FinOps de Tokens** (`docs/slices/slice-10-docker-workspace-token-finops.md`) ★ **Fase 2 Completa**
   - [x] `DockerExecutionWorkspace` (hardening `--cap-drop ALL`, `--network none`, `--read-only`, `--user 1001:1001`, limpeza `docker rm -f`) com suíte de contrato
   - [x] `token_savings_events` (`0009_pale_hellion.sql`) + `/api/finops/summary` + painel `/app/finops` + `uzina doctor` (`docker` + `workspaceMode`) (`480 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-10-docker-workspace-finops`)
+
+- [x] **Slice 11 — Configuração Dinâmica de Motores, Embeddings Semânticos & AST Poliglota** (`docs/slices/slice-11-dynamic-engine-config-polyglot-ast-semantic-embeddings.md`)
+  - [x] `engine_configs` (`0010_breezy_snowbird.sql`) + `/api/finops/config` (`GET`/`PUT`/`POST`) com hot-reload sem restart de Docker
+  - [x] Embeddings semânticos bilíngues PT-BR/EN (`onnx_e5_small`) + fallback `ollama` e `ENGINE_OPTIONS_CATALOG` (Consumo × Benefício)
+  - [x] Indexador AST poliglota (`ts_native` vs `polyglot`: `.py`, `.go`, `.rs`, `.sql`, `.java`, `.cs`) + `buildAutoInjectedCodebaseContext` (`prompt_cache`)
+  - [x] Painel dinâmico em `/app/finops` + QA visual sem overflow (`487 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-11-dynamic-engines-polyglot-ast`)
