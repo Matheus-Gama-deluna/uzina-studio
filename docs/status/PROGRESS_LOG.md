@@ -192,3 +192,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (11.9s)`**.
   * `browser` (`flash`): **PASS** em `/app/projects/[id]/studio` (importação HTML com `<script>` neutralizado, tokens W3C, `<iframe sandbox="">`, aprovação/handoff, degradação graciosa de Stitch MCP, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
 * **Próximo passo:** Abertura/merge de PR e início do **Slice 10 — `DockerExecutionWorkspace` & FinOps de Tokens**.
+
+---
+
+## 2026-11-22 — Slice 10: `DockerExecutionWorkspace` & FinOps de Tokens (`feat/slice-10-docker-workspace-finops`) ★ Marco Fase 2 Completa
+
+* **Entregue:**
+  * `@uzina/contracts`: `src/finops.ts` (`WorkspaceKindSchema`, `TokenSavingsTechniqueSchema`, `TokenSavingsEventSchema`, `RecordTokenSavingsSchema`, `FinopsSummaryRequestSchema`, `FinopsSummarySchema`) (`152/152` testes).
+  * `@uzina/opencode-bridge`: `src/docker-workspace.ts` (`buildDockerRunArgs`, `assertSafeDockerOptions`, `DockerExecutionWorkspace` com `--cap-drop ALL`, `--security-opt no-new-privileges`, `--read-only`, `--tmpfs`, `--user 1001:1001`, `--network none`, limites CPU/memória/PIDs, proibição de `root`/`docker.sock` e limpeza `docker rm -f`) (`51/51` testes).
+  * `@uzina/db`: tabela #23 `token_savings_events` (`src/schema/finops.ts`), migração `0009_pale_hellion.sql` e suporte em `MIGRATION_TABLE_ORDER` (`39 passed | 0 skipped` em PostgreSQL 16 + `pgvector` live).
+  * `@uzina/mastra-runtime`: `src/finops.ts` (`resolveConfiguredWorkspaceKind`, `createConfiguredExecutionWorkspace`, `recordTokenSavingsEventScoped`, `getFinopsSummaryScoped`) + coleta automática em `qmd.ts` e `codebase.ts` (`21/21` testes).
+  * `@uzina/web` & `@uzina/cli`: rota `/api/finops/summary`, painel `/app/finops` + link no `CockpitShell`, MSW + `contract-drift.test.ts` (`28/28` testes) e diagnóstico de `docker` + `workspaceMode` em `uzina doctor` (`13/13` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `pnpm turbo run build --force` (`9/9` pacotes), `node scripts/audit-tests.mjs` (`63 arquivos, 192 testes, 0 violações`).
+  * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` no PostgreSQL 16 + `pgvector` live: **`34/34` tasks**, **`480 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (14.2s)`**.
+  * `browser` (`flash`): **PASS** em `/app/finops` (4 KPIs, breakdown por técnica, registro manual `12000 → 1200` atualizando para `10.800` economizados e `90% Cache Hit Rate`, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
+* **Marco Atingido:** **Fase 2 (Slices 7–10) 100% Concluída e Validada em Todas as Camadas**. Próximo passo: abertura/merge das Pull Requests para `main`.

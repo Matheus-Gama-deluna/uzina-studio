@@ -31,6 +31,7 @@ import {
   type UzinaDb,
 } from "@uzina/db";
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
+import { recordTokenSavingsEventScoped } from "./finops.js";
 
 const MAX_MARKDOWN_BYTES = 512 * 1024;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "dist", ".turbo"]);
@@ -488,6 +489,19 @@ export async function searchQmdScoped(
       headingPath: c.headingPath,
     }))
   );
+
+  if (candidates.length > 0) {
+    const baselineChars = candidates.reduce((acc, c) => acc + c.content.length, 0);
+    const actualChars = hits.reduce((acc, h) => acc + h.snippet.length, 0);
+    await recordTokenSavingsEventScoped(db, {
+      organizationId: params.organizationId,
+      input: {
+        technique: "qmd",
+        tokensBaseline: Math.max(1, Math.ceil(baselineChars / 4)),
+        tokensActual: Math.max(1, Math.ceil(actualChars / 4)),
+      },
+    }).catch(() => undefined);
+  }
 
   return QmdSearchResponseSchema.parse({
     query: parsed.query,

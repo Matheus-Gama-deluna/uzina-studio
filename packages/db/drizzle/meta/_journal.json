@@ -64,6 +64,13 @@
       "when": 1795386759608,
       "tag": "0008_old_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795388212033,
+      "tag": "0009_pale_hellion",
+      "breakpoints": true
     }
   ]
 }

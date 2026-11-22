@@ -22,6 +22,7 @@ import {
   DesignAssetSchema,
   DesignPrototypeListResponseSchema,
   DesignPrototypeSchema,
+  FinopsSummarySchema,
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
   IngestSecurityScanSchema,
@@ -36,6 +37,7 @@ import {
   QmdReindexResponseSchema,
   QmdSearchRequestSchema,
   QmdSearchResponseSchema,
+  RecordTokenSavingsSchema,
   ResolveDecisionResponseSchema,
   ResolveDecisionSchema,
   RunSecurityScanSchema,
@@ -73,6 +75,7 @@ import {
   mockDesignAssets,
   mockDesignPrototypes,
   mockExecutionEvents,
+  mockFinopsSummary,
   mockMemories,
   mockProjects,
   mockProvenanceListResponse,
@@ -959,5 +962,23 @@ export const handlers = [
           "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data: https:;",
       },
     });
+  }),
+
+  http.get("*/api/finops/summary", () => {
+    return HttpResponse.json(FinopsSummarySchema.parse(mockFinopsSummary));
+  }),
+
+  http.post("*/api/finops/summary", async ({ request }) => {
+    const parsed = RecordTokenSavingsSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(mockFinopsSummary.recentEvents[0]!, { status: 201 });
   }),
 ];

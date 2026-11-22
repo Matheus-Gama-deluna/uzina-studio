@@ -7,6 +7,7 @@ import {
   Brain,
   Building2,
   ClipboardCheck,
+  Coins,
   Command,
   Factory,
   FolderGit2,
@@ -146,6 +147,19 @@ export function CockpitShell({
           >
             <Brain className="size-4" strokeWidth={1.75} />
             <span>Memórias</span>
+          </Link>
+
+          <Link
+            href="/app/finops"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors ${
+              pathname.startsWith("/app/finops")
+                ? "bg-accent-subtle text-accent"
+                : "text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            }`}
+          >
+            <Coins className="size-4" strokeWidth={1.75} />
+            <span>FinOps &amp; Tokens</span>
           </Link>
 
           <Link

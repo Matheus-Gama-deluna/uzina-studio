@@ -37,6 +37,7 @@ import {
 } from "@uzina/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
+import { recordTokenSavingsEventScoped } from "./finops.js";
 
 async function resolveScopedProjectAndRepo(
   db: UzinaDb,
@@ -294,6 +295,17 @@ export async function syncRepositoryCodebase(
     edges: finalGraph.edges,
   });
 
+  if (skeleton.baselineTokens > 0) {
+    await recordTokenSavingsEventScoped(db, {
+      organizationId: params.organizationId,
+      input: {
+        technique: "skeleton",
+        tokensBaseline: skeleton.baselineTokens,
+        tokensActual: skeleton.tokensEstimated,
+      },
+    }).catch(() => undefined);
+  }
+
   return {
     projectId: params.projectId,
     repositoryId: repo.id,
@@ -412,7 +424,20 @@ export async function readProjectSymbolSliceScoped(
     : { files: [], symbols: [], edges: [] };
 
   try {
-    return readSymbolSliceFromWorkspace(rootDir, graph.symbols, params.request);
+    const slice = readSymbolSliceFromWorkspace(
+      rootDir,
+      graph.symbols,
+      params.request
+    );
+    await recordTokenSavingsEventScoped(db, {
+      organizationId: params.organizationId,
+      input: {
+        technique: "ast_graph",
+        tokensBaseline: slice.baselineFileTokens,
+        tokensActual: slice.tokensEstimated,
+      },
+    }).catch(() => undefined);
+    return slice;
   } catch (err) {
     throw new WorkflowRuntimeError({
       statusCode: 400,

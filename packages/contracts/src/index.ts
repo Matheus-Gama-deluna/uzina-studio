@@ -14,3 +14,4 @@ export * from "./copilot.js";
 export * from "./qmd.js";
 export * from "./codebase.js";
 export * from "./prototypes.js";
+export * from "./finops.js";

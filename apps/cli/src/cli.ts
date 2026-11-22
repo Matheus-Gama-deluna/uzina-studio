@@ -603,11 +603,28 @@ export async function runCli(
       ...deps.securityDeps,
     });
 
+    const dockerRes = spawnSync("docker", ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 3000,
+    });
+    const dockerStatus =
+      dockerRes.status === 0
+        ? { available: true, version: dockerRes.stdout.trim() || "ok" }
+        : { available: false, version: null };
+
+    const workspaceMode =
+      effectiveEnv.UZINA_WORKSPACE?.trim().toLowerCase() === "docker"
+        ? "docker"
+        : "worktree";
+
     const payload = {
       cliVersion: UZINA_CLI_VERSION,
       nodeVersion: process.versions.node,
       nodeOk,
       git: gitStatus,
+      docker: dockerStatus,
+      workspaceMode,
       databaseMode: dbConfig.mode,
       dataDir,
       securityDoctorExit: secExit,

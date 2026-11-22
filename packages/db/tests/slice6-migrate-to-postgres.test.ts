@@ -33,6 +33,7 @@ import {
   securityFindings,
   securityScans,
   sessions,
+  tokenSavingsEvents,
   users,
   verifications,
   validatePostgresUrl,
@@ -339,6 +340,14 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
         radius: { lg: { $value: "0.50rem", $type: "dimension" } },
       },
       approved: true,
+    });
+
+    await sourceDb.insert(tokenSavingsEvents).values({
+      organizationId,
+      deliverableId: deliverable!.id,
+      technique: "skeleton",
+      tokensBaseline: 12000,
+      tokensActual: 950,
     });
 
     // Inserir 2 clientes adicionais para exercitar batchSize: 2

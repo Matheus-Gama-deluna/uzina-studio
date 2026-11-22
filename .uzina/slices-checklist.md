@@ -79,6 +79,6 @@
   - [x] Conector Stitch (MCP stdio `shell: false` + importação HTML/Tailwind com `413` > 2 MiB)
   - [x] Preview sandboxed (`CSP default-src 'none'` + `<iframe sandbox="">`) + aprovação/handoff `.uzina/prototypes/` (`464 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-09-visual-studio-stitch`)
 
-- [ ] **Slice 10 — Docker Workspace & FinOps de Tokens** (`docs/slices/slice-10-docker-workspace-token-finops.md`)
-  - [ ] `DockerExecutionWorkspace` (hardening + limpeza) com suíte de contrato compartilhada
-  - [ ] `token_savings_events` + `/app/finops`
+- [x] **Slice 10 — Docker Workspace & FinOps de Tokens** (`docs/slices/slice-10-docker-workspace-token-finops.md`) ★ **Fase 2 Completa**
+  - [x] `DockerExecutionWorkspace` (hardening `--cap-drop ALL`, `--network none`, `--read-only`, `--user 1001:1001`, limpeza `docker rm -f`) com suíte de contrato
+  - [x] `token_savings_events` (`0009_pale_hellion.sql`) + `/api/finops/summary` + painel `/app/finops` + `uzina doctor` (`docker` + `workspaceMode`) (`480 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-10-docker-workspace-finops`)

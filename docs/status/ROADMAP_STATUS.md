@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 9 (Estúdio Visual 3 Níveis & Google Stitch) concluído na branch `feat/slice-09-visual-studio-stitch`** (`464 passed | 0 skipped` em PostgreSQL + `pgvector` live). → **Próximo passo:** Abertura/merge de PR do Slice 9 e início do **Slice 10 (`DockerExecutionWorkspace` & FinOps de Tokens)**.
+> **Estado Atual:** ★ **Fase 2 (Slices 7–10) 100% Concluída** (`feat/slice-07` → `feat/slice-10-docker-workspace-finops`, `480 passed | 0 skipped` em PostgreSQL + `pgvector` live). → **Próximo passo:** Abertura/merge das Pull Requests dos Slices 7–10 na `main`.
 
 ---
 
@@ -18,7 +18,7 @@ flowchart LR
     S6 --> S7["Slice 7: Motor QMD Híbrido & Embeddings Locais (CONCLUÍDO)"]
     S7 --> S8["Slice 8: Codebase Intelligence, Grafo AST & Proveniência (CONCLUÍDO)"]
     S8 --> S9["Slice 9: Estúdio Visual 3 Níveis & Google Stitch (CONCLUÍDO)"]
-    S9 --> S10["Slice 10: DockerExecutionWorkspace & FinOps de Tokens ★ Fase 2 (PRÓXIMO)"]
+    S9 --> S10["Slice 10: DockerExecutionWorkspace & FinOps de Tokens ★ Fase 2 (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -44,7 +44,7 @@ flowchart LR
 | **Slice 7 — Motor QMD & Embeddings Locais** | *Contract-First + Domain-First* | Chunking por headings, BM25 + vetor 384d + RRF, `EmbeddingProvider` + fallback offline, busca em `/app/memories` | **Sim** (`readiness` + `design`) | [slice-07](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-07-qmd-hybrid-memory-local-embeddings.md) | 🟢 Concluído (`feat/slice-07-qmd-hybrid-memory`) |
 | **Slice 8 — Codebase Intelligence** | *Domain-First + Vertical Slice* | `@uzina/codebase-intel`: Context Tree, esqueleto p/ Prompt Cache, grafo AST incremental, proveniência, Mapa do Código | **Sim** (`readiness` + `design`) | [slice-08](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-08-codebase-intel-ast-graph-provenance.md) | 🟢 Concluído (`feat/slice-08-codebase-intel`) |
 | **Slice 9 — Estúdio Visual & Google Stitch** | *Contract-First + Frontend-First* | 3 Níveis (Wireframe, W3C, Stitch MCP + HTML), sanitizador XSS, preview CSP + `<iframe sandbox="">`, handoff `.uzina/prototypes/` | **Sim** (`readiness` + `appsec`) | [slice-09](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-09-visual-studio-3levels-google-stitch.md) | 🟢 Concluído (`feat/slice-09-visual-studio-stitch`) |
-| **Slice 10 — Docker Workspace & FinOps ★** | *Domain-First + Release Eng.* | `DockerExecutionWorkspace`, `token_savings_events`, painel `/app/finops` | **Sim** (`readiness` + `design` + `appsec`) | [slice-10](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-10-docker-workspace-token-finops.md) | ⚪ Planejado (Fase 2) |
+| **Slice 10 — Docker Workspace & FinOps ★** | *Domain-First + Release Eng.* | `DockerExecutionWorkspace` (hardening), `token_savings_events`, painel `/app/finops`, `uzina doctor` (**Fase 2 Completa**) | **Sim** (`readiness` + `design` + `appsec`) | [slice-10](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-10-docker-workspace-token-finops.md) | 🟢 Concluído (`feat/slice-10-docker-workspace-finops`) |
 
 ---
 
