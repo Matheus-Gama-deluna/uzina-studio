@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildCodebaseDirectoryTree,
+  buildCodebaseSkeleton,
+  scanCodebaseWorkspace,
+} from "@uzina/codebase-intel";
+import {
   QmdSearchModeSchema,
   type QmdSearchMode,
 } from "@uzina/contracts";
@@ -70,6 +75,22 @@ const MemorySearchOptionsSchema = z
   })
   .strict();
 
+const CodeSkeletonOptionsSchema = z
+  .object({
+    command: z.literal("code:skeleton"),
+    rootDir: z.string().trim().min(1).optional(),
+    maxTokens: z.number().int().min(100).max(10000).optional(),
+  })
+  .strict();
+
+const IndexCodeOptionsSchema = z
+  .object({
+    command: z.literal("index:code"),
+    rootDir: z.string().trim().min(1).optional(),
+    rebuild: z.boolean().default(false),
+  })
+  .strict();
+
 export type ParsedCliCommand =
   | { command: "help" }
   | { command: "version" }
@@ -77,7 +98,9 @@ export type ParsedCliCommand =
   | { command: "sec"; args: string[] }
   | z.infer<typeof MigrateOptionsSchema>
   | z.infer<typeof DoctorOptionsSchema>
-  | z.infer<typeof MemorySearchOptionsSchema>;
+  | z.infer<typeof MemorySearchOptionsSchema>
+  | z.infer<typeof CodeSkeletonOptionsSchema>
+  | z.infer<typeof IndexCodeOptionsSchema>;
 
 export interface SpawnServerPlan {
   mode: "start" | "dev";
@@ -269,6 +292,61 @@ export function parseCliCommand(argv: string[]): ParsedCliCommand {
       mode,
       limit,
       rootDir,
+    });
+  }
+
+  if (first === "code") {
+    const subcommand = argv[1];
+    if (subcommand !== "skeleton") {
+      throw new Error(
+        `Subcomando 'code ${subcommand ?? ""}' não suportado. Use: uzina code skeleton [--root <dir>] [--max-tokens <n>]`
+      );
+    }
+    let rootDir: string | undefined;
+    let maxTokens: number | undefined;
+    for (let i = 2; i < argv.length; i += 1) {
+      const arg = argv[i]!;
+      if (arg === "--root") {
+        rootDir = readNextFlagValue(argv, i, arg);
+        i += 1;
+      } else if (arg === "--max-tokens") {
+        maxTokens = Number(readNextFlagValue(argv, i, arg));
+        i += 1;
+      } else {
+        throw new Error(`Flag desconhecida para 'code skeleton': ${arg}`);
+      }
+    }
+    return CodeSkeletonOptionsSchema.parse({
+      command: "code:skeleton",
+      rootDir,
+      maxTokens,
+    });
+  }
+
+  if (first === "index") {
+    const subcommand = argv[1];
+    if (subcommand !== "code") {
+      throw new Error(
+        `Subcomando 'index ${subcommand ?? ""}' não suportado. Use: uzina index code [--rebuild] [--root <dir>]`
+      );
+    }
+    let rootDir: string | undefined;
+    let rebuild = false;
+    for (let i = 2; i < argv.length; i += 1) {
+      const arg = argv[i]!;
+      if (arg === "--root") {
+        rootDir = readNextFlagValue(argv, i, arg);
+        i += 1;
+      } else if (arg === "--rebuild") {
+        rebuild = true;
+      } else {
+        throw new Error(`Flag desconhecida para 'index code': ${arg}`);
+      }
+    }
+    return IndexCodeOptionsSchema.parse({
+      command: "index:code",
+      rootDir,
+      rebuild,
     });
   }
 
@@ -632,6 +710,87 @@ export async function runCli(
           embeddingModel: provider.id,
           totalChunks: docsChunks.length,
           hits,
+        },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
+
+  if (parsed.command === "code:skeleton" || parsed.command === "index:code") {
+    const rootDir = path.resolve(parsed.rootDir ?? cwd);
+    const scan = scanCodebaseWorkspace(rootDir);
+    const symbols = scan.files.flatMap((file) =>
+      file.symbols.map((s, idx) => ({
+        id: `${file.path}:${s.name}:${idx}`,
+        fileId: file.path,
+        filePath: s.filePath,
+        kind: s.kind,
+        name: s.name,
+        signature: s.signature,
+        lineStart: s.lineStart,
+        lineEnd: s.lineEnd,
+        exported: s.exported,
+        citation: s.citation,
+      }))
+    );
+    const symIdByKey = new Map(
+      symbols.map((s) => [`${s.filePath}:${s.name}`, s.id])
+    );
+    const edges = scan.edges
+      .map((e, idx) => {
+        const fromId = symIdByKey.get(`${e.fromFilePath}:${e.fromSymbolName}`);
+        const toId = symIdByKey.get(`${e.toFilePath}:${e.toSymbolName}`);
+        if (!fromId || !toId) return null;
+        return {
+          id: `edge:${idx}`,
+          fromSymbolId: fromId,
+          toSymbolId: toId,
+          fromSymbolName: e.fromSymbolName,
+          toSymbolName: e.toSymbolName,
+          relation: e.relation,
+        };
+      })
+      .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
+    const skeleton = buildCodebaseSkeleton({
+      repositoryId: null,
+      files: scan.files.map((f) => ({ path: f.path, size: f.size })),
+      symbols,
+      edges,
+      maxTokens: parsed.command === "code:skeleton" ? parsed.maxTokens : undefined,
+    });
+
+    if (parsed.command === "code:skeleton") {
+      stdout(
+        JSON.stringify(
+          {
+            filesCount: scan.files.length,
+            symbolsCount: symbols.length,
+            edgesCount: edges.length,
+            skeleton,
+          },
+          null,
+          2
+        )
+      );
+      return 0;
+    }
+
+    const directories = buildCodebaseDirectoryTree(
+      scan.files.map((f) => f.path),
+      symbols
+    );
+    stdout(
+      JSON.stringify(
+        {
+          rebuild: parsed.rebuild,
+          filesCount: scan.files.length,
+          symbolsCount: symbols.length,
+          edgesCount: edges.length,
+          savingsPercent: skeleton.savingsPercent,
+          directories,
         },
         null,
         2

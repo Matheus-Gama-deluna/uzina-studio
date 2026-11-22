@@ -50,6 +50,13 @@
       "when": 1795382479330,
       "tag": "0006_natural_obadiah_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795384848706,
+      "tag": "0007_peaceful_grandmaster",
+      "breakpoints": true
     }
   ]
 }

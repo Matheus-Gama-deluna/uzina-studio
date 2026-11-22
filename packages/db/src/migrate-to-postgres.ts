@@ -30,6 +30,10 @@ export const MIGRATION_TABLE_ORDER = [
   "security_scans",
   "security_findings",
   "execution_events",
+  "codebase_files",
+  "codebase_symbols",
+  "codebase_edges",
+  "decision_provenance",
 ] as const;
 
 export type MigrationTableName = (typeof MIGRATION_TABLE_ORDER)[number];
@@ -79,6 +83,10 @@ const TABLE_REGISTRY: ReadonlyArray<readonly [MigrationTableName, PgTable]> = [
   ["security_scans", schema.securityScans],
   ["security_findings", schema.securityFindings],
   ["execution_events", schema.executionEvents],
+  ["codebase_files", schema.codebaseFiles],
+  ["codebase_symbols", schema.codebaseSymbols],
+  ["codebase_edges", schema.codebaseEdges],
+  ["decision_provenance", schema.decisionProvenance],
 ];
 
 const DEFAULT_BATCH_SIZE = 250;

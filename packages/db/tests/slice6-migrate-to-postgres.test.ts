@@ -12,6 +12,10 @@ import {
   MIGRATION_TABLE_ORDER,
   accounts,
   clients,
+  codebaseEdges,
+  codebaseFiles,
+  codebaseSymbols,
+  decisionProvenance,
   decisions,
   deliverables,
   designAssets,
@@ -256,6 +260,68 @@ describe("@uzina/db — Slice 6 migrate-to-postgres (Idempotência, Ordem Topol�
       actorRole: "executor",
       eventType: "stage_completed",
       payloadJson: { status: "merged" },
+    });
+
+    const [cbFile1] = await sourceDb
+      .insert(codebaseFiles)
+      .values({
+        repositoryId: repo!.id,
+        path: "src/index.ts",
+        sha256: "a".repeat(64),
+        language: "typescript",
+        size: 100,
+      })
+      .returning();
+
+    const [cbFile2] = await sourceDb
+      .insert(codebaseFiles)
+      .values({
+        repositoryId: repo!.id,
+        path: "src/helper.ts",
+        sha256: "b".repeat(64),
+        language: "typescript",
+        size: 80,
+      })
+      .returning();
+
+    const [cbSym1] = await sourceDb
+      .insert(codebaseSymbols)
+      .values({
+        fileId: cbFile1!.id,
+        kind: "function",
+        name: "main",
+        signature: "export function main()",
+        lineStart: 1,
+        lineEnd: 5,
+        exported: true,
+      })
+      .returning();
+
+    const [cbSym2] = await sourceDb
+      .insert(codebaseSymbols)
+      .values({
+        fileId: cbFile2!.id,
+        kind: "function",
+        name: "help",
+        signature: "export function help()",
+        lineStart: 1,
+        lineEnd: 3,
+        exported: true,
+      })
+      .returning();
+
+    await sourceDb.insert(codebaseEdges).values({
+      fromSymbolId: cbSym1!.id,
+      toSymbolId: cbSym2!.id,
+      relation: "calls",
+    });
+
+    await sourceDb.insert(decisionProvenance).values({
+      organizationId,
+      deliverableId: deliverable!.id,
+      memoryId: mem!.id,
+      symbolId: cbSym1!.id,
+      filePath: "src/index.ts",
     });
 
     // Inserir 2 clientes adicionais para exercitar batchSize: 2

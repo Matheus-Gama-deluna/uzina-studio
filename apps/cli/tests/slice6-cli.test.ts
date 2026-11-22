@@ -257,5 +257,44 @@ describe("@uzina/cli — Slice 6 CLI Unificada (start, dev, sec, db, doctor)", (
     };
     expect(memJson.totalChunks).toBeGreaterThanOrEqual(1);
     expect(memJson.hits[0]?.sourcePath).toBe("docs/arquitetura.md");
+
+    // uzina code skeleton & uzina index code
+    const codeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "uzina-cli-code-"));
+    tempDirs.push(codeRoot);
+    fs.mkdirSync(path.join(codeRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(codeRoot, "src", "sample.ts"),
+      `export function helloWorld(name: string): string { return "hi " + name; }\n`,
+      "utf8"
+    );
+
+    const skelOut: string[] = [];
+    const skelCode = await runCli(["code", "skeleton", "--root", codeRoot], {
+      stdout: (line) => skelOut.push(line),
+    });
+    expect(skelCode).toBe(0);
+    const skelJson = JSON.parse(skelOut[0]!) as {
+      filesCount: number;
+      symbolsCount: number;
+      skeleton: { skeletonText: string };
+    };
+    expect(skelJson.filesCount).toBe(1);
+    expect(skelJson.symbolsCount).toBe(1);
+    expect(skelJson.skeleton.skeletonText).toContain("helloWorld");
+
+    const idxOut: string[] = [];
+    const idxCode = await runCli(
+      ["index", "code", "--rebuild", "--root", codeRoot],
+      { stdout: (line) => idxOut.push(line) }
+    );
+    expect(idxCode).toBe(0);
+    const idxJson = JSON.parse(idxOut[0]!) as {
+      rebuild: boolean;
+      filesCount: number;
+      symbolsCount: number;
+    };
+    expect(idxJson.rebuild).toBe(true);
+    expect(idxJson.filesCount).toBe(1);
+    expect(idxJson.symbolsCount).toBe(1);
   });
 });

@@ -158,3 +158,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (11.7s)`**.
   * `browser` (`flash`): **PASS** em `/app/memories` (criação de `adr-qmd-cache`, reindexação `352` chunks, busca `"Reciprocal Rank Fusion"` com `5` hits e scores `RRF / BM25 / Vec` `tabular-nums`, `0` erros de console/HTTP `>=500`/overflow em Desktop Dark/Light e Mobile).
 * **Próximo passo:** Abertura/merge de PR do Slice 7 para `main` e início do **Slice 8 (`@uzina/codebase-intel`)**.
+
+---
+
+## 2026-11-22 — Slice 8: Codebase Intelligence (`@uzina/codebase-intel`), Grafo AST, Esqueleto & Proveniência (`feat/slice-08-codebase-intel`)
+
+* **Entregue:**
+  * `@uzina/contracts`: schemas Zod `.strict()` em `src/codebase.ts` (`CodebaseSymbolKindSchema`, `CodebaseRelationSchema`, `SymbolGraphQuerySchema`, `SymbolSliceRequestSchema`, `ProvenanceQuerySchema`, `ChangeImpactRequestSchema`, `SkeletonResponseSchema`, `CodebaseTreeResponseSchema`, `CodebaseReindexResponseSchema`) (`138/138` testes).
+  * `@uzina/codebase-intel`: novo pacote isolado (importa apenas `@uzina/contracts` e `@uzina/core`, zero `@uzina/db`) com `ts-indexer.ts` (TypeScript Compiler API), `skeleton.ts` (esqueleto Prompt Cache com orçamento `UZINA_SKELETON_MAX_TOKENS`), `graph.ts` (`querySymbolGraphInMemory`, `computeChangeImpactInMemory`, `readSymbolSliceFromWorkspace` com `assertPathInsideWorkspace`, bloqueio `.env*`/`.master-key` e `redactSensitiveText`) e `adapters.ts` (`probeCodebaseAdapters` com degradação `skipped_missing_binary`) (`8/8` testes).
+  * `@uzina/db`: 4 tabelas (`codebase_files`, `codebase_symbols`, `codebase_edges`, `decision_provenance`) em `src/schema/codebase.ts`, migração `0007_peaceful_grandmaster.sql` e suporte em `MIGRATION_TABLE_ORDER` (`37 passed | 0 skipped` em PostgreSQL 16 + `pgvector` live).
+  * `@uzina/mastra-runtime`: `src/codebase.ts` (`syncRepositoryCodebase` incremental por SHA-256, remoção de deletados, consulta ao grafo, slice, impacto e proveniência) + hook `recordDeliverableProvenance` em `stage_finalize` (`17/17` testes).
+  * `apps/web` & `apps/cli`: 4 rotas REST (`/api/projects/[id]/codebase*`), MSW + `contract-drift.test.ts`, tela **Mapa do Código** (`/app/projects/[id]/code` com link no Estúdio, `26/26` testes) e comandos `uzina code skeleton` / `uzina index code` (`13/13` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `pnpm turbo run build --force` (`9/9` pacotes), `node scripts/audit-tests.mjs` (`53 arquivos, 173 testes, 0 violações`).
+  * `pnpm turbo run typecheck lint test --force` com `TEST_DATABASE_URL` em PostgreSQL 16 + `pgvector` live: **`34/34` tasks**, **`444 passed | 0 skipped`**.
+  * Revalidação final pós-ajuste Mobile de `project-codebase-map.tsx`: `typecheck`, `lint`, `next build`, `vitest run` (`26 passed`) e `test:e2e` (`2 passed (11.7s)`).
+  * `browser` (`flash`): **PASS** em `/app/projects/[id]/code` (Desktop Dark/Light `1440×900` e Mobile `390×844` após correção de overflow horizontal, `0` erros de console, `0` HTTP `>= 500`, `0` overflow).
+* **Próximo passo:** Abertura/merge de PR e início do **Slice 9 — Estúdio Visual 3 Níveis & Google Stitch**.
