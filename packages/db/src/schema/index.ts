@@ -5,3 +5,4 @@ export * from "./memories.js";
 export * from "./memory-chunks.js";
 export * from "./codebase.js";
 export * from "./prototypes.js";
+export * from "./finops.js";
