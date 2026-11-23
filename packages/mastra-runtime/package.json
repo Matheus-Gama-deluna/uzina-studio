@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agency": {
+      "types": "./dist/agency.d.ts",
+      "import": "./dist/agency.js"
     }
   },
   "scripts": {

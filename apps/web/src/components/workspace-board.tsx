@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
+import { AgencyCommandCenter } from "./agency-command-center";
 
 type ViewMode = "kanban" | "list";
 
@@ -178,10 +179,24 @@ export function WorkspaceBoard() {
       defaultDevelopmentStrategy: DevelopmentStrategy;
       repository?: { name: string; localPath: string };
     }) => {
+      let resolvedClientId = payload.clientId;
+      if (!resolvedClientId) {
+        const cliRes = await fetch("/api/clients");
+        if (cliRes.ok) {
+          const cliData = (await cliRes.json()) as ClientListResponse;
+          resolvedClientId = cliData.items[0]?.id ?? "";
+        }
+      }
+      if (!resolvedClientId) {
+        throw new Error("Selecione um cliente.");
+      }
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          clientId: resolvedClientId,
+        }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -190,13 +205,13 @@ export function WorkspaceBoard() {
       return (await res.json()) as Project;
     },
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
       setSelectedProjectId(created.id);
       setProjectName("");
       setRepoName("");
       setRepoPath("");
       setFormError(null);
       setProjectModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (err: Error) => setFormError(err.message),
   });
@@ -280,10 +295,6 @@ export function WorkspaceBoard() {
     e.preventDefault();
     setFormError(null);
     const targetClientId = projectClientId || clientsList[0]?.id || "";
-    if (!targetClientId) {
-      setFormError("Selecione um cliente.");
-      return;
-    }
     if (projectName.trim().length < 2) {
       setFormError("Informe o nome do projeto (mínimo 2 caracteres).");
       return;
@@ -476,6 +487,14 @@ export function WorkspaceBoard() {
           </button>
         </div>
       </section>
+
+      {/* Central de Comando da Empresa de Engenharia: Guia de Prontidão + Equipe (Model Tiering) + Chat Multi-Agente + Inspetor de Artefatos (Longo Prazo & Slices) */}
+      <AgencyCommandCenter
+        selectedClientId={selectedClientId}
+        activeProjectId={activeProject?.id ?? ""}
+        bootReady={!isBootLoading}
+        onSelectProject={(projectId) => setSelectedProjectId(projectId)}
+      />
 
       {/* Estado 1: Loading Skeleton (CLS = 0) */}
       {isBootLoading && (

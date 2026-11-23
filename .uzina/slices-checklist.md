@@ -88,3 +88,9 @@
   - [x] Embeddings semânticos bilíngues PT-BR/EN (`onnx_e5_small`) + fallback `ollama` e `ENGINE_OPTIONS_CATALOG` (Consumo × Benefício)
   - [x] Indexador AST poliglota (`ts_native` vs `polyglot`: `.py`, `.go`, `.rs`, `.sql`, `.java`, `.cs`) + `buildAutoInjectedCodebaseContext` (`prompt_cache`)
   - [x] Painel dinâmico em `/app/finops` + QA visual sem overflow (`487 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-11-dynamic-engines-polyglot-ast`)
+
+- [x] **Slice 12 — Guia de Prontidão, Central Conversacional de Agentes, Model Tiering & Artefatos Cíclicos** (`docs/slices/slice-12-onboarding-conversational-agency-cyclic-workflows.md`)
+  - [x] Guia Interativo de Prontidão (`SystemReadinessStatus`) + Equipe de 6 Agentes com Model Tiering (`Tier 3 Pro` vs `Tier 2 Flash`)
+  - [x] Central Conversacional Multi-Agente em `/app` (Fluxo Greenfield do zero + Fluxo Brownfield com URL Git remota, Brownfield Scan e AST Poliglota)
+  - [x] Inspetor Duplo de Artefatos (Longo Prazo: PRD, Arquitetura/ADR, AST, `DESIGN.md` vs. Táticos de Slice: `specMarkdown`, `blueprintJson`, `evidencePackJson`) com Aprovação e Retorno Cíclico (`Ciclo #2+`)
+  - [x] Motor de Ciclo Autônomo sem pular fases com parada obrigatória em `decision_pending` (`494 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-12-autonomous-agency-chat-onboarding`)
