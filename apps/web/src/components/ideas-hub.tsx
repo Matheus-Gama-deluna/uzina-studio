@@ -390,7 +390,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
 
         <form
           onSubmit={handleIdeaSubmit}
-          className="space-y-4 rounded-xl border border-border-default bg-surface p-4 sm:p-6"
+          className="uzina-card space-y-4 rounded-xl border border-border-default bg-surface p-4 sm:p-6"
         >
           {/* Seletor Neutro: Ideia do Zero vs Repositório Existente */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
@@ -569,7 +569,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
               className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-sm text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             >
               <UserPlus className="size-4" strokeWidth={1.75} />
-              <span>Novo Cliente</span>
+              <span>+ Cliente</span>
             </button>
 
             <button
@@ -583,7 +583,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
               className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-sm text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             >
               <FolderPlus className="size-4" strokeWidth={1.75} />
-              <span>Cadastro Rápido</span>
+              <span>Cadastro Direto</span>
             </button>
           </div>
         </div>
@@ -618,7 +618,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
                 <article
                   key={proj.id}
                   data-testid={`project-portfolio-card-${proj.id}`}
-                  className="flex flex-col justify-between gap-4 rounded-xl border border-border-subtle bg-surface p-5 transition-colors hover:border-border-strong"
+                  className="uzina-card flex flex-col justify-between gap-4 rounded-xl border border-border-subtle bg-surface p-5 transition-colors hover:border-border-strong"
                 >
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between gap-2 text-xs text-fg-secondary">

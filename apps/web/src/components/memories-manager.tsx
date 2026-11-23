@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ClientListResponse,
@@ -14,7 +15,6 @@ import type {
 } from "@uzina/contracts";
 import {
   AlertCircle,
-  ArrowLeft,
   Brain,
   CheckCircle2,
   Loader2,
@@ -23,8 +23,8 @@ import {
   Search,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
-import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 
 const CATEGORY_LABELS: Record<MemoryCategory, string> = {
@@ -77,6 +77,7 @@ export function MemoriesManager() {
     "all"
   );
 
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newScopeType, setNewScopeType] = useState<MemoryScope>("project");
   const [newScopeId, setNewScopeId] = useState("");
   const [newCategory, setNewCategory] = useState<MemoryCategory>("convention");
@@ -160,6 +161,7 @@ export function MemoriesManager() {
       setFeedbackOk("Memória gravada e isolada no escopo selecionado.");
       setNewTitle("");
       setNewContent("");
+      setCreateModalOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["memories"] });
     },
     onError: (err: Error) => {
@@ -243,6 +245,14 @@ export function MemoriesManager() {
     qmdSearchMutation.mutate({ query: qmdQuery.trim(), mode: qmdMode });
   }
 
+  function resolveScopeDisplay(mem: Memory): string {
+    if (mem.scopeType === "org") return "Organização";
+    if (mem.scopeType === "client") {
+      return clientsList.find((c) => c.id === mem.scopeId)?.name ?? "Cliente";
+    }
+    return projectsList.find((p) => p.id === mem.scopeId)?.name ?? "Projeto";
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFeedbackError(null);
@@ -251,178 +261,218 @@ export function MemoriesManager() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
-            <Link
-              href="/app"
-              data-testid="back-to-chat-link"
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium normal-case tracking-normal text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
-            >
-              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-              <span>Voltar ao Chat do Projeto</span>
-            </Link>
-            <Brain className="size-3.5 text-accent" strokeWidth={1.75} />
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-fg-muted">
+            <Brain className="size-4 text-fg-secondary" strokeWidth={1.75} />
             <span>Contexto Persistente em 3 Escopos</span>
           </div>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg-primary">
+          <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-fg-primary">
             Memórias (Organização, Cliente e Projeto)
           </h1>
-          <p className="mt-0.5 text-sm text-fg-secondary">
+          <p className="mt-1 text-sm text-fg-secondary">
             Regras arquiteturais e convenções injetadas nos agentes com
             isolamento estrito entre clientes.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => memoriesQuery.refetch()}
-          className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
-        >
-          <RefreshCw className="size-3.5" strokeWidth={1.75} />
-          <span>Atualizar</span>
-        </button>
-      </header>
-
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-3 rounded-lg border border-border-subtle bg-surface p-4"
-      >
-        <div className="grid gap-3 sm:grid-cols-4">
-          <div>
-            <label
-              htmlFor="mem-scope-type"
-              className="block text-xs font-medium text-fg-secondary"
-            >
-              Escopo
-            </label>
-            <select
-              id="mem-scope-type"
-              value={newScopeType}
-              onChange={(e) => {
-                setNewScopeType(e.target.value as MemoryScope);
-                setNewScopeId("");
-              }}
-              className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
-            >
-              <option value="project">Projeto</option>
-              <option value="client">Cliente</option>
-              <option value="org">Organização (owner/admin)</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="mem-scope-target"
-              className="block text-xs font-medium text-fg-secondary"
-            >
-              Alvo do Escopo
-            </label>
-            {newScopeType === "org" ? (
-              <input
-                id="mem-scope-target"
-                type="text"
-                readOnly
-                value="Organização atual"
-                className="mt-1 w-full rounded-md border border-border-subtle bg-inset px-2.5 py-1.5 text-sm text-fg-muted"
-              />
-            ) : (
-              <select
-                id="mem-scope-target"
-                value={resolvedScopeId}
-                onChange={(e) => setNewScopeId(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
-              >
-                {newScopeType === "client"
-                  ? clientsList.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))
-                  : projectsList.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-              </select>
-            )}
-          </div>
-
-          <div>
-            <label
-              htmlFor="mem-category"
-              className="block text-xs font-medium text-fg-secondary"
-            >
-              Categoria
-            </label>
-            <select
-              id="mem-category"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value as MemoryCategory)}
-              className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
-            >
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="mem-title"
-              className="block text-xs font-medium text-fg-secondary"
-            >
-              Título
-            </label>
-            <input
-              id="mem-title"
-              type="text"
-              required
-              minLength={2}
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Ex.: Padrão de resposta REST"
-              className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <label
-              htmlFor="mem-content"
-              className="block text-xs font-medium text-fg-secondary"
-            >
-              Conteúdo da memória
-            </label>
-            <textarea
-              id="mem-content"
-              rows={2}
-              required
-              minLength={3}
-              value={newContent}
-              onChange={(e) => setNewContent(e.target.value)}
-              placeholder="Descreva a convenção, decisão arquitetural ou regra de domínio..."
-              className="mt-1 w-full rounded-md border border-border-default bg-inset px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
-            />
-          </div>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
           <button
-            type="submit"
-            disabled={createMutation.isPending || !resolvedScopeId}
-            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-accent px-4 text-xs font-semibold text-base transition-opacity hover:opacity-90 disabled:opacity-50"
+            type="button"
+            onClick={() => memoriesQuery.refetch()}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
           >
-            {createMutation.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Plus className="size-3.5" />
-            )}
-            <span>Salvar Memória</span>
+            <RefreshCw className="size-3.5" strokeWidth={1.75} />
+            <span>Atualizar</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="btn-open-new-memory"
+            onClick={() => {
+              setFeedbackError(null);
+              setCreateModalOpen(true);
+            }}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover"
+          >
+            <Plus className="size-4" strokeWidth={2} />
+            <span>Nova Memória</span>
           </button>
         </div>
-      </form>
+      </header>
+
+      <Dialog.Root open={createModalOpen} onOpenChange={setCreateModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px]" />
+          <Dialog.Content
+            aria-describedby={undefined}
+            className="fixed left-1/2 top-1/2 z-50 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border-default bg-surface p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <Dialog.Title className="text-base font-semibold text-fg-primary">
+                Registrar Nova Memória
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  aria-label="Fechar modal de memória"
+                  className="rounded p-1.5 text-fg-muted hover:text-fg-primary"
+                >
+                  <X className="size-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="mem-scope-type"
+                    className="block text-xs font-medium text-fg-secondary"
+                  >
+                    Escopo
+                  </label>
+                  <select
+                    id="mem-scope-type"
+                    value={newScopeType}
+                    onChange={(e) => {
+                      setNewScopeType(e.target.value as MemoryScope);
+                      setNewScopeId("");
+                    }}
+                    className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-border-strong focus:outline-none"
+                  >
+                    <option value="project">Projeto</option>
+                    <option value="client">Cliente</option>
+                    <option value="org">Organização (owner/admin)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="mem-scope-target"
+                    className="block text-xs font-medium text-fg-secondary"
+                  >
+                    Alvo do Escopo
+                  </label>
+                  {newScopeType === "org" ? (
+                    <input
+                      id="mem-scope-target"
+                      type="text"
+                      readOnly
+                      value="Organização atual"
+                      className="mt-1 min-h-9 w-full rounded-md border border-border-subtle bg-inset px-2.5 py-1.5 text-sm text-fg-muted"
+                    />
+                  ) : (
+                    <select
+                      id="mem-scope-target"
+                      value={resolvedScopeId}
+                      onChange={(e) => setNewScopeId(e.target.value)}
+                      className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-border-strong focus:outline-none"
+                    >
+                      {newScopeType === "client"
+                        ? clientsList.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))
+                        : projectsList.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="mem-category"
+                    className="block text-xs font-medium text-fg-secondary"
+                  >
+                    Categoria
+                  </label>
+                  <select
+                    id="mem-category"
+                    value={newCategory}
+                    onChange={(e) =>
+                      setNewCategory(e.target.value as MemoryCategory)
+                    }
+                    className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-border-strong focus:outline-none"
+                  >
+                    {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="mem-title"
+                    className="block text-xs font-medium text-fg-secondary"
+                  >
+                    Título
+                  </label>
+                  <input
+                    id="mem-title"
+                    type="text"
+                    required
+                    minLength={2}
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Ex.: Padrão de resposta REST"
+                    className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="mem-content"
+                  className="block text-xs font-medium text-fg-secondary"
+                >
+                  Conteúdo da memória
+                </label>
+                <textarea
+                  id="mem-content"
+                  rows={4}
+                  required
+                  minLength={3}
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  placeholder="Descreva a convenção, decisão arquitetural ou regra de domínio..."
+                  className="mt-1 w-full rounded-md border border-border-default bg-inset px-3 py-2 text-sm leading-relaxed text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-border-subtle pt-3">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-md border border-border-default bg-surface px-3.5 text-xs font-medium text-fg-secondary hover:text-fg-primary"
+                  >
+                    Cancelar
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending || !resolvedScopeId}
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {createMutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Plus className="size-4" />
+                  )}
+                  <span>Salvar Memória</span>
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {feedbackError && (
         <div
@@ -444,14 +494,14 @@ export function MemoriesManager() {
         </div>
       )}
 
-      <section className="space-y-3 rounded-lg border border-border-subtle bg-surface p-4">
+      <section className="uzina-card space-y-3 rounded-xl border border-border-subtle bg-surface p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-medium text-fg-primary">
-              <Sparkles className="size-3.5 text-accent" strokeWidth={1.75} />
+            <div className="flex items-center gap-2 text-sm font-semibold text-fg-primary">
+              <Sparkles className="size-4 text-fg-secondary" strokeWidth={1.75} />
               <span>Busca Híbrida QMD (BM25 + Vetor 384d + RRF)</span>
             </div>
-            <p className="text-[11px] text-fg-secondary">
+            <p className="mt-0.5 text-xs text-fg-secondary">
               Consulta bilíngue PT-BR / EN sobre memórias e documentos Markdown
               indexados (`.uzina/`, `docs/`).
             </p>
@@ -461,7 +511,7 @@ export function MemoriesManager() {
             data-testid="qmd-reindex-btn"
             disabled={qmdReindexMutation.isPending}
             onClick={() => qmdReindexMutation.mutate()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-inset px-3 py-1.5 text-xs font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-elevated px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary disabled:opacity-50"
           >
             {qmdReindexMutation.isPending ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -480,14 +530,14 @@ export function MemoriesManager() {
             onChange={(e) => setQmdQuery(e.target.value)}
             placeholder="Buscar regra, decisão ou identificador (ex.: VAULT_WRITE_ROLES, isolamento de clientes)..."
             aria-label="Consulta QMD"
-            className="min-w-[240px] flex-1 rounded-md border border-border-default bg-inset px-3 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
+            className="min-h-10 min-w-[240px] flex-1 rounded-lg border border-border-default bg-inset px-3.5 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
           />
           <select
             data-testid="qmd-search-mode"
             aria-label="Modo de busca QMD"
             value={qmdMode}
             onChange={(e) => setQmdMode(e.target.value as QmdSearchMode)}
-            className="rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-xs text-fg-secondary focus:border-accent focus:outline-none"
+            className="min-h-10 rounded-lg border border-border-default bg-inset px-3 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
           >
             <option value="hybrid">Híbrido (RRF)</option>
             <option value="lexical">Léxico (BM25)</option>
@@ -497,12 +547,12 @@ export function MemoriesManager() {
             type="submit"
             data-testid="qmd-search-submit"
             disabled={qmdSearchMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-base transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border-default bg-elevated px-4 text-sm font-medium text-fg-primary transition-colors hover:border-border-strong disabled:opacity-50"
           >
             {qmdSearchMutation.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Search className="size-3.5" />
+              <Search className="size-4" />
             )}
             <span>Buscar QMD</span>
           </button>
@@ -510,7 +560,7 @@ export function MemoriesManager() {
 
         {qmdResult && (
           <div className="space-y-2.5 border-t border-border-subtle pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-fg-muted">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-muted">
               <span className="font-mono tabular-nums">
                 {qmdResult.hits.length} resultado(s) de {qmdResult.totalCandidates}{" "}
                 chunks · modelo: {qmdResult.embeddingModel}
@@ -519,7 +569,7 @@ export function MemoriesManager() {
                 {qmdResult.contextTree.map((node) => (
                   <span
                     key={node.directory}
-                    className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-[10px] text-fg-secondary tabular-nums"
+                    className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-xs text-fg-secondary tabular-nums"
                   >
                     {node.directory} ({node.chunkCount})
                   </span>
@@ -528,7 +578,7 @@ export function MemoriesManager() {
             </div>
 
             {qmdResult.hits.length === 0 ? (
-              <p className="text-xs text-fg-secondary">
+              <p className="text-sm text-fg-secondary">
                 Nenhum trecho relevante encontrado no índice QMD.
               </p>
             ) : (
@@ -537,24 +587,24 @@ export function MemoriesManager() {
                   <div
                     key={hit.id}
                     data-testid="qmd-hit-card"
-                    className="rounded-md border border-border-subtle bg-inset p-3"
+                    className="rounded-lg border border-border-subtle bg-inset p-3.5"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-fg-primary">
+                      <span className="text-sm font-medium text-fg-primary">
                         {hit.headingPath}
                       </span>
-                      <span className="font-mono text-[10px] text-accent tabular-nums">
+                      <span className="font-mono text-xs text-fg-secondary tabular-nums">
                         RRF {hit.scores.rrf.toFixed(4)} · BM25{" "}
                         {hit.scores.bm25.toFixed(2)} · Vec{" "}
                         {hit.scores.vector.toFixed(2)}
                       </span>
                     </div>
-                    <p className="mt-1 font-mono text-[10px] text-fg-muted tabular-nums">
+                    <p className="mt-1 font-mono text-xs text-fg-muted tabular-nums">
                       {hit.sourcePath
                         ? `${hit.sourcePath}#L${hit.lineStart}-L${hit.lineEnd}`
                         : `memory:${hit.scopeType}#L${hit.lineStart}-L${hit.lineEnd}`}
                     </p>
-                    <p className="mt-1.5 text-xs leading-relaxed text-fg-secondary">
+                    <p className="mt-1.5 text-sm leading-relaxed text-fg-secondary">
                       {hit.snippet}
                     </p>
                   </div>
@@ -572,10 +622,10 @@ export function MemoriesManager() {
               key={sc}
               type="button"
               onClick={() => setScopeFilter(sc)}
-              className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`min-h-8 rounded-md border px-3 text-xs font-medium transition-colors ${
                 scopeFilter === sc
-                  ? "border-accent bg-accent-subtle text-accent"
-                  : "border-border-default bg-surface text-fg-secondary hover:bg-elevated"
+                  ? "border-border-strong bg-elevated text-fg-primary"
+                  : "border-border-subtle bg-surface text-fg-secondary hover:bg-elevated/60"
               }`}
             >
               {sc === "all" ? "Todos Escopos" : SCOPE_LABELS[sc]}
@@ -589,7 +639,7 @@ export function MemoriesManager() {
           onChange={(e) =>
             setCategoryFilter(e.target.value as MemoryCategory | "all")
           }
-          className="rounded-md border border-border-default bg-surface px-2.5 py-1 text-xs text-fg-secondary focus:border-accent focus:outline-none"
+          className="min-h-8 rounded-md border border-border-default bg-surface px-3 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
         >
           <option value="all">Todas Categorias</option>
           {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
@@ -602,18 +652,18 @@ export function MemoriesManager() {
 
       {memoriesQuery.isLoading ? (
         <div className="space-y-2" aria-label="Carregando memórias">
-          <div className="h-20 animate-pulse rounded-lg border border-border-subtle bg-surface" />
-          <div className="h-20 animate-pulse rounded-lg border border-border-subtle bg-surface" />
+          <div className="h-24 animate-pulse rounded-xl border border-border-subtle bg-surface" />
+          <div className="h-24 animate-pulse rounded-xl border border-border-subtle bg-surface" />
         </div>
       ) : memoriesList.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-default bg-surface px-6 py-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border-default bg-surface px-6 py-12 text-center">
           <Brain className="size-8 text-fg-muted" strokeWidth={1.5} />
-          <h2 className="mt-3 text-sm font-medium text-fg-primary">
+          <h2 className="mt-3 text-base font-medium text-fg-primary">
             Nenhuma memória cadastrada neste filtro
           </h2>
-          <p className="mt-1 max-w-md text-xs text-fg-secondary">
-            Adicione convenções de código, preferências de cliente ou lições de
-            entregas concluídas acima.
+          <p className="mt-1 max-w-md text-sm text-fg-secondary">
+            Clique em Nova Memória no topo para registrar convenções de código,
+            preferências ou regras arquiteturais.
           </p>
         </div>
       ) : (
@@ -621,15 +671,16 @@ export function MemoriesManager() {
           {memoriesList.map((mem) => (
             <article
               key={mem.id}
-              className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface p-4"
+              className="uzina-card flex flex-col justify-between rounded-xl border border-border-subtle bg-surface p-5"
             >
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="rounded border border-border-default bg-inset px-2 py-0.5 font-mono text-[10px] uppercase text-accent">
-                      {SCOPE_LABELS[mem.scopeType]}
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-elevated px-2 py-0.5 text-xs font-medium text-fg-primary">
+                      <span className="size-1.5 rounded-full bg-status-info" />
+                      <span>{SCOPE_LABELS[mem.scopeType]}</span>
                     </span>
-                    <span className="rounded border border-border-subtle bg-inset px-2 py-0.5 text-[11px] text-fg-secondary">
+                    <span className="rounded-md border border-border-subtle bg-inset px-2 py-0.5 text-xs text-fg-secondary">
                       {CATEGORY_LABELS[mem.category]}
                     </span>
                   </div>
@@ -638,22 +689,22 @@ export function MemoriesManager() {
                     disabled={deleteMutation.isPending}
                     onClick={() => deleteMutation.mutate(mem.id)}
                     aria-label={`Remover memória ${mem.title}`}
-                    className="rounded border border-border-subtle p-1 text-fg-muted hover:border-status-error/40 hover:text-status-error disabled:opacity-50"
+                    className="rounded-md border border-border-subtle p-1.5 text-fg-muted transition-colors hover:border-status-danger/40 hover:text-status-danger disabled:opacity-50"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
 
-                <h2 className="mt-2 text-sm font-semibold text-fg-primary">
+                <h2 className="mt-3 text-sm font-semibold text-fg-primary">
                   {mem.title}
                 </h2>
-                <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
+                <p className="mt-1 text-sm leading-relaxed text-fg-secondary">
                   {mem.content}
                 </p>
               </div>
 
-              <p className="mt-3 font-mono text-[10px] text-fg-muted tabular-nums">
-                Escopo ID: {mem.scopeId} •{" "}
+              <p className="mt-3 border-t border-border-subtle pt-2.5 text-xs text-fg-muted tabular-nums">
+                {resolveScopeDisplay(mem)} ·{" "}
                 {new Date(mem.updatedAt).toLocaleString("pt-BR")}
               </p>
             </article>

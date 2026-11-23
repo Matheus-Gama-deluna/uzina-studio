@@ -15,7 +15,6 @@ import type {
 } from "@uzina/contracts";
 import { getAllowedNextStatuses } from "@uzina/core/state-machine";
 import {
-  ArrowLeft,
   ArrowRight,
   FileText,
   Kanban,
@@ -32,7 +31,6 @@ import {
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 import {
-  setActiveContext,
   useActiveClientId,
   useActiveProjectId,
 } from "@/lib/active-project-store";
@@ -79,7 +77,6 @@ export function DeliverablesDocsHub() {
   const queryClient = useQueryClient();
   const selectedClientId = useActiveClientId();
   const storedProjectId = useActiveProjectId();
-  const [localProjectId, setLocalProjectId] = useState("");
 
   const [mainTab, setMainTab] = useState<"slices" | "docs">(() => {
     if (typeof window !== "undefined") {
@@ -119,9 +116,12 @@ export function DeliverablesDocsHub() {
 
   const activeProject = useMemo(() => {
     if (projectsList.length === 0) return null;
-    const id = localProjectId || storedProjectId;
-    return projectsList.find((p) => p.id === id) ?? projectsList[0] ?? null;
-  }, [projectsList, localProjectId, storedProjectId]);
+    return (
+      projectsList.find((p) => p.id === storedProjectId) ??
+      projectsList[0] ??
+      null
+    );
+  }, [projectsList, storedProjectId]);
 
   const deliverablesQuery = useQuery({
     queryKey: ["deliverables", activeProject?.id ?? "none"],
@@ -332,41 +332,12 @@ export function DeliverablesDocsHub() {
       data-testid="deliverables-docs-hub"
       className="mx-auto flex w-full max-w-6xl flex-col gap-5"
     >
-      {/* Topo Limpo de 1 Linha */}
+      {/* Topo Limpo de 1 Linha (projeto controlado pelo Switcher da Sidebar) */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href={`/app?projectId=${encodeURIComponent(activeProject.id)}`}
-            data-testid="back-to-chat-link"
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary hover:border-border-strong hover:text-fg-primary"
-          >
-            <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-            <span>Chat</span>
-          </Link>
-
-          <label htmlFor="deliverables-project-select" className="sr-only">
-            Projeto selecionado
-          </label>
-          <select
-            id="deliverables-project-select"
-            value={activeProject.id}
-            onChange={(e) => {
-              const id = e.target.value;
-              const found = projectsList.find((p) => p.id === id);
-              setLocalProjectId(id);
-              setActiveContext({
-                ...(found ? { clientId: found.clientId } : {}),
-                projectId: id,
-              });
-            }}
-            className="min-h-9 rounded-md border border-border-default bg-surface px-3 text-sm font-semibold text-fg-primary"
-          >
-            {projectsList.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-base font-semibold text-fg-primary sm:text-lg">
+            {activeProject.name}
+          </h1>
 
           <div
             role="tablist"

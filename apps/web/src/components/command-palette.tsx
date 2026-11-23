@@ -2,6 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  Bot,
   Brain,
   ClipboardCheck,
   Coins,
@@ -36,15 +37,18 @@ interface CommandItem {
     | "memories"
     | "finops"
     | "providers"
+    | "copilot"
     | "theme";
 }
 
 export function CommandPalette({
   open,
   onOpenChange,
+  onOpenCopilot,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenCopilot?: () => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -152,9 +156,23 @@ export function CommandPalette({
           onOpenChange(false);
         },
       },
+      ...(onOpenCopilot
+        ? [
+            {
+              id: "open-copilot",
+              label: "Abrir Co-piloto Executivo (Resumo Read-Only)",
+              hint: "Drawer",
+              icon: "copilot" as const,
+              action: () => {
+                onOpenChange(false);
+                onOpenCopilot();
+              },
+            },
+          ]
+        : []),
       {
         id: "theme-dark",
-        label: "Ativar tema Dark Industrial",
+        label: "Ativar tema Warm Stone Dark",
         hint: "Tema padrão",
         icon: "theme",
         action: () => {
@@ -164,7 +182,7 @@ export function CommandPalette({
       },
       {
         id: "theme-light",
-        label: "Ativar tema Crisp Light",
+        label: "Ativar tema Warm Stone Light",
         hint: "Tema claro",
         icon: "theme",
         action: () => {
@@ -173,7 +191,7 @@ export function CommandPalette({
         },
       },
     ],
-    [router, onOpenChange]
+    [router, onOpenChange, onOpenCopilot]
   );
 
   const filtered = useMemo(() => {
@@ -265,31 +283,37 @@ export function CommandPalette({
                       )}
                       {item.icon === "decisions" && (
                         <ClipboardCheck
-                          className="size-4 text-accent"
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}
                       {item.icon === "security" && (
                         <ShieldAlert
-                          className="size-4 text-accent"
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}
                       {item.icon === "memories" && (
                         <Brain
-                          className="size-4 text-accent"
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}
                       {item.icon === "finops" && (
                         <Coins
-                          className="size-4 text-accent"
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}
                       {item.icon === "providers" && (
                         <KeyRound
-                          className="size-4 text-accent"
+                          className="size-4 text-fg-secondary"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "copilot" && (
+                        <Bot
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}
@@ -316,7 +340,7 @@ export function CommandPalette({
             )}
           </ul>
 
-          <div className="flex items-center justify-between border-t border-border-subtle px-3 py-1.5 text-[11px] text-fg-muted">
+          <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2 text-xs text-fg-muted">
             <span className="inline-flex items-center gap-1">
               <Command className="size-3" strokeWidth={1.75} />
               <span>Atalho: Ctrl/Cmd + K</span>

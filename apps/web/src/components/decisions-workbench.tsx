@@ -11,7 +11,6 @@ import {
 } from "@uzina/contracts";
 import {
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   ClipboardCheck,
   Clock,
@@ -22,7 +21,6 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type StatusFilter = "all" | DecisionStatus;
@@ -229,57 +227,57 @@ export function DecisionsWorkbench() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
-            <Link
-              href="/app"
-              data-testid="back-to-chat-link"
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium normal-case tracking-normal text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
-            >
-              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-              <span>Voltar ao Chat do Projeto</span>
-            </Link>
-            <ClipboardCheck className="size-3.5 text-accent" strokeWidth={1.75} />
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-fg-muted">
+            <ClipboardCheck className="size-4 text-fg-secondary" strokeWidth={1.75} />
             <span>Governança HITL</span>
           </div>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg-primary">
-            Caixa de Decisões & Pacote de Evidências
+          <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-fg-primary">
+            Caixa de Decisões &amp; Pacote de Evidências
           </h1>
-          <p className="mt-0.5 text-sm text-fg-secondary">
+          <p className="mt-1 text-sm text-fg-secondary">
             Revise relatórios de verificação, postura AppSec e aprove merges ou
             retomadas de workflow.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              { id: "pending", label: "Pendentes" },
-              { id: "approved", label: "Aprovadas" },
-              { id: "changes_requested", label: "Ajustes" },
-              { id: "rejected", label: "Rejeitadas" },
-              { id: "all", label: "Todas" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setStatusFilter(tab.id)}
-              className={`min-h-9 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-                statusFilter === tab.id
-                  ? "border-accent bg-accent-subtle text-accent"
-                  : "border-border-default bg-surface text-fg-secondary hover:bg-elevated hover:text-fg-primary"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div
+            role="tablist"
+            aria-label="Filtrar decisões por status"
+            className="inline-flex flex-wrap rounded-md border border-border-default bg-inset p-0.5"
+          >
+            {(
+              [
+                { id: "pending", label: "Pendentes" },
+                { id: "approved", label: "Aprovadas" },
+                { id: "changes_requested", label: "Ajustes" },
+                { id: "rejected", label: "Rejeitadas" },
+                { id: "all", label: "Todas" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === tab.id}
+                onClick={() => setStatusFilter(tab.id)}
+                className={`min-h-8 rounded px-3 text-xs font-medium transition-colors ${
+                  statusFilter === tab.id
+                    ? "border border-border-subtle bg-surface text-fg-primary"
+                    : "text-fg-secondary hover:text-fg-primary"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => decisionsQuery.refetch()}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             aria-label="Atualizar decisões"
           >
             <RefreshCw className="size-3.5" strokeWidth={1.75} />
@@ -349,18 +347,18 @@ export function DecisionsWorkbench() {
                     setActionError(null);
                     setActionSuccess(null);
                   }}
-                  className={`w-full rounded-lg border p-3.5 text-left transition-colors ${
+                  className={`uzina-card w-full rounded-xl border p-4 text-left transition-colors ${
                     isSelected
-                      ? "border-accent bg-accent-subtle/40"
-                      : "border-border-subtle bg-surface hover:border-border-default hover:bg-elevated"
+                      ? "border-border-strong bg-elevated"
+                      : "border-border-subtle bg-surface hover:border-border-default hover:bg-elevated/50"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="rounded border border-border-default bg-inset px-2 py-0.5 font-mono text-[11px] text-fg-secondary">
+                    <span className="rounded border border-border-default bg-inset px-2 py-0.5 font-mono text-xs text-fg-secondary">
                       {GATE_LABELS[item.decisionType] ?? item.decisionType}
                     </span>
                     <span
-                      className={`rounded border px-2 py-0.5 text-[11px] font-medium ${badge.className}`}
+                      className={`rounded border px-2 py-0.5 text-xs font-medium ${badge.className}`}
                     >
                       {badge.label}
                     </span>
@@ -371,8 +369,8 @@ export function DecisionsWorkbench() {
                   <p className="mt-1 line-clamp-1 text-xs text-fg-secondary">
                     {item.projectName ?? item.summary}
                   </p>
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-fg-muted tabular-nums">
-                    <Clock className="size-3" strokeWidth={1.75} />
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-fg-muted tabular-nums">
+                    <Clock className="size-3.5" strokeWidth={1.75} />
                     <span>
                       {new Date(item.createdAt).toLocaleString("pt-BR")}
                     </span>
@@ -385,11 +383,11 @@ export function DecisionsWorkbench() {
           {selectedDecision && (
             <section
               aria-label="Detalhes da decisão selecionada"
-              className="space-y-5 rounded-lg border border-border-subtle bg-surface p-5 lg:col-span-8"
+              className="uzina-card space-y-5 rounded-xl border border-border-subtle bg-surface p-5 lg:col-span-8"
             >
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle pb-4">
                 <div>
-                  <span className="font-mono text-xs uppercase text-accent">
+                  <span className="font-mono text-xs uppercase text-fg-muted">
                     {GATE_LABELS[selectedDecision.decisionType] ??
                       selectedDecision.decisionType}
                   </span>
@@ -412,18 +410,18 @@ export function DecisionsWorkbench() {
                 <div className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded-md border border-border-subtle bg-inset p-3">
-                      <span className="text-[11px] uppercase tracking-wider text-fg-muted">
+                      <span className="text-xs font-medium text-fg-muted">
                         Branch
                       </span>
                       <div className="mt-1 flex items-center gap-1.5 truncate font-mono text-xs text-fg-primary">
-                        <GitBranch className="size-3.5 shrink-0 text-accent" />
+                        <GitBranch className="size-3.5 shrink-0 text-fg-secondary" />
                         <span className="truncate">
                           {evidencePack.branchName}
                         </span>
                       </div>
                     </div>
                     <div className="rounded-md border border-border-subtle bg-inset p-3">
-                      <span className="text-[11px] uppercase tracking-wider text-fg-muted">
+                      <span className="text-xs font-medium text-fg-muted">
                         Verify (.uzina/verify)
                       </span>
                       <p className="mt-1 font-mono text-sm font-semibold text-fg-primary tabular-nums">
@@ -432,7 +430,7 @@ export function DecisionsWorkbench() {
                       </p>
                     </div>
                     <div className="rounded-md border border-border-subtle bg-inset p-3">
-                      <span className="text-[11px] uppercase tracking-wider text-fg-muted">
+                      <span className="text-xs font-medium text-fg-muted">
                         AppSec Gate
                       </span>
                       <p className="mt-1 font-mono text-sm font-semibold text-fg-primary tabular-nums">
@@ -442,7 +440,7 @@ export function DecisionsWorkbench() {
                       </p>
                     </div>
                     <div className="rounded-md border border-border-subtle bg-inset p-3">
-                      <span className="text-[11px] uppercase tracking-wider text-fg-muted">
+                      <span className="text-xs font-medium text-fg-muted">
                         Tokens / Custo
                       </span>
                       <p className="mt-1 font-mono text-sm font-semibold text-fg-primary tabular-nums">
@@ -497,14 +495,14 @@ export function DecisionsWorkbench() {
                       {evidencePack.verifierNotes}
                     </p>
                     {evidencePack.diffSummary.preview && (
-                      <pre className="mt-3 max-h-44 overflow-auto rounded border border-border-subtle bg-base p-2.5 font-mono text-[11px] text-fg-secondary">
+                      <pre className="mt-3 max-h-44 overflow-auto rounded border border-border-subtle bg-canvas p-2.5 font-mono text-xs text-fg-secondary">
                         {evidencePack.diffSummary.preview}
                       </pre>
                     )}
                   </div>
                 </div>
               ) : (
-                <pre className="max-h-60 overflow-auto rounded-md border border-border-subtle bg-base p-3 font-mono text-xs text-fg-secondary">
+                <pre className="max-h-60 overflow-auto rounded-md border border-border-subtle bg-canvas p-3 font-mono text-xs text-fg-secondary">
                   {JSON.stringify(selectedDecision.payloadJson, null, 2)}
                 </pre>
               )}
@@ -518,7 +516,7 @@ export function DecisionsWorkbench() {
                     Nenhum evento registrado ou stream aguardando novos eventos.
                   </p>
                 ) : (
-                  <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-[11px]">
+                  <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-xs">
                     {liveEvents.map((ev) => (
                       <li
                         key={ev.id}
@@ -550,16 +548,16 @@ export function DecisionsWorkbench() {
                     value={feedbackText}
                     onChange={(e) => setFeedbackText(e.target.value)}
                     placeholder="Ex.: Cobrir cenário de timeout no endpoint ou aprovar merge na main..."
-                    className="w-full rounded-md border border-border-default bg-inset px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                    className="w-full rounded-md border border-border-default bg-inset px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
                   />
 
                   {selectedDecision.decisionType === "pr_evidence_approve" && (
-                    <p className="text-[11px] text-fg-muted">
+                    <p className="text-xs text-fg-muted">
                       Governança RBAC: apenas perfis{" "}
                       <code className="font-mono text-fg-secondary">owner</code>{" "}
                       ou{" "}
                       <code className="font-mono text-fg-secondary">admin</code>{" "}
-                      podem concluir o portão de PR & Evidências.
+                      podem concluir o portão de PR &amp; Evidências.
                     </p>
                   )}
 

@@ -13,7 +13,6 @@ import type {
 import {
   Activity,
   AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   KeyRound,
   Loader2,
@@ -24,7 +23,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
@@ -371,20 +369,13 @@ export function ProvidersManager() {
   const currentPreset = PROVIDER_PRESETS[providerType];
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <section className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-4">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/app"
-              data-testid="back-to-chat-link"
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
-            >
-              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-              <span>Voltar ao Chat do Projeto</span>
-            </Link>
-            <span className="rounded border border-accent/35 bg-accent-subtle px-2 py-0.5 font-mono text-[11px] font-medium text-accent">
-              AES-256-GCM · Prompt Cache Fixo por Papel
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-elevated px-2.5 py-0.5 font-mono text-xs font-medium text-fg-secondary">
+              <ShieldCheck className="size-3.5 text-status-ok" strokeWidth={1.75} />
+              <span>AES-256-GCM · Prompt Cache Fixo por Papel</span>
             </span>
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-fg-primary">
@@ -399,15 +390,15 @@ export function ProvidersManager() {
           type="button"
           data-testid="btn-new-provider"
           onClick={() => openCreateModal("google")}
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3.5 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover"
         >
-          <Plus className="size-3.5" strokeWidth={2} />
+          <Plus className="size-4" strokeWidth={2} />
           <span>Adicionar Provedor</span>
         </button>
       </section>
 
       {/* Guia Rápido de Provedores (1 clique para abrir modal pré-configurado) */}
-      <section className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {(
           [
             {
@@ -437,20 +428,20 @@ export function ProvidersManager() {
             type="button"
             data-testid={`quick-provider-preset-${card.type}`}
             onClick={() => openCreateModal(card.type)}
-            className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface p-3 text-left transition-colors hover:border-accent"
+            className="uzina-card group flex flex-col justify-between rounded-xl border border-border-subtle bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-elevated/40"
           >
             <div>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-fg-primary">
+                <span className="text-sm font-semibold text-fg-primary">
                   {card.title}
                 </span>
-                <Sparkles className="size-3.5 text-accent" />
+                <Sparkles className="size-4 shrink-0 text-fg-muted transition-colors group-hover:text-fg-primary" />
               </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-fg-secondary">
+              <p className="mt-1.5 text-xs leading-relaxed text-fg-secondary">
                 {card.desc}
               </p>
             </div>
-            <span className="mt-2 inline-block font-mono text-[10px] font-semibold text-accent">
+            <span className="mt-3 inline-block font-mono text-xs font-medium text-fg-secondary transition-colors group-hover:text-fg-primary">
               Configurar em 1 clique →
             </span>
           </button>
@@ -493,23 +484,23 @@ export function ProvidersManager() {
         profiles.length === 0 && (
           <div
             data-testid="empty-providers-state"
-            className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-default bg-surface px-6 py-10 text-center"
+            className="uzina-card flex flex-col items-center justify-center rounded-xl border border-dashed border-border-default bg-surface px-6 py-10 text-center"
           >
             <KeyRound className="mb-3 size-7 text-fg-muted" strokeWidth={1.5} />
-            <h2 className="text-sm font-semibold text-fg-primary">
+            <h2 className="text-base font-semibold text-fg-primary">
               Nenhum provedor de LLM configurado ainda
             </h2>
-            <p className="mt-1 max-w-md text-xs text-fg-secondary">
+            <p className="mt-1.5 max-w-lg text-sm text-fg-secondary">
               Enquanto nenhum provedor estiver salvo no Cofre, o Chat opera em{" "}
               <strong className="text-fg-primary">Modo Assistido Local</strong>.
-              Clique abaixo (ou em um dos 4 cartões acima) para conectar sua API Key real.
+              Escolha um dos 4 cartões acima ou abra o assistente de configuração.
             </p>
             <button
               type="button"
               onClick={() => openCreateModal("google")}
-              className="mt-4 inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover"
+              className="mt-4 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border-default bg-elevated px-4 text-sm font-medium text-fg-primary transition-colors hover:border-border-strong"
             >
-              <Plus className="size-3.5" strokeWidth={2} />
+              <Plus className="size-4" strokeWidth={1.75} />
               <span>Configurar Primeiro Provedor</span>
             </button>
           </div>
@@ -525,21 +516,21 @@ export function ProvidersManager() {
                 <article
                   key={profile.id}
                   data-testid={`provider-card-${profile.id}`}
-                  className="rounded-lg border border-border-default bg-surface p-4"
+                  className="uzina-card rounded-xl border border-border-subtle bg-surface p-5"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-sm font-semibold text-fg-primary">
+                        <h2 className="text-base font-semibold text-fg-primary">
                           {profile.name}
                         </h2>
-                        <span className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-[11px] text-fg-secondary">
+                        <span className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-xs text-fg-secondary">
                           {PROVIDER_LABELS[profile.providerType]}
                         </span>
                         {profile.isDefault && (
-                          <span className="inline-flex items-center gap-1 rounded border border-status-ok/35 bg-status-ok/10 px-2 py-0.5 text-[11px] font-medium text-status-ok">
+                          <span className="inline-flex items-center gap-1.5 rounded border border-status-ok/35 bg-status-ok/10 px-2 py-0.5 text-xs font-medium text-status-ok">
                             <CheckCircle2
-                              className="size-3"
+                              className="size-3.5"
                               strokeWidth={1.75}
                             />
                             <span>Padrão Ativo no Chat</span>
@@ -617,12 +608,12 @@ export function ProvidersManager() {
                       return (
                         <div
                           key={r.key}
-                          className="rounded border border-border-subtle bg-inset px-2 py-1.5"
+                          className="rounded-md border border-border-subtle bg-inset px-2.5 py-2"
                         >
-                          <p className="truncate text-[10px] uppercase tracking-wider text-fg-muted">
+                          <p className="truncate text-xs text-fg-muted">
                             {r.label}
                           </p>
-                          <p className="truncate font-mono text-[11px] text-fg-primary">
+                          <p className="truncate font-mono text-xs text-fg-primary">
                             {bound?.modelId ?? "—"}
                           </p>
                         </div>
@@ -761,7 +752,7 @@ export function ProvidersManager() {
                           )
                         )
                       }
-                      className="rounded border border-accent/40 bg-accent-subtle px-2 py-1 text-[10px] font-semibold text-accent hover:border-accent"
+                      className="rounded border border-border-default bg-elevated px-2.5 py-1 text-xs font-medium text-fg-primary hover:border-border-strong"
                     >
                       Preset Tiering (Pro + Flash)
                     </button>
@@ -773,7 +764,7 @@ export function ProvidersManager() {
                           buildBindingsForPreset(providerType, "fast_economy")
                         )
                       }
-                      className="rounded border border-border-default bg-inset px-2 py-1 text-[10px] font-medium text-fg-secondary hover:text-fg-primary"
+                      className="rounded border border-border-subtle bg-inset px-2.5 py-1 text-xs font-medium text-fg-secondary hover:text-fg-primary"
                     >
                       Preset 100% Rápido / Free Tier
                     </button>
@@ -791,10 +782,10 @@ export function ProvidersManager() {
                     <div key={r.key} className="space-y-1">
                       <label
                         htmlFor={`bind-${r.key}`}
-                        className="flex items-center justify-between text-[11px] font-medium text-fg-secondary"
+                        className="flex items-center justify-between text-xs font-medium text-fg-secondary"
                       >
                         <span>{r.label}</span>
-                        <span className="font-mono text-[9px] text-fg-muted">
+                        <span className="font-mono text-xs text-fg-muted">
                           {r.defaultTier === "tier3" ? "Tier 3" : "Tier 2"}
                         </span>
                       </label>

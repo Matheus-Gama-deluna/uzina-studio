@@ -14,9 +14,7 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
-  FileText,
   Layers,
-  Lightbulb,
   Loader2,
   Palette,
   Play,
@@ -77,17 +75,15 @@ const AUTONOMY_LABELS: Record<AutonomyMode, string> = {
 export function AgencyCommandCenter({
   selectedClientId,
   activeProjectId,
+  activeProjectName = "",
   bootReady = true,
   hasAnyProjects = true,
-  onSelectProject,
-  availableProjects = [],
 }: {
   selectedClientId: string;
   activeProjectId: string;
+  activeProjectName?: string;
   bootReady?: boolean;
   hasAnyProjects?: boolean;
-  onSelectProject: (projectId: string) => void;
-  availableProjects?: Array<{ id: string; name: string; clientId: string }>;
 }) {
   const queryClient = useQueryClient();
 
@@ -229,7 +225,7 @@ export function AgencyCommandCenter({
       persistTurns(updatedTurns, resolvedProjId);
 
       if (resolvedProjId && resolvedProjId !== activeProjectId) {
-        onSelectProject(resolvedProjId);
+        setActiveContext({ projectId: resolvedProjId });
       }
 
       setChatInput("");
@@ -306,50 +302,24 @@ export function AgencyCommandCenter({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      {/* Barra de Contexto Minimalista (1 linha neutra, zero poluição laranja) */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 lg:h-[calc(100dvh-5.25rem)]">
+      {/* Barra de Contexto em 1 Linha Calma (projeto gerenciado pela Sidebar) */}
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-b border-border-subtle pb-2.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-          {availableProjects.length > 0 ? (
-            <>
-              <label htmlFor="chat-project-select" className="sr-only">
-                Projeto ativo
-              </label>
-              <select
-                id="chat-project-select"
-                data-testid="chat-project-select"
-                value={projectState?.projectId ?? activeProjectId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const proj = availableProjects.find((p) => p.id === id);
-                  setActiveContext({
-                    ...(proj ? { clientId: proj.clientId } : {}),
-                    projectId: id,
-                  });
-                  onSelectProject(id);
-                }}
-                className="min-h-9 rounded-md border border-border-default bg-surface px-3 text-sm font-semibold text-fg-primary focus:border-border-strong focus:outline-none"
-              >
-                {availableProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </>
-          ) : (
-            <h1 className="text-lg font-semibold text-fg-primary">
-              Chat da Engenharia
-            </h1>
-          )}
+          <h1
+            data-testid="chat-active-project-title"
+            className="truncate text-base font-semibold text-fg-primary sm:text-lg"
+          >
+            {activeProjectName || "Chat da Engenharia"}
+          </h1>
 
           {projectState && (
             <span
               data-testid="project-cycle-badge"
-              className="inline-flex items-center gap-2 text-sm text-fg-secondary"
+              className="inline-flex items-center gap-1.5 text-xs text-fg-secondary sm:text-sm"
             >
               <span className="size-1.5 rounded-full bg-fg-muted" />
-              <span className="tabular-nums">
+              <span className="truncate tabular-nums">
                 Ciclo #{projectState.cycleNumber} · {projectState.phaseLabel}
               </span>
             </span>
@@ -360,7 +330,7 @@ export function AgencyCommandCenter({
           <Link
             href="/app/providers"
             data-testid="llm-execution-mode-badge"
-            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+            className="inline-flex min-h-8 items-center gap-2 rounded-md border border-border-subtle bg-surface px-2.5 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
           >
             <span
               className={`size-2 rounded-full ${
@@ -376,21 +346,12 @@ export function AgencyCommandCenter({
             </span>
           </Link>
 
-          <Link
-            href="/app/ideas"
-            data-testid="btn-new-idea-shortcut"
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-          >
-            <Lightbulb className="size-3.5" strokeWidth={1.75} />
-            <span className="hidden sm:inline">Nova Ideia</span>
-          </Link>
-
           <button
             type="button"
             data-testid="toggle-session-settings-btn"
             aria-expanded={settingsOpen}
             onClick={() => setSettingsOpen((prev) => !prev)}
-            className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors ${
+            className={`inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors ${
               settingsOpen
                 ? "border-border-strong bg-elevated text-fg-primary"
                 : "border-border-subtle bg-surface text-fg-secondary hover:border-border-strong hover:text-fg-primary"
@@ -579,14 +540,14 @@ export function AgencyCommandCenter({
         </section>
       )}
 
-      {/* Feed Amplo & Confortável de Mensagens (15px, leading-7, zero poluição visual) */}
+      {/* Feed Amplo & Confortável de Mensagens (15px, leading-7, sem scroll duplo no desktop) */}
       <section
         data-testid="agency-chat-panel"
-        className="flex flex-col rounded-xl border border-border-subtle bg-surface"
+        className="uzina-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface"
       >
         <div
           data-testid="agency-chat-history"
-          className="min-h-[340px] max-h-[calc(100vh-22rem)] space-y-4 overflow-y-auto p-4 sm:p-6 select-text"
+          className="min-h-[260px] flex-1 space-y-4 overflow-y-auto p-4 sm:p-6 select-text"
         >
           {chatTurns.map((turn) => {
             const hasPrototypeAction = turn.actionsExecuted?.some(
@@ -725,59 +686,57 @@ export function AgencyCommandCenter({
           })}
         </div>
 
-        {/* Faixa Discreta de Atalhos do Projeto + Seletor de Especialista + Composer Limpo */}
+        {/* Faixa de Próximo Passo Guiado + Seletor de Especialista + Composer Limpo */}
         <form
           onSubmit={handleSendChat}
-          className="space-y-3 border-t border-border-subtle bg-inset/50 p-4 sm:px-6"
+          className="shrink-0 space-y-2.5 border-t border-border-subtle bg-inset/60 p-3.5 sm:px-6 sm:py-4"
         >
-          {/* Atalhos diretos para os outros momentos do projeto */}
-          {projectState && (
+          {/* 1 Próximo Passo Guiado (sem duplicar os links da sidebar) */}
+          {(projectState || chatTurns.length > 1) && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-secondary">
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  href={`/app/studio?projectId=${encodeURIComponent(
-                    projectState.projectId
-                  )}`}
-                  data-testid="chat-footer-open-studio"
-                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-                >
-                  <Palette className="size-3.5" strokeWidth={1.75} />
-                  <span>
-                    Estúdio Visual{" "}
-                    {visualFlow?.approvedForCodeHandoff
-                      ? "(Aprovado)"
-                      : "(Revisar)"}
-                  </span>
-                </Link>
-                <Link
-                  href={`/app/deliverables?projectId=${encodeURIComponent(
-                    projectState.projectId
-                  )}`}
-                  data-testid="chat-footer-open-deliverables"
-                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-                >
-                  <Layers className="size-3.5" strokeWidth={1.75} />
-                  <span>
-                    Entregas ({projectState.sliceArtifacts.length})
-                  </span>
-                </Link>
-                <Link
-                  href={`/app/deliverables?projectId=${encodeURIComponent(
-                    projectState.projectId
-                  )}&tab=docs`}
-                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-                >
-                  <FileText className="size-3.5" strokeWidth={1.75} />
-                  <span>Docs ({projectState.longTermArtifacts.length})</span>
-                </Link>
-              </div>
+              {projectState ? (
+                visualFlow?.approvedForCodeHandoff ? (
+                  <Link
+                    href={`/app/deliverables?projectId=${encodeURIComponent(
+                      projectState.projectId
+                    )}`}
+                    data-testid="chat-next-step-link"
+                    className="inline-flex items-center gap-1.5 text-xs text-fg-secondary transition-colors hover:text-fg-primary"
+                  >
+                    <span className="size-1.5 rounded-full bg-status-ok" />
+                    <span>
+                      Fluxo visual aprovado · Acompanhar Entregas (
+                      {projectState.sliceArtifacts.length})
+                    </span>
+                    <ArrowRight className="size-3.5" strokeWidth={1.75} />
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/app/studio?projectId=${encodeURIComponent(
+                      projectState.projectId
+                    )}`}
+                    data-testid="chat-next-step-link"
+                    className="inline-flex items-center gap-1.5 text-xs text-fg-secondary transition-colors hover:text-fg-primary"
+                  >
+                    <span className="size-1.5 rounded-full bg-accent" />
+                    <span>
+                      {visualFlow?.previewUrl
+                        ? "Protótipo visual disponível · Revisar no Estúdio Visual"
+                        : "Próximo passo · Gerar ou revisar protótipo no Estúdio Visual"}
+                    </span>
+                    <ArrowRight className="size-3.5" strokeWidth={1.75} />
+                  </Link>
+                )
+              ) : (
+                <span />
+              )}
 
               {chatTurns.length > 1 && (
                 <button
                   type="button"
                   data-testid="btn-clear-chat-history"
                   onClick={() => persistTurns([INITIAL_GREETING_TURN])}
-                  className="inline-flex min-h-8 items-center gap-1 rounded px-2 text-xs text-fg-muted hover:text-fg-primary"
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-fg-muted hover:text-fg-primary"
                 >
                   <Trash2 className="size-3.5" />
                   <span>Limpar conversa</span>
