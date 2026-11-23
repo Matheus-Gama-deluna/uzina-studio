@@ -283,6 +283,8 @@ export const AgencyActionExecutedSchema = z.object({
     "approved_slice_artifact",
     "revised_slice_artifact",
     "updated_design_brief",
+    "started_workflow",
+    "budget_cap_paused",
   ]),
   label: z.string().min(1).max(240),
   targetId: z.string().optional(),
@@ -344,6 +346,109 @@ export const AgencyThreadListResponseSchema = z
   .strict();
 export type AgencyThreadListResponse = z.infer<
   typeof AgencyThreadListResponseSchema
+>;
+
+export const AgencyControllerModeIdSchema = z.enum([
+  "discovery",
+  "architect",
+  "visual",
+  "build",
+  "review",
+]);
+export type AgencyControllerModeId = z.infer<
+  typeof AgencyControllerModeIdSchema
+>;
+
+export const AgencySessionSteerRequestSchema = z
+  .object({
+    projectId: z.uuid().optional(),
+    message: z.string().trim().min(1).max(4000),
+    targetMode: AgencyControllerModeIdSchema.optional(),
+  })
+  .strict();
+export type AgencySessionSteerRequest = z.infer<
+  typeof AgencySessionSteerRequestSchema
+>;
+
+export const AgencySessionAbortRequestSchema = z
+  .object({
+    projectId: z.uuid().optional(),
+    reason: z.string().trim().min(1).max(500).optional(),
+    deliverableId: z.uuid().optional(),
+  })
+  .strict();
+export type AgencySessionAbortRequest = z.infer<
+  typeof AgencySessionAbortRequestSchema
+>;
+
+export const AgencySessionPlanDecisionRequestSchema = z
+  .object({
+    toolCallId: z.string().trim().min(1).max(160),
+    approved: z.boolean(),
+    feedback: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+export type AgencySessionPlanDecisionRequest = z.infer<
+  typeof AgencySessionPlanDecisionRequestSchema
+>;
+
+export const AgencySessionControlResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    sessionId: z.string().min(1).max(160),
+    action: z.enum(["steered", "aborted", "plan_resolved"]),
+    status: z.enum(["accepted", "aborted", "resumed"]),
+    mode: AgencyControllerModeIdSchema.nullable(),
+  })
+  .strict();
+export type AgencySessionControlResponse = z.infer<
+  typeof AgencySessionControlResponseSchema
+>;
+
+export const BackgroundTaskKindSchema = z.enum([
+  "workflow_cycle",
+  "brownfield_scan",
+  "codebase_reindex",
+  "security_scan",
+]);
+export type BackgroundTaskKind = z.infer<typeof BackgroundTaskKindSchema>;
+
+export const BackgroundTaskStatusSchema = z.enum([
+  "queued",
+  "running",
+  "suspended",
+  "completed",
+  "failed",
+  "aborted",
+]);
+export type BackgroundTaskStatus = z.infer<typeof BackgroundTaskStatusSchema>;
+
+export const BackgroundTaskSummarySchema = z
+  .object({
+    id: z.string().min(1).max(160),
+    organizationId: z.uuid(),
+    projectId: z.uuid(),
+    deliverableId: z.uuid().nullable(),
+    kind: BackgroundTaskKindSchema,
+    status: BackgroundTaskStatusSchema,
+    summary: z.string().max(1000),
+    mastraRunId: z.string().min(1).max(160).nullable(),
+    startedAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+  })
+  .strict();
+export type BackgroundTaskSummary = z.infer<
+  typeof BackgroundTaskSummarySchema
+>;
+
+export const BackgroundTaskListResponseSchema = z
+  .object({
+    projectId: z.uuid(),
+    items: z.array(BackgroundTaskSummarySchema),
+  })
+  .strict();
+export type BackgroundTaskListResponse = z.infer<
+  typeof BackgroundTaskListResponseSchema
 >;
 
 export const AgencyChatResponseSchema = z.object({
@@ -411,6 +516,36 @@ export const AgencyStreamEventSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("done"),
       response: AgencyChatResponseSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("controller_mode"),
+      mode: AgencyControllerModeIdSchema,
+      sessionId: z.string().min(1).max(160),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("workflow_started"),
+      deliverableId: z.uuid(),
+      runId: z.string().min(1).max(160).nullable(),
+      backgroundTaskId: z.string().min(1).max(160),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("background_task"),
+      task: BackgroundTaskSummarySchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("plan_approval_required"),
+      sessionId: z.string().min(1).max(160),
+      toolCallId: z.string().min(1).max(160),
+      planSummary: z.string().min(1).max(4000),
+      transitionModeId: AgencyControllerModeIdSchema.nullable(),
     })
     .strict(),
   z

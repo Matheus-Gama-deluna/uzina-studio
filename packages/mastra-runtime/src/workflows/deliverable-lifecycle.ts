@@ -3,12 +3,14 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
   DeliverableStatusSchema,
   DesignAssetSchema,
   DevelopmentStrategySchema,
   DiscoveryAnswerSchema,
   DiscoveryRoundSchema,
   EvidencePackSchema,
+  ProjectStageAutomationSchema,
   StrategyRouterOutputSchema,
   StuckAlertSchema,
   VerifierVerdictOutputSchema,
@@ -24,6 +26,7 @@ import {
   type DiscoveryAnswer,
   type DiscoveryRound,
   type EvidencePack,
+  type ProjectStageAutomation,
   type ProviderType,
   type RoleBindings,
   type StrategyRouterOutput,
@@ -74,10 +77,15 @@ import { z } from "zod";
 import { WorkflowRuntimeError } from "../errors.js";
 import { recordExecutionEvent } from "../event-bus.js";
 import {
+  getEngineConfigScoped,
+  getProjectAccumulatedCostUsd,
+} from "../finops.js";
+import {
   formatMemoriesForPrompt,
   resolveHierarchicalMemories,
 } from "../memories.js";
 import { recordDeliverableProvenance } from "../codebase.js";
+import { createCodingExecutorAdapter } from "../workspace-adapter.js";
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 
@@ -188,6 +196,7 @@ export interface DeliverableWorkflowDeps {
 
 export interface LockWorkerContextValue {
   workerId: string;
+  abortSignal?: AbortSignal;
   lastRuntimeError?: WorkflowRuntimeError;
 }
 
@@ -439,6 +448,150 @@ async function syncPendingDecisionResolution(
         eq(decisions.status, "pending")
       )
     );
+}
+
+const DELIVERABLE_STAGE_ORDER: Record<DeliverableStatus, number> = {
+  discovery: 0,
+  spec_review: 1,
+  visual_studio: 2,
+  contract_tests: 3,
+  building: 4,
+  verifying: 5,
+  decision_pending: 6,
+  approved: 7,
+  merged: 8,
+  paused: -1,
+  failed: -1,
+};
+
+function isStatusBeyondStage(
+  currentStatus: DeliverableStatus,
+  stage: "discovery" | "spec_review" | "visual_studio"
+): boolean {
+  const rank = DELIVERABLE_STAGE_ORDER[currentStatus] ?? -1;
+  if (rank < 0) return false;
+  return rank > DELIVERABLE_STAGE_ORDER[stage];
+}
+
+async function resolveProjectAutomationAndBudget(
+  db: UzinaDb,
+  projectId: string
+): Promise<{
+  stageAutomation: ProjectStageAutomation;
+  budgetCapUsd: number | null;
+}> {
+  const [proj] = await db
+    .select({
+      stageAutomationJson: projects.stageAutomationJson,
+      budgetCapUsd: projects.budgetCapUsd,
+    })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+
+  const stageAutomation = ProjectStageAutomationSchema.parse({
+    ...DEFAULT_PROJECT_STAGE_AUTOMATION,
+    ...(proj?.stageAutomationJson ?? {}),
+    decision_pending: "manual" as const,
+  });
+
+  const parsedBudget =
+    proj?.budgetCapUsd != null ? Number(proj.budgetCapUsd) : null;
+  const budgetCapUsd =
+    parsedBudget !== null && Number.isFinite(parsedBudget) && parsedBudget > 0
+      ? parsedBudget
+      : null;
+
+  return { stageAutomation, budgetCapUsd };
+}
+
+async function findPendingDecisionTypeForStep(
+  db: UzinaDb,
+  deliverableId: string,
+  mastraStepId: string
+): Promise<DecisionType | null> {
+  const [pending] = await db
+    .select({ decisionType: decisions.decisionType })
+    .from(decisions)
+    .where(
+      and(
+        eq(decisions.deliverableId, deliverableId),
+        eq(decisions.mastraStepId, mastraStepId),
+        eq(decisions.status, "pending")
+      )
+    )
+    .orderBy(desc(decisions.updatedAt))
+    .limit(1);
+  return pending?.decisionType ?? null;
+}
+
+async function checkBudgetCapExceeded(
+  db: UzinaDb,
+  projectId: string,
+  budgetCapUsd: number | null
+): Promise<{ exceeded: boolean; accumulatedCostUsd: number }> {
+  if (budgetCapUsd == null) {
+    return { exceeded: false, accumulatedCostUsd: 0 };
+  }
+  const accumulatedCostUsd = await getProjectAccumulatedCostUsd(db, projectId);
+  return {
+    exceeded: accumulatedCostUsd >= budgetCapUsd,
+    accumulatedCostUsd,
+  };
+}
+
+async function pauseDeliverableForBudgetCap(
+  db: UzinaDb,
+  params: {
+    deliverableId: string;
+    title: string;
+    currentStatus: DeliverableStatus;
+    hasUi: boolean;
+    mastraStepId: string;
+    stage: "contract_tests" | "building" | "verifying";
+    budgetCapUsd: number;
+    accumulatedCostUsd: number;
+  }
+): Promise<void> {
+  if (params.currentStatus !== "paused") {
+    assertValidTransition(params.currentStatus, "paused", {
+      hasUi: params.hasUi,
+    });
+  }
+  await db
+    .update(deliverables)
+    .set({
+      status: "paused",
+      pausedFromStatus: params.stage,
+      updatedAt: new Date(),
+    })
+    .where(eq(deliverables.id, params.deliverableId));
+
+  await upsertPendingDecision(db, {
+    deliverableId: params.deliverableId,
+    mastraStepId: params.mastraStepId,
+    decisionType: "budget_cap_pause",
+    summary: `Orçamento do projeto atingido ($${params.accumulatedCostUsd.toFixed(4)} / $${params.budgetCapUsd.toFixed(4)}) em '${params.title}'`,
+    payloadJson: {
+      gate: "budget_cap_pause",
+      stage: params.stage,
+      estimatedCostUsd: params.accumulatedCostUsd,
+      budgetCapUsd: params.budgetCapUsd,
+    },
+  });
+
+  await recordExecutionEvent(db, {
+    deliverableId: params.deliverableId,
+    stage: params.mastraStepId,
+    actorRole: "verifier",
+    eventType: "stage_change",
+    payload: {
+      gate: "budget_cap_pause",
+      stage: params.stage,
+      estimatedCostUsd: params.accumulatedCostUsd,
+      budgetCapUsd: params.budgetCapUsd,
+    },
+  });
 }
 
 function createProjectSuppressionLookup(
@@ -758,16 +911,29 @@ function runWithLockHeartbeat(
   externalAbort?: AbortSignal
 ): { signal: AbortSignal; stop: () => void } {
   const controller = new AbortController();
-  const workerId = lockWorkerContext.getStore()?.workerId;
+  const store = lockWorkerContext.getStore();
+  const workerId = store?.workerId;
+  const ctxAbort = store?.abortSignal;
 
   const onExternalAbort = () => {
-    controller.abort();
+    controller.abort(externalAbort?.reason);
   };
   if (externalAbort) {
     if (externalAbort.aborted) {
-      controller.abort();
+      controller.abort(externalAbort.reason);
     } else {
       externalAbort.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+
+  const onCtxAbort = () => {
+    controller.abort(ctxAbort?.reason);
+  };
+  if (ctxAbort && ctxAbort !== externalAbort) {
+    if (ctxAbort.aborted) {
+      controller.abort(ctxAbort.reason);
+    } else {
+      ctxAbort.addEventListener("abort", onCtxAbort, { once: true });
     }
   }
 
@@ -795,6 +961,9 @@ function runWithLockHeartbeat(
       }
       if (externalAbort) {
         externalAbort.removeEventListener("abort", onExternalAbort);
+      }
+      if (ctxAbort && ctxAbort !== externalAbort) {
+        ctxAbort.removeEventListener("abort", onCtxAbort);
       }
     },
   };
@@ -895,7 +1064,32 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         }
       }
 
+      const initialDiscoveryStatus = parseDeliverableStatus(row.status);
+      if (!resumeData && isStatusBeyondStage(initialDiscoveryStatus, "discovery")) {
+        const fastSpec =
+          row.specMarkdown?.trim() ||
+          currentState.specMarkdown?.trim() ||
+          `# ${row.title}\n\n${row.description ?? ""}`.trim();
+        await setState({
+          ...currentState,
+          specMarkdown: fastSpec,
+          stageHistory: appendStageHistory(
+            currentState.stageHistory,
+            "stage_discovery"
+          ),
+        });
+        return {
+          deliverableId: row.id,
+          hasUi: currentState.hasUi,
+          specMarkdown: fastSpec,
+        };
+      }
+
       if (!resumeData) {
+        const { stageAutomation } = await resolveProjectAutomationAndBudget(
+          db,
+          row.projectId
+        );
         const round1 = buildDiscoveryQuestions({
           roundNumber: 1,
           title: row.title,
@@ -905,6 +1099,63 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           previousAnswers: currentState.allAnswers,
           brownfieldSummary,
         });
+
+        if (stageAutomation.discovery === "auto") {
+          const autoAnswers: DiscoveryAnswer[] = round1.questions.map((q) => ({
+            questionId: q.id,
+            pillar: q.pillar,
+            answer: q.recommendedOption,
+          }));
+          const mergedAutoAnswers = mergeAnswers(
+            currentState.allAnswers,
+            autoAnswers
+          );
+          const summary = consolidateDiscoverySummary({
+            title: row.title,
+            description: row.description,
+            hasUi: currentState.hasUi,
+            answers: mergedAutoAnswers,
+            brownfieldSummary,
+          });
+          if (initialDiscoveryStatus !== "spec_review") {
+            assertValidTransition(initialDiscoveryStatus, "spec_review", {
+              hasUi: currentState.hasUi,
+            });
+          }
+          await db
+            .update(deliverables)
+            .set({
+              status: "spec_review",
+              hasUi: currentState.hasUi,
+              specMarkdown: summary.specMarkdown,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          const nextHistory = appendStageHistory(
+            currentState.stageHistory,
+            "stage_discovery"
+          );
+          await setState({
+            ...currentState,
+            discoveryRound: 1,
+            discoveryRounds: [round1],
+            allAnswers: mergedAutoAnswers,
+            specMarkdown: summary.specMarkdown,
+            stageHistory: nextHistory,
+          });
+          await recordExecutionEvent(db, {
+            deliverableId: row.id,
+            stage: "stage_discovery",
+            actorRole: "discovery",
+            eventType: "stage_change",
+            payload: { mode: "auto", nextStatus: "spec_review" },
+          });
+          return {
+            deliverableId: row.id,
+            hasUi: currentState.hasUi,
+            specMarkdown: summary.specMarkdown,
+          };
+        }
 
         const nextState: WorkflowRuntimeState = {
           ...currentState,
@@ -1160,11 +1411,84 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         });
       };
 
+      const initialBlueprintStatus = parseDeliverableStatus(row.status);
+      if (!resumeData && isStatusBeyondStage(initialBlueprintStatus, "spec_review")) {
+        const parsedExisting = StrategyRouterOutputSchema.safeParse(
+          row.blueprintJson
+        );
+        const existingBlueprint = parsedExisting.success
+          ? parsedExisting.data
+          : await computeBlueprint(
+              inputData.hasUi,
+              parseDevelopmentStrategy(currentState.overrideStrategy)
+            );
+        await setState({
+          ...currentState,
+          hasUi: inputData.hasUi,
+          blueprint: existingBlueprint,
+          stageHistory: appendStageHistory(
+            currentState.stageHistory,
+            "stage_blueprint"
+          ),
+        });
+        return {
+          deliverableId: row.id,
+          hasUi: inputData.hasUi,
+          blueprint: existingBlueprint,
+        };
+      }
+
       if (!resumeData) {
+        const { stageAutomation } = await resolveProjectAutomationAndBudget(
+          db,
+          row.projectId
+        );
         const blueprint = await computeBlueprint(
           inputData.hasUi,
           parseDevelopmentStrategy(currentState.overrideStrategy)
         );
+
+        const nextHistory = appendStageHistory(
+          currentState.stageHistory,
+          "stage_blueprint"
+        );
+
+        if (stageAutomation.spec_review === "auto") {
+          const nextAutoStatus: DeliverableStatus = inputData.hasUi
+            ? "visual_studio"
+            : "contract_tests";
+          assertValidTransition(initialBlueprintStatus, nextAutoStatus, {
+            hasUi: inputData.hasUi,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: nextAutoStatus,
+              blueprintJson: blueprint,
+              developmentStrategy: blueprint.developmentStrategy,
+              tacticalPattern: blueprint.tacticalPattern,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          await setState({
+            ...currentState,
+            hasUi: inputData.hasUi,
+            blueprint,
+            stageHistory: nextHistory,
+          });
+          await recordExecutionEvent(db, {
+            deliverableId: row.id,
+            stage: "stage_blueprint",
+            actorRole: "architect",
+            eventType: "stage_change",
+            payload: { mode: "auto", nextStatus: nextAutoStatus },
+          });
+          return {
+            deliverableId: row.id,
+            hasUi: inputData.hasUi,
+            blueprint,
+          };
+        }
 
         await db
           .update(deliverables)
@@ -1180,10 +1504,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           ...currentState,
           hasUi: inputData.hasUi,
           blueprint,
-          stageHistory: appendStageHistory(
-            currentState.stageHistory,
-            "stage_blueprint"
-          ),
+          stageHistory: nextHistory,
         };
         await setState(nextState);
 
@@ -1458,15 +1779,95 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         };
       };
 
-      if (!resumeData) {
-        const { markdown, assetCount } = await generateAndPersistDesignMd();
+      const initialVisualStatus = parseDeliverableStatus(row.status);
+      if (
+        !resumeData &&
+        isStatusBeyondStage(initialVisualStatus, "visual_studio")
+      ) {
+        const existingDesignRows = await db
+          .select()
+          .from(designAssets)
+          .where(eq(designAssets.projectId, projectRow.id));
+        const existingMdAsset = existingDesignRows.find(
+          (a) => a.assetType === "design_md"
+        );
+        const fastDesignMd =
+          existingMdAsset?.notes ??
+          currentState.designMdContent ??
+          generateDesignMdContract({
+            projectName: projectRow.name,
+            themePreference: "dual_theme",
+            assets: [],
+          });
         await setState({
           ...currentState,
-          designMdContent: markdown,
+          designMdContent: fastDesignMd,
           stageHistory: appendStageHistory(
             currentState.stageHistory,
             "stage_visual_studio"
           ),
+        });
+        return {
+          deliverableId: row.id,
+          hasUi: true,
+          designMdContent: fastDesignMd,
+        };
+      }
+
+      if (!resumeData) {
+        const { stageAutomation } = await resolveProjectAutomationAndBudget(
+          db,
+          row.projectId
+        );
+        const { markdown, assetCount } = await generateAndPersistDesignMd();
+        const nextHistory = appendStageHistory(
+          currentState.stageHistory,
+          "stage_visual_studio"
+        );
+
+        if (stageAutomation.visual_studio === "auto") {
+          await db
+            .update(designAssets)
+            .set({ approved: true, updatedAt: new Date() })
+            .where(
+              and(
+                eq(designAssets.projectId, projectRow.id),
+                eq(designAssets.assetType, "design_md")
+              )
+            );
+          assertValidTransition(initialVisualStatus, "contract_tests", {
+            hasUi: true,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "contract_tests",
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          await setState({
+            ...currentState,
+            designMdContent: markdown,
+            stageHistory: nextHistory,
+          });
+          await recordExecutionEvent(db, {
+            deliverableId: row.id,
+            stage: "stage_visual_studio",
+            actorRole: "visual",
+            eventType: "stage_change",
+            payload: { mode: "auto", nextStatus: "contract_tests", assetCount },
+          });
+          return {
+            deliverableId: row.id,
+            hasUi: true,
+            designMdContent: markdown,
+          };
+        }
+
+        await setState({
+          ...currentState,
+          designMdContent: markdown,
+          stageHistory: nextHistory,
         });
 
         await upsertPendingDecision(db, {
@@ -1646,8 +2047,23 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       designMdContent: z.string().nullable(),
     }),
     outputSchema: DeliveryCycleIOSchema,
+    suspendSchema: z.object({
+      gate: WorkflowGateTypeSchema,
+      stage: z.string().optional(),
+      estimatedCostUsd: z.number().optional(),
+      budgetCapUsd: z.number().optional(),
+    }),
+    resumeSchema: WorkflowResumeInputSchema,
     stateSchema: WorkflowRuntimeStateSchema,
-    execute: async ({ inputData, getState, setState, abortSignal }) => {
+    execute: async ({
+      inputData,
+      resumeData,
+      getState,
+      setState,
+      suspend,
+      bail,
+      abortSignal,
+    }) => {
       const currentState = await getState();
       const [row] = await db
         .select()
@@ -1660,6 +2076,134 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           statusCode: 404,
           code: "DELIVERABLE_NOT_FOUND",
           message: `Entregável '${inputData.deliverableId}' não encontrado.`,
+        });
+      }
+
+      const workspace =
+        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+      const currentStatus = parseDeliverableStatus(row.status);
+
+      if (resumeData) {
+        const pendingType = await findPendingDecisionTypeForStep(
+          db,
+          row.id,
+          "stage_contract_and_tests"
+        );
+        await syncPendingDecisionResolution(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_contract_and_tests",
+          decisionType: pendingType ?? "stage_gate_approve",
+          status: resumeData.decision,
+          humanFeedback: resumeData.feedback ?? null,
+        });
+
+        if (resumeData.decision === "rejected") {
+          if (currentState.worktreeHandle) {
+            await workspace.attach(currentState.worktreeHandle).catch(() => undefined);
+            await safeCleanupWorkspace(workspace, true);
+          }
+          assertValidTransition(currentStatus, "failed", {
+            hasUi: currentState.hasUi,
+            pausedFromStatus:
+              row.pausedFromStatus
+                ? parseDeliverableStatus(row.pausedFromStatus)
+                : null,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "failed",
+              pausedFromStatus: null,
+              worktreePath: null,
+              branchName: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          const nextHistory = appendStageHistory(
+            currentState.stageHistory,
+            "stage_contract_and_tests"
+          );
+          await setState({
+            ...currentState,
+            worktreeHandle: null,
+            rejected: true,
+            humanFeedback: resumeData.feedback ?? null,
+            stageHistory: nextHistory,
+          });
+          return bail({
+            deliverableId: row.id,
+            worktreeHandle: null,
+            contractTestFiles: currentState.contractTestFiles,
+            cycleDone: true,
+            verifyPassed: false,
+            approved: false,
+            rejected: true,
+            failed: false,
+            stageHistory: nextHistory,
+          });
+        }
+
+        if (currentStatus === "paused") {
+          assertValidTransition("paused", "contract_tests", {
+            hasUi: currentState.hasUi,
+            pausedFromStatus: "contract_tests",
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "contract_tests",
+              pausedFromStatus: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+        }
+      }
+
+      const { stageAutomation, budgetCapUsd } =
+        await resolveProjectAutomationAndBudget(db, row.projectId);
+      const effectiveContractStatus: DeliverableStatus =
+        resumeData && currentStatus === "paused"
+          ? "contract_tests"
+          : currentStatus;
+
+      if (!resumeData && stageAutomation.contract_tests === "manual") {
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_contract_and_tests",
+          decisionType: "stage_gate_approve",
+          summary: `Aprovar início da etapa Contract & Tests para '${row.title}'`,
+          payloadJson: {
+            gate: "stage_gate_approve",
+            stage: "contract_tests",
+          },
+        });
+        return suspend({
+          gate: "stage_gate_approve",
+          stage: "contract_tests",
+        });
+      }
+
+      const preBudget = await checkBudgetCapExceeded(
+        db,
+        row.projectId,
+        budgetCapUsd
+      );
+      if (preBudget.exceeded && budgetCapUsd != null) {
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveContractStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_contract_and_tests",
+          stage: "contract_tests",
+          budgetCapUsd,
+          accumulatedCostUsd: preBudget.accumulatedCostUsd,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "contract_tests",
+          estimatedCostUsd: preBudget.accumulatedCostUsd,
+          budgetCapUsd,
         });
       }
 
@@ -1680,25 +2224,32 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         currentState.organizationId
       );
 
-      const workspace =
-        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
-      const handle = await workspace.prepare(
-        repo.localPath,
-        repo.defaultBranch,
-        row.id,
-        deps.worktreesRootDir
-          ? { worktreesRootDir: deps.worktreesRootDir }
-          : undefined
-      );
-
-      await db
-        .update(deliverables)
-        .set({
-          worktreePath: handle.workspacePath,
-          branchName: handle.branchName,
-          updatedAt: new Date(),
-        })
-        .where(eq(deliverables.id, row.id));
+      let handle: WorktreeHandle;
+      if (currentState.worktreeHandle) {
+        handle = currentState.worktreeHandle;
+        await workspace.attach(handle);
+      } else {
+        handle = await workspace.prepare(
+          repo.localPath,
+          repo.defaultBranch,
+          row.id,
+          deps.worktreesRootDir
+            ? { worktreesRootDir: deps.worktreesRootDir }
+            : undefined
+        );
+        await db
+          .update(deliverables)
+          .set({
+            worktreePath: handle.workspacePath,
+            branchName: handle.branchName,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, row.id));
+        await setState({
+          ...currentState,
+          worktreeHandle: handle,
+        });
+      }
 
       if (inputData.hasUi && inputData.designMdContent) {
         const designTarget = assertPathInsideWorkspace(
@@ -1720,6 +2271,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         transport,
         masterKey: deps.masterKey,
       });
+      const engineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+      });
+      const codingExecutor = createCodingExecutorAdapter({
+        mode: engineCfg.config.codingExecutorMode,
+        runner,
+        masterKey: deps.masterKey,
+      });
 
       const contractMemories = await resolveHierarchicalMemories(db, {
         organizationId: currentState.organizationId,
@@ -1731,13 +2290,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       let sessionResult;
       try {
-        sessionResult = await runner.runSession({
+        sessionResult = await codingExecutor.runSession({
           workspacePath: handle.workspacePath,
           mode: "build",
           role: "builder",
           skillNames: ["contract-first-msw", "test-quality-engineering"],
           skillsDir: deps.skillsDir,
           signal: heartbeat.signal,
+          db,
+          projectId: row.projectId,
+          budgetCapUsd,
+          workspaceKind: engineCfg.config.workspaceKind,
           providerConfig: {
             organizationId: currentState.organizationId,
             providerType: provider.providerType,
@@ -1758,9 +2321,71 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         heartbeat.stop();
       }
 
+      const contractCost = estimateTokenCostUsd(
+        provider.roleBindings.builder?.modelId,
+        sessionResult.tokenUsage
+      );
+      if (
+        sessionResult.tokenUsage.inputTokens > 0 ||
+        sessionResult.tokenUsage.outputTokens > 0 ||
+        contractCost > 0
+      ) {
+        await recordExecutionEvent(db, {
+          deliverableId: row.id,
+          stage: "stage_contract_and_tests",
+          actorRole: "builder",
+          eventType: "token_usage",
+          tokensInput: sessionResult.tokenUsage.inputTokens,
+          tokensOutput: sessionResult.tokenUsage.outputTokens,
+          cacheReadTokens: sessionResult.tokenUsage.cacheReadTokens,
+          estimatedCostUsd: contractCost,
+          payload: { status: sessionResult.status },
+        });
+      }
+
+      const postBudget = await checkBudgetCapExceeded(
+        db,
+        row.projectId,
+        budgetCapUsd
+      );
+      if (
+        sessionResult.errorMessage === "BUDGET_CAP_EXCEEDED" ||
+        (postBudget.exceeded && budgetCapUsd != null)
+      ) {
+        await setState({
+          ...currentState,
+          worktreeHandle: handle,
+          tokensInput:
+            currentState.tokensInput + sessionResult.tokenUsage.inputTokens,
+          tokensOutput:
+            currentState.tokensOutput + sessionResult.tokenUsage.outputTokens,
+          cacheReadTokens:
+            currentState.cacheReadTokens +
+            sessionResult.tokenUsage.cacheReadTokens,
+          estimatedCostUsd: Number(
+            (currentState.estimatedCostUsd + contractCost).toFixed(6)
+          ),
+        });
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveContractStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_contract_and_tests",
+          stage: "contract_tests",
+          budgetCapUsd: budgetCapUsd ?? postBudget.accumulatedCostUsd,
+          accumulatedCostUsd: postBudget.accumulatedCostUsd,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "contract_tests",
+          estimatedCostUsd: postBudget.accumulatedCostUsd,
+          budgetCapUsd: budgetCapUsd ?? postBudget.accumulatedCostUsd,
+        });
+      }
+
       if (sessionResult.status !== "completed") {
-        const currentStatus = parseDeliverableStatus(row.status);
-        assertValidTransition(currentStatus, "failed", {
+        assertValidTransition(effectiveContractStatus, "failed", {
           hasUi: currentState.hasUi,
         });
         await db
@@ -1783,8 +2408,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         handle.workspacePath
       );
 
-      const currentStatus = parseDeliverableStatus(row.status);
-      assertValidTransition(currentStatus, "building", {
+      assertValidTransition(effectiveContractStatus, "building", {
         hasUi: currentState.hasUi,
       });
       await db
@@ -1799,21 +2423,6 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         currentState.stageHistory,
         "stage_contract_and_tests"
       );
-      const contractCost = estimateTokenCostUsd(
-        provider.roleBindings.builder?.modelId,
-        sessionResult.tokenUsage
-      );
-      await recordExecutionEvent(db, {
-        deliverableId: row.id,
-        stage: "stage_contract_and_tests",
-        actorRole: "builder",
-        eventType: "token_usage",
-        tokensInput: sessionResult.tokenUsage.inputTokens,
-        tokensOutput: sessionResult.tokenUsage.outputTokens,
-        cacheReadTokens: sessionResult.tokenUsage.cacheReadTokens,
-        estimatedCostUsd: contractCost,
-        payload: { contractTestFiles },
-      });
 
       await setState({
         ...currentState,
@@ -1851,8 +2460,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
     outputSchema: DeliveryCycleIOSchema,
     suspendSchema: z.object({
       gate: WorkflowGateTypeSchema,
-      stuckAlert: StuckAlertSchema,
-      attempts: z.number().int().positive(),
+      stuckAlert: StuckAlertSchema.optional(),
+      attempts: z.number().int().positive().optional(),
+      stage: z.string().optional(),
+      estimatedCostUsd: z.number().optional(),
+      budgetCapUsd: z.number().optional(),
     }),
     resumeSchema: WorkflowResumeInputSchema,
     stateSchema: WorkflowRuntimeStateSchema,
@@ -1899,10 +2511,15 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       let nextFeedback = currentState.humanFeedback;
 
       if (resumeData) {
+        const pendingType = await findPendingDecisionTypeForStep(
+          db,
+          row.id,
+          "stage_build"
+        );
         await syncPendingDecisionResolution(db, {
           deliverableId: row.id,
           mastraStepId: "stage_build",
-          decisionType: "stuck_intervention",
+          decisionType: pendingType ?? "stuck_intervention",
           status: resumeData.decision,
           humanFeedback: resumeData.feedback ?? null,
         });
@@ -1972,6 +2589,52 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           : currentState.humanFeedback;
       }
 
+      const { stageAutomation, budgetCapUsd } =
+        await resolveProjectAutomationAndBudget(db, row.projectId);
+      const effectiveBuildStatus: DeliverableStatus =
+        resumeData && currentStatus === "paused" ? "building" : currentStatus;
+
+      if (!resumeData && stageAutomation.building === "manual") {
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_build",
+          decisionType: "stage_gate_approve",
+          summary: `Aprovar execução de Build para '${row.title}'`,
+          payloadJson: {
+            gate: "stage_gate_approve",
+            stage: "building",
+          },
+        });
+        return suspend({
+          gate: "stage_gate_approve",
+          stage: "building",
+        });
+      }
+
+      const preBudget = await checkBudgetCapExceeded(
+        db,
+        row.projectId,
+        budgetCapUsd
+      );
+      if (preBudget.exceeded && budgetCapUsd != null) {
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveBuildStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_build",
+          stage: "building",
+          budgetCapUsd,
+          accumulatedCostUsd: preBudget.accumulatedCostUsd,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "building",
+          estimatedCostUsd: preBudget.accumulatedCostUsd,
+          budgetCapUsd,
+        });
+      }
+
       const provider = await resolveBuilderProviderProfile(
         db,
         currentState.organizationId
@@ -1979,6 +2642,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const transport = deps.transportFactory?.() ?? createDefaultTransport();
       const runner = new OpenCodeRunner({
         transport,
+        masterKey: deps.masterKey,
+      });
+      const engineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+      });
+      const codingExecutor = createCodingExecutorAdapter({
+        mode: engineCfg.config.codingExecutorMode,
+        runner,
         masterKey: deps.masterKey,
       });
 
@@ -2002,12 +2673,16 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       let buildResult;
       try {
-        buildResult = await runner.runSession({
+        buildResult = await codingExecutor.runSession({
           workspacePath: worktreeHandle.workspacePath,
           mode: "build",
           role: "builder",
           skillsDir: deps.skillsDir,
           signal: heartbeat.signal,
+          db,
+          projectId: row.projectId,
+          budgetCapUsd,
+          workspaceKind: engineCfg.config.workspaceKind,
           providerConfig: {
             organizationId: currentState.organizationId,
             providerType: provider.providerType,
@@ -2041,6 +2716,50 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stuckPattern: buildResult.stuckAlert?.pattern ?? null,
         },
       });
+
+      const postBuildBudget = await checkBudgetCapExceeded(
+        db,
+        row.projectId,
+        budgetCapUsd
+      );
+      if (
+        buildResult.errorMessage === "BUDGET_CAP_EXCEEDED" ||
+        (postBuildBudget.exceeded &&
+          budgetCapUsd != null &&
+          buildResult.status !== "stuck")
+      ) {
+        await setState({
+          ...currentState,
+          worktreeHandle,
+          humanFeedback: nextFeedback,
+          tokensInput:
+            currentState.tokensInput + buildResult.tokenUsage.inputTokens,
+          tokensOutput:
+            currentState.tokensOutput + buildResult.tokenUsage.outputTokens,
+          cacheReadTokens:
+            currentState.cacheReadTokens +
+            buildResult.tokenUsage.cacheReadTokens,
+          estimatedCostUsd: Number(
+            (currentState.estimatedCostUsd + buildCost).toFixed(6)
+          ),
+        });
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveBuildStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_build",
+          stage: "building",
+          budgetCapUsd: budgetCapUsd ?? postBuildBudget.accumulatedCostUsd,
+          accumulatedCostUsd: postBuildBudget.accumulatedCostUsd,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "building",
+          estimatedCostUsd: postBuildBudget.accumulatedCostUsd,
+          budgetCapUsd: budgetCapUsd ?? postBuildBudget.accumulatedCostUsd,
+        });
+      }
 
       if (buildResult.status === "stuck" && buildResult.stuckAlert) {
         assertValidTransition("building", "paused", {
@@ -2177,8 +2896,22 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       "Executa .uzina/verify (TestAuditor + comandos + security-engine + Verifier plan sem CoT do Builder) até maxVerifyAttempts.",
     inputSchema: DeliveryCycleIOSchema,
     outputSchema: DeliveryCycleIOSchema,
+    suspendSchema: z.object({
+      gate: WorkflowGateTypeSchema,
+      stage: z.string().optional(),
+      estimatedCostUsd: z.number().optional(),
+      budgetCapUsd: z.number().optional(),
+    }),
+    resumeSchema: WorkflowResumeInputSchema,
     stateSchema: WorkflowRuntimeStateSchema,
-    execute: async ({ inputData, getState, setState, abortSignal }) => {
+    execute: async ({
+      inputData,
+      resumeData,
+      getState,
+      setState,
+      suspend,
+      abortSignal,
+    }) => {
       if (inputData.cycleDone || inputData.rejected || inputData.failed) {
         return inputData;
       }
@@ -2214,16 +2947,150 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
       await workspace.attach(worktreeHandle);
 
-      const attemptNumber = row.verifyAttempts + 1;
+      const initialVerifyStatus = parseDeliverableStatus(row.status);
+      let resumedDecisionType: DecisionType | null = null;
+      if (resumeData) {
+        resumedDecisionType = await findPendingDecisionTypeForStep(
+          db,
+          row.id,
+          "stage_verify"
+        );
+        await syncPendingDecisionResolution(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_verify",
+          decisionType: resumedDecisionType ?? "stage_gate_approve",
+          status: resumeData.decision,
+          humanFeedback: resumeData.feedback ?? null,
+        });
+
+        if (resumeData.decision === "rejected") {
+          await safeCleanupWorkspace(workspace, true);
+          assertValidTransition(initialVerifyStatus, "failed", {
+            hasUi: currentState.hasUi,
+            pausedFromStatus:
+              row.pausedFromStatus
+                ? parseDeliverableStatus(row.pausedFromStatus)
+                : null,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "failed",
+              pausedFromStatus: null,
+              worktreePath: null,
+              branchName: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          const nextHistory = appendStageHistory(
+            currentState.stageHistory,
+            "stage_verify"
+          );
+          await setState({
+            ...currentState,
+            worktreeHandle: null,
+            rejected: true,
+            humanFeedback: resumeData.feedback ?? null,
+            stageHistory: nextHistory,
+          });
+          return {
+            deliverableId: row.id,
+            worktreeHandle: null,
+            contractTestFiles: inputData.contractTestFiles,
+            cycleDone: true,
+            verifyPassed: false,
+            approved: false,
+            rejected: true,
+            failed: false,
+            stageHistory: nextHistory,
+          };
+        }
+
+        if (initialVerifyStatus === "paused") {
+          assertValidTransition("paused", "verifying", {
+            hasUi: currentState.hasUi,
+            pausedFromStatus: "verifying",
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "verifying",
+              pausedFromStatus: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+        }
+      }
+
+      const { stageAutomation, budgetCapUsd } =
+        await resolveProjectAutomationAndBudget(db, row.projectId);
+      const effectiveVerifyStatus: DeliverableStatus =
+        resumeData && initialVerifyStatus === "paused"
+          ? "verifying"
+          : initialVerifyStatus;
+
+      if (!resumeData && stageAutomation.verifying === "manual") {
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_verify",
+          decisionType: "stage_gate_approve",
+          summary: `Aprovar execução de Verify para '${row.title}'`,
+          payloadJson: {
+            gate: "stage_gate_approve",
+            stage: "verifying",
+          },
+        });
+        return suspend({
+          gate: "stage_gate_approve",
+          stage: "verifying",
+        });
+      }
+
+      const preVerifyBudget = await checkBudgetCapExceeded(
+        db,
+        row.projectId,
+        budgetCapUsd
+      );
+      if (preVerifyBudget.exceeded && budgetCapUsd != null) {
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveVerifyStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_verify",
+          stage: "verifying",
+          budgetCapUsd,
+          accumulatedCostUsd: preVerifyBudget.accumulatedCostUsd,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "verifying",
+          estimatedCostUsd: preVerifyBudget.accumulatedCostUsd,
+          budgetCapUsd,
+        });
+      }
+
+      const keepCurrentAttempt = Boolean(
+        resumeData &&
+          (initialVerifyStatus === "paused" ||
+            resumeData.newBudgetCapUsd !== undefined ||
+            resumedDecisionType === "budget_cap_pause") &&
+          row.verifyAttempts > currentState.verifyAttempts
+      );
+      const attemptNumber = keepCurrentAttempt
+        ? row.verifyAttempts
+        : row.verifyAttempts + 1;
       const maxAttempts = row.maxVerifyAttempts;
 
-      await db
-        .update(deliverables)
-        .set({
-          verifyAttempts: attemptNumber,
-          updatedAt: new Date(),
-        })
-        .where(eq(deliverables.id, row.id));
+      if (!keepCurrentAttempt) {
+        await db
+          .update(deliverables)
+          .set({
+            verifyAttempts: attemptNumber,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, row.id));
+      }
 
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       const verifyChecks: VerifyCheckSummary[] = [];
@@ -2238,6 +3105,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       let verifyTokensOutput = 0;
       let verifyCacheTokens = 0;
       let verifyCostUsd = 0;
+      let budgetExceededInVerifier = false;
+      let budgetAccumulatedInVerifier = 0;
       const failureReasons: string[] = [];
 
       let rawDiff = "";
@@ -2436,7 +3305,22 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             verifierSession.tokenUsage
           );
 
-          if (verifierSession.status !== "completed") {
+          const postVerifyAccumulated =
+            budgetCapUsd != null
+              ? await getProjectAccumulatedCostUsd(
+                  db,
+                  row.projectId,
+                  verifyCostUsd
+                )
+              : 0;
+
+          if (
+            verifierSession.errorMessage === "BUDGET_CAP_EXCEEDED" ||
+            (budgetCapUsd != null && postVerifyAccumulated >= budgetCapUsd)
+          ) {
+            budgetExceededInVerifier = true;
+            budgetAccumulatedInVerifier = postVerifyAccumulated;
+          } else if (verifierSession.status !== "completed") {
             verifierVerdict = "changes_required";
             verifierNotes = `Sessão do Verifier encerrou com status '${verifierSession.status}'.`;
             failureReasons.push(verifierNotes);
@@ -2466,6 +3350,53 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         }
       } finally {
         heartbeat.stop();
+      }
+
+      if (budgetExceededInVerifier) {
+        if (
+          verifyTokensInput > 0 ||
+          verifyTokensOutput > 0 ||
+          verifyCostUsd > 0
+        ) {
+          await recordExecutionEvent(db, {
+            deliverableId: row.id,
+            stage: "stage_verify",
+            actorRole: "verifier",
+            eventType: "token_usage",
+            tokensInput: verifyTokensInput,
+            tokensOutput: verifyTokensOutput,
+            cacheReadTokens: verifyCacheTokens,
+            estimatedCostUsd: verifyCostUsd,
+            payload: { attemptNumber, pausedForBudget: true },
+          });
+        }
+        await setState({
+          ...currentState,
+          worktreeHandle,
+          tokensInput: currentState.tokensInput + verifyTokensInput,
+          tokensOutput: currentState.tokensOutput + verifyTokensOutput,
+          cacheReadTokens: currentState.cacheReadTokens + verifyCacheTokens,
+          estimatedCostUsd: Number(
+            (currentState.estimatedCostUsd + verifyCostUsd).toFixed(6)
+          ),
+        });
+        const effectiveCap = budgetCapUsd ?? budgetAccumulatedInVerifier;
+        await pauseDeliverableForBudgetCap(db, {
+          deliverableId: row.id,
+          title: row.title,
+          currentStatus: effectiveVerifyStatus,
+          hasUi: currentState.hasUi,
+          mastraStepId: "stage_verify",
+          stage: "verifying",
+          budgetCapUsd: effectiveCap,
+          accumulatedCostUsd: budgetAccumulatedInVerifier,
+        });
+        return suspend({
+          gate: "budget_cap_pause",
+          stage: "verifying",
+          estimatedCostUsd: budgetAccumulatedInVerifier,
+          budgetCapUsd: effectiveCap,
+        });
       }
 
       const nextHistory = appendStageHistory(
@@ -2548,7 +3479,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       });
 
       if (!verifyPassed) {
-        const currentStatus = parseDeliverableStatus(row.status);
+        const currentStatus = effectiveVerifyStatus;
         if (attemptNumber < maxAttempts) {
           assertValidTransition(currentStatus, "building", {
             hasUi: currentState.hasUi,

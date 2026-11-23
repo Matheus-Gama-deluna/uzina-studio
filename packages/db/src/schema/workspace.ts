@@ -1,9 +1,24 @@
-import type { DesignAssetType, RoleBindings } from "@uzina/contracts";
+import type {
+  DesignAssetType,
+  ProjectStageAutomation,
+  RoleBindings,
+} from "@uzina/contracts";
+
+const DEFAULT_STAGE_AUTOMATION: ProjectStageAutomation = {
+  discovery: "manual",
+  spec_review: "manual",
+  visual_studio: "manual",
+  contract_tests: "auto",
+  building: "auto",
+  verifying: "auto",
+  decision_pending: "manual",
+};
 import {
   boolean,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -52,6 +67,11 @@ export const projects = pgTable(
     maturityScore: integer("maturity_score"),
     designMdPath: text("design_md_path"),
     status: text("status").default("active").notNull(),
+    stageAutomationJson: jsonb("stage_automation_json")
+      .$type<ProjectStageAutomation>()
+      .default(DEFAULT_STAGE_AUTOMATION)
+      .notNull(),
+    budgetCapUsd: numeric("budget_cap_usd", { precision: 12, scale: 6 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

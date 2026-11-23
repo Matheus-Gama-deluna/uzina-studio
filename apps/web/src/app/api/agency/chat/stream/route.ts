@@ -5,6 +5,7 @@ import { streamAgencyChatScoped } from "@uzina/mastra-runtime/agency";
 import { parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
 import { tryGetServerMasterKey } from "@/lib/vault";
+import { getWebWorkflowRuntime } from "@/lib/workflow-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
 
   const { db } = await getDb();
+  const workflowService = await getWebWorkflowRuntime().catch(() => undefined);
   const encoder = new TextEncoder();
   const abortController = new AbortController();
 
@@ -57,6 +59,7 @@ export async function POST(request: Request): Promise<Response> {
             role: auth.actor.role,
           },
           masterKey: tryGetServerMasterKey(),
+          workflowService,
           request: parsed.data,
           signal: abortController.signal,
         })) {

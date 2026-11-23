@@ -52,12 +52,14 @@ export async function POST(
   }
 
   if (
-    scopedDecision.decisionType === "pr_evidence_approve" &&
+    (scopedDecision.decisionType === "pr_evidence_approve" ||
+      scopedDecision.decisionType === "budget_cap_pause" ||
+      body.data.newBudgetCapUsd !== undefined) &&
     !VAULT_WRITE_ROLES.includes(guard.actor.role)
   ) {
     return jsonError(403, {
       error:
-        "Apenas owner ou admin pode aprovar, solicitar ajustes ou rejeitar o portão pr_evidence_approve.",
+        "Apenas owner ou admin pode resolver este portão ou alterar o teto de orçamento.",
       code: "FORBIDDEN",
     });
   }
@@ -68,6 +70,7 @@ export async function POST(
       decisionId,
       organizationId: guard.actor.organizationId,
       resolvedByUserId: guard.actor.userId,
+      actorRole: guard.actor.role,
       input: body.data,
     });
     return NextResponse.json(ResolveDecisionResponseSchema.parse(resolved), {

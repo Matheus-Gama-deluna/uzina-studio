@@ -40,12 +40,14 @@ export async function POST(
     });
 
     if (
-      currentState.gate === "pr_evidence_approve" &&
+      (currentState.gate === "pr_evidence_approve" ||
+        currentState.gate === "budget_cap_pause" ||
+        parsed.data.newBudgetCapUsd !== undefined) &&
       !VAULT_WRITE_ROLES.includes(auth.actor.role)
     ) {
       return jsonError(403, {
         error:
-          "Apenas owner ou admin pode aprovar, solicitar ajustes ou rejeitar o portão pr_evidence_approve.",
+          "Apenas owner ou admin pode aprovar ou ajustar portões de orçamento/evidência.",
         code: "FORBIDDEN",
       });
     }
@@ -54,6 +56,7 @@ export async function POST(
       deliverableId,
       organizationId: auth.actor.organizationId,
       resolvedByUserId: auth.actor.userId,
+      actorRole: auth.actor.role,
       input: parsed.data,
     });
     return NextResponse.json(state, { status: 200 });

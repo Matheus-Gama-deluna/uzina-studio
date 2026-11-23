@@ -5,6 +5,11 @@ import {
   ProjectStatusSchema,
 } from "./enums.js";
 import { HttpUrlSchema } from "./errors.js";
+import {
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
+  ProjectStageAutomationSchema,
+  UpdateProjectStageAutomationSchema,
+} from "./workflow.js";
 
 export const ProjectRepositorySchema = z.object({
   id: z.uuid(),
@@ -39,6 +44,10 @@ export const ProjectSchema = z.object({
   maturityScore: z.number().int().min(0).max(100).nullable(),
   designMdPath: z.string().max(500).nullable(),
   status: ProjectStatusSchema,
+  stageAutomation: ProjectStageAutomationSchema.default(() => ({
+    ...DEFAULT_PROJECT_STAGE_AUTOMATION,
+  })),
+  budgetCapUsd: z.number().positive().max(10000).nullable().default(null),
   repositories: z.array(ProjectRepositorySchema),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -64,6 +73,8 @@ export const UpdateProjectSchema = z
     defaultDevelopmentStrategy: DevelopmentStrategySchema.optional(),
     maturityScore: z.number().int().min(0).max(100).nullable().optional(),
     status: ProjectStatusSchema.optional(),
+    stageAutomation: UpdateProjectStageAutomationSchema.optional(),
+    budgetCapUsd: z.number().positive().max(10000).nullable().optional(),
   })
   .strict();
 export type UpdateProjectInput = z.infer<typeof UpdateProjectSchema>;

@@ -223,8 +223,53 @@ export const WorkflowGateTypeSchema = z.enum([
   "prototype_approve",
   "pr_evidence_approve",
   "stuck_intervention",
+  "stage_gate_approve",
+  "budget_cap_pause",
 ]);
 export type WorkflowGateType = z.infer<typeof WorkflowGateTypeSchema>;
+
+export const StageExecutionModeSchema = z.enum(["manual", "auto"]);
+export type StageExecutionMode = z.infer<typeof StageExecutionModeSchema>;
+
+export const ProjectStageAutomationSchema = z
+  .object({
+    discovery: StageExecutionModeSchema.default("manual"),
+    spec_review: StageExecutionModeSchema.default("manual"),
+    visual_studio: StageExecutionModeSchema.default("manual"),
+    contract_tests: StageExecutionModeSchema.default("auto"),
+    building: StageExecutionModeSchema.default("auto"),
+    verifying: StageExecutionModeSchema.default("auto"),
+    decision_pending: z.literal("manual").default("manual"),
+  })
+  .strict();
+export type ProjectStageAutomation = z.infer<
+  typeof ProjectStageAutomationSchema
+>;
+
+export const DEFAULT_PROJECT_STAGE_AUTOMATION: ProjectStageAutomation = {
+  discovery: "manual",
+  spec_review: "manual",
+  visual_studio: "manual",
+  contract_tests: "auto",
+  building: "auto",
+  verifying: "auto",
+  decision_pending: "manual",
+};
+
+export const UpdateProjectStageAutomationSchema = z
+  .object({
+    discovery: StageExecutionModeSchema.optional(),
+    spec_review: StageExecutionModeSchema.optional(),
+    visual_studio: StageExecutionModeSchema.optional(),
+    contract_tests: StageExecutionModeSchema.optional(),
+    building: StageExecutionModeSchema.optional(),
+    verifying: StageExecutionModeSchema.optional(),
+    decision_pending: z.literal("manual").optional(),
+  })
+  .strict();
+export type UpdateProjectStageAutomation = z.infer<
+  typeof UpdateProjectStageAutomationSchema
+>;
 
 export const VerifierIssueSchema = z
   .object({
@@ -269,9 +314,17 @@ export const WorkflowResumeInputSchema = z
     hasUi: z.boolean().optional(),
     overrideStrategy: DevelopmentStrategySchema.optional(),
     approveDesignMd: z.boolean().optional(),
+    newBudgetCapUsd: z.number().positive().max(10000).optional(),
   })
   .strict();
 export type WorkflowResumeInput = z.input<typeof WorkflowResumeInputSchema>;
+
+export const WorkflowAbortInputSchema = z
+  .object({
+    reason: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+export type WorkflowAbortInput = z.infer<typeof WorkflowAbortInputSchema>;
 
 export const DeliverableWorkflowStatusSchema = z.enum([
   "not_started",

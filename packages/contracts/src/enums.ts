@@ -58,6 +58,8 @@ export const DecisionTypeSchema = z.enum([
   "prototype_approve",
   "pr_evidence_approve",
   "stuck_intervention",
+  "stage_gate_approve",
+  "budget_cap_pause",
 ]);
 export type DecisionType = z.infer<typeof DecisionTypeSchema>;
 

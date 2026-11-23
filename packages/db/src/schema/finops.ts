@@ -1,5 +1,6 @@
 import type {
   AstEngineMode,
+  CodingExecutorMode,
   EmbeddingEngineMode,
   TokenSavingsTechnique,
   WorkspaceKind,
@@ -65,6 +66,10 @@ export const engineConfigs = pgTable("engine_configs", {
     .$type<WorkspaceKind>()
     .notNull()
     .default("worktree"),
+  codingExecutorMode: text("coding_executor_mode")
+    .$type<CodingExecutorMode>()
+    .notNull()
+    .default("opencode"),
   skeletonMaxTokens: integer("skeleton_max_tokens").notNull().default(2000),
   qmdTopK: integer("qmd_top_k").notNull().default(5),
   autoInjectInRunner: boolean("auto_inject_in_runner").notNull().default(true),

@@ -1,9 +1,11 @@
 import {
   CreateProjectSchema,
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
   DevelopmentStrategySchema,
   ProjectListResponseSchema,
   ProjectRepositorySchema,
   ProjectSchema,
+  ProjectStageAutomationSchema,
   ProjectStatusSchema,
   type Project,
 } from "@uzina/contracts";
@@ -31,6 +33,18 @@ export function mapProject(
   row: typeof projects.$inferSelect,
   repos: (typeof projectRepositories.$inferSelect)[]
 ): Project {
+  const stageAutomation = ProjectStageAutomationSchema.parse({
+    ...DEFAULT_PROJECT_STAGE_AUTOMATION,
+    ...(row.stageAutomationJson ?? {}),
+    decision_pending: "manual" as const,
+  });
+  const parsedBudget =
+    row.budgetCapUsd != null ? Number(row.budgetCapUsd) : null;
+  const budgetCapUsd =
+    parsedBudget !== null && Number.isFinite(parsedBudget)
+      ? parsedBudget
+      : null;
+
   return ProjectSchema.parse({
     id: row.id,
     clientId: row.clientId,
@@ -43,6 +57,8 @@ export function mapProject(
     maturityScore: row.maturityScore,
     designMdPath: row.designMdPath,
     status: ProjectStatusSchema.parse(row.status),
+    stageAutomation,
+    budgetCapUsd,
     repositories: repos.map((r) =>
       ProjectRepositorySchema.parse({
         id: r.id,

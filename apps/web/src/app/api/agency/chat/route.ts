@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
 import { tryGetServerMasterKey } from "@/lib/vault";
+import { getWebWorkflowRuntime } from "@/lib/workflow-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
 
   try {
     const { db } = await getDb();
+    const workflowService = await getWebWorkflowRuntime().catch(() => undefined);
     const res = await handleAgencyChatScoped(db, {
       actor: {
         organizationId: auth.actor.organizationId,
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
         role: auth.actor.role,
       },
       masterKey: tryGetServerMasterKey(),
+      workflowService,
       request: parsed.data,
     });
     return NextResponse.json(res, { status: 200 });
