@@ -55,15 +55,6 @@ const STAGE_LABELS = Object.fromEntries(
   STAGE_COLUMNS.map((c) => [c.id, c.label])
 ) as Record<DeliverableStatus, string>;
 
-const STRATEGY_LABELS: Record<DevelopmentStrategy, string> = {
-  frontend_first_msw: "Frontend-First + MSW",
-  api_contract_first: "API Contract-First",
-  domain_first: "Domain-First (TDD)",
-  data_schema_first: "Data / Schema-First",
-  characterization_strangler: "Characterization + Strangler",
-  spike_first: "Spike-First",
-};
-
 const RISK_STYLES: Record<RiskLevel, string> = {
   low: "border-status-ok/35 text-status-ok bg-status-ok/10",
   medium: "border-status-warn/35 text-status-warn bg-status-warn/10",
@@ -95,7 +86,7 @@ export function WorkspaceBoard() {
 
   const [projectName, setProjectName] = useState("");
   const [projectClientId, setProjectClientId] = useState("");
-  const [projectStrategy, setProjectStrategy] =
+  const [projectStrategy] =
     useState<DevelopmentStrategy>("frontend_first_msw");
   const [repoName, setRepoName] = useState("");
   const [repoPath, setRepoPath] = useState("");
@@ -336,65 +327,14 @@ export function WorkspaceBoard() {
   const bootError = clientsQuery.error || projectsQuery.error;
 
   return (
-    <div className="space-y-5">
-      {/* Cabeçalho Operacional + Ações */}
-      <section className="flex flex-wrap items-center justify-between gap-4 border-b border-border-subtle pb-4">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight text-fg-primary">
+    <div className="space-y-3">
+      {/* Barra Superior Unificada & Compacta: Título + Seletores Cliente/Projeto + Ações */}
+      <section className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border-subtle pb-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="text-base font-semibold tracking-tight text-fg-primary">
             Torre de Controle
           </h1>
-          <p className="text-sm text-fg-secondary">
-            Hierarquia operacional e esteira de entregas orientada a especificações.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="btn-new-client"
-            onClick={() => {
-              setFormError(null);
-              setClientModalOpen(true);
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
-          >
-            <UserPlus className="size-3.5 text-fg-secondary" strokeWidth={1.75} />
-            <span>Novo Cliente</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="btn-new-project"
-            onClick={() => {
-              setFormError(null);
-              setProjectClientId(clientsList[0]?.id ?? "");
-              setProjectModalOpen(true);
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
-          >
-            <FolderPlus className="size-3.5 text-fg-secondary" strokeWidth={1.75} />
-            <span>Novo Projeto</span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="btn-new-deliverable"
-            disabled={!activeProject}
-            onClick={() => {
-              setFormError(null);
-              setDeliverableModalOpen(true);
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="size-3.5" strokeWidth={2} />
-            <span>Nova Entrega</span>
-          </button>
-        </div>
-      </section>
-
-      {/* Barra de Filtros + Alternância 1 clique Kanban / Lista */}
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="filter-client" className="sr-only">
             Filtrar por cliente
           </label>
@@ -402,7 +342,7 @@ export function WorkspaceBoard() {
             id="filter-client"
             value={selectedClientId}
             onChange={(e) => setSelectedClientId(e.target.value)}
-            className="h-8 rounded-md border border-border-default bg-surface px-2.5 py-0 text-xs leading-8 text-fg-primary"
+            className="h-7 rounded-md border border-border-default bg-surface px-2 py-0 text-xs text-fg-primary"
           >
             <option value="all">Todos os clientes</option>
             {clientsList.map((c) => (
@@ -422,7 +362,7 @@ export function WorkspaceBoard() {
                 id="filter-project"
                 value={activeProject?.id ?? ""}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="h-8 rounded-md border border-border-default bg-surface px-2.5 py-0 text-xs leading-8 text-fg-primary"
+                className="h-7 rounded-md border border-border-default bg-surface px-2 py-0 text-xs text-fg-primary"
               >
                 {visibleProjects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -434,57 +374,95 @@ export function WorkspaceBoard() {
           )}
 
           {activeProject && (
-            <>
-              <span className="rounded border border-border-subtle bg-inset px-2 py-1 font-mono text-[11px] text-fg-secondary">
-                {STRATEGY_LABELS[activeProject.defaultDevelopmentStrategy]}
-              </span>
-              <Link
-                href={`/app/projects/${activeProject.id}/studio`}
-                data-testid="link-project-studio"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
-              >
-                <Sparkles className="size-3.5 text-accent" strokeWidth={1.75} />
-                <span>Estúdio Visual &amp; Workflow</span>
-              </Link>
-            </>
+            <Link
+              href={`/app/projects/${activeProject.id}/studio`}
+              data-testid="link-project-studio"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
+            >
+              <Sparkles className="size-3 text-accent" strokeWidth={1.75} />
+              <span>Estúdio Visual &amp; Workflow</span>
+            </Link>
           )}
         </div>
 
-        <div
-          role="tablist"
-          aria-label="Modo de visualização"
-          className="inline-flex rounded-md border border-border-default bg-inset p-0.5"
-        >
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            role="tab"
-            aria-selected={viewMode === "kanban"}
-            data-testid="view-kanban"
-            onClick={() => setViewMode("kanban")}
-            className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors ${
-              viewMode === "kanban"
-                ? "bg-surface text-fg-primary border border-border-subtle"
-                : "text-fg-secondary hover:text-fg-primary"
-            }`}
+            data-testid="btn-new-client"
+            onClick={() => {
+              setFormError(null);
+              setClientModalOpen(true);
+            }}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
           >
-            <Kanban className="size-3.5" strokeWidth={1.75} />
-            <span>Kanban</span>
+            <UserPlus className="size-3 text-fg-secondary" strokeWidth={1.75} />
+            <span>Novo Cliente</span>
           </button>
+
           <button
             type="button"
-            role="tab"
-            aria-selected={viewMode === "list"}
-            data-testid="view-list"
-            onClick={() => setViewMode("list")}
-            className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors ${
-              viewMode === "list"
-                ? "bg-surface text-fg-primary border border-border-subtle"
-                : "text-fg-secondary hover:text-fg-primary"
-            }`}
+            data-testid="btn-new-project"
+            onClick={() => {
+              setFormError(null);
+              setProjectClientId(clientsList[0]?.id ?? "");
+              setProjectModalOpen(true);
+            }}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
           >
-            <List className="size-3.5" strokeWidth={1.75} />
-            <span>Lista</span>
+            <FolderPlus className="size-3 text-fg-secondary" strokeWidth={1.75} />
+            <span>Novo Projeto</span>
           </button>
+
+          <button
+            type="button"
+            data-testid="btn-new-deliverable"
+            disabled={!activeProject}
+            onClick={() => {
+              setFormError(null);
+              setDeliverableModalOpen(true);
+            }}
+            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="size-3" strokeWidth={2} />
+            <span>Nova Entrega</span>
+          </button>
+
+          <div
+            role="tablist"
+            aria-label="Modo de visualização"
+            className="inline-flex rounded-md border border-border-default bg-inset p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === "kanban"}
+              data-testid="view-kanban"
+              onClick={() => setViewMode("kanban")}
+              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
+                viewMode === "kanban"
+                  ? "bg-surface text-fg-primary border border-border-subtle"
+                  : "text-fg-secondary hover:text-fg-primary"
+              }`}
+            >
+              <Kanban className="size-3" strokeWidth={1.75} />
+              <span>Kanban</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === "list"}
+              data-testid="view-list"
+              onClick={() => setViewMode("list")}
+              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
+                viewMode === "list"
+                  ? "bg-surface text-fg-primary border border-border-subtle"
+                  : "text-fg-secondary hover:text-fg-primary"
+              }`}
+            >
+              <List className="size-3" strokeWidth={1.75} />
+              <span>Lista</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -936,29 +914,9 @@ export function WorkspaceBoard() {
                   className="h-9 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
                 />
               </div>
-              <div className="space-y-1">
-                <label
-                  htmlFor="project-strategy"
-                  className="block text-xs font-medium text-fg-secondary"
-                >
-                  Estratégia Padrão
-                </label>
-                <select
-                  id="project-strategy"
-                  value={projectStrategy}
-                  onChange={(e) =>
-                    setProjectStrategy(e.target.value as DevelopmentStrategy)
-                  }
-                  className="h-9 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
-                >
-                  {(
-                    Object.keys(STRATEGY_LABELS) as DevelopmentStrategy[]
-                  ).map((key) => (
-                    <option key={key} value={key}>
-                      {STRATEGY_LABELS[key]}
-                    </option>
-                  ))}
-                </select>
+              <div className="rounded-md border border-accent/30 bg-accent-subtle/20 p-2.5 text-xs text-fg-secondary">
+                <strong className="text-accent">Estratégia decidida pelo Arquiteto:</strong>{" "}
+                Você não precisa escolher a estratégia técnica manualmente. O Agente Arquiteto de Software analisará a conversa do projeto e definirá a melhor estratégia para execução por IA.
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">

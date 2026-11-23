@@ -241,3 +241,17 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `Vitest` (9 pacotes): **`65` arquivos de teste, `494 passed | 0 skipped`**.
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (26.8s)`**.
   * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (Guia de Prontidão, Barra de Equipe com Model Tiering, Importação Brownfield via URL Git, Inspetor Duplo de Artefatos Longo Prazo & Slices, Ciclo Autônomo até Portão HITL e Retorno Cíclico `Ciclo #2`, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
+
+---
+
+## 2026-11-22 — Slice 13: Redesign Chat-First no Topo, Estratégia Decidida pelo Arquiteto, Equipe Enxuta/Completa & Portão Visual (`feat/slice-13-chat-first-architect-strategy-visual-gate`)
+
+* **Entregue:**
+  * `@uzina/contracts`: `TeamTopologyModeSchema` (`lean_mvp | full_enterprise`), `ArchitectStrategyDecisionSchema`, `ProjectVisualFlowSummarySchema`, intents `approve_visual_flow` e `revise_visual_flow` (`159/159` testes).
+  * `@uzina/mastra-runtime`: `decideOptimalAiStrategy` (Arquiteto decide a melhor estratégia para execução por IA + justificativa), geração automática de protótipo visual inicial em `design_prototypes`, guardrail `paused_at_visual_gate` em `visual_studio` e handlers de aprovação/revisão visual (`23/23` testes).
+  * `@uzina/web`: redesign de `AgencyCommandCenter` e `WorkspaceBoard` com Chat amplo no topo da primeira dobra (`7/12`), Setup integrado expansível, toggle `Equipe Enxuta (MVP · 3)` vs `Completa (6)`, remoção da escolha manual de estratégia e aba `Estúdio & Protótipo` com preview `<iframe sandbox="">` ao vivo (`28/28` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
+  * `Vitest` (9 pacotes): **`65` arquivos de teste, `495 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (13.4s)`**.
+  * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (Chat na primeira dobra `y = 225.6px`, `Equipe Enxuta (MVP · 3)` vs `Completa (6)`, `OdontoFlow IA` criado sem estratégia manual com `Frontend-First + MSW` decidida pelo Arquiteto, preview `<iframe sandbox="">` e aprovação do Portão Visual, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
