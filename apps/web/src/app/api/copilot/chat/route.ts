@@ -1,8 +1,10 @@
 import { CopilotChatRequestSchema } from "@uzina/contracts";
+import { redactSensitiveText } from "@uzina/core";
 import { getDb } from "@uzina/db";
 import { streamExecutiveCopilot } from "@uzina/mastra-runtime";
 import { parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
+import { tryGetServerMasterKey } from "@/lib/vault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,13 +18,27 @@ export async function POST(request: Request): Promise<Response> {
 
   const { db } = await getDb();
   const encoder = new TextEncoder();
+  const abortController = new AbortController();
+
+  const onRequestAbort = () => abortController.abort();
+  request.signal.addEventListener("abort", onRequestAbort, { once: true });
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
+      const heartbeatTimer = setInterval(() => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(": ping\n\n"));
+        } catch {
+          // Stream já fechado
+        }
+      }, 15_000);
+
       const closeSafe = () => {
         if (closed) return;
         closed = true;
+        clearInterval(heartbeatTimer);
         try {
           controller.close();
         } catch {
@@ -31,7 +47,7 @@ export async function POST(request: Request): Promise<Response> {
       };
 
       const onAbort = () => closeSafe();
-      request.signal.addEventListener("abort", onAbort, { once: true });
+      abortController.signal.addEventListener("abort", onAbort, { once: true });
 
       try {
         for await (const event of streamExecutiveCopilot({
@@ -41,19 +57,24 @@ export async function POST(request: Request): Promise<Response> {
             userId: guard.actor.userId,
             role: guard.actor.role,
           },
+          masterKey: tryGetServerMasterKey(),
           request: body.data,
-          signal: request.signal,
+          signal: abortController.signal,
         })) {
-          if (closed) break;
+          if (closed || abortController.signal.aborted) break;
           const chunk = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
           controller.enqueue(encoder.encode(chunk));
         }
-      } catch {
-        if (!closed) {
+      } catch (err) {
+        if (!closed && !abortController.signal.aborted) {
           const errFrame = {
             type: "error",
             code: "COPILOT_STREAM_ERROR",
-            message: "Erro ao transmitir resposta do Co-piloto.",
+            message: redactSensitiveText(
+              err instanceof Error
+                ? err.message
+                : "Erro ao transmitir resposta do Co-piloto."
+            ),
           };
           controller.enqueue(
             encoder.encode(
@@ -62,9 +83,14 @@ export async function POST(request: Request): Promise<Response> {
           );
         }
       } finally {
-        request.signal.removeEventListener("abort", onAbort);
+        request.signal.removeEventListener("abort", onRequestAbort);
+        abortController.signal.removeEventListener("abort", onAbort);
         closeSafe();
       }
+    },
+    cancel() {
+      abortController.abort();
+      request.signal.removeEventListener("abort", onRequestAbort);
     },
   });
 

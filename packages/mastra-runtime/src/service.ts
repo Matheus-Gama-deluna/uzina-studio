@@ -286,6 +286,7 @@ export async function createMastraRuntime(
   const executiveCopilot = createExecutiveCopilotAgent({
     db: options.db,
     securityRunnerDeps: options.securityRunnerDeps,
+    masterKey: options.masterKey,
   });
 
   const mastra = new Mastra({

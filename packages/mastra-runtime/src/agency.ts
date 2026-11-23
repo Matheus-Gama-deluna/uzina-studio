@@ -1,6 +1,9 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { MastraModelConfig } from "@mastra/core/llm";
+import { RequestContext } from "@mastra/core/request-context";
 import {
   AgencyChatRequestSchema,
   AgencyChatResponseSchema,
@@ -14,10 +17,12 @@ import {
   type AgencyChatResponse,
   type AgencyOverviewResponse,
   type AgencyProjectState,
+  type AgencyStreamEvent,
   type ArchitectStrategyDecision,
   type DeliverableStatus,
   type DevelopmentStrategy,
   type LongTermArtifactSummary,
+  type ObservationalMemoryStatus,
   type OrgRole,
   type ProjectLifecyclePhase,
   type ProjectVisualFlowSummary,
@@ -28,6 +33,7 @@ import {
 import {
   getAllowedNextStatuses,
   redactSensitiveText,
+  redactSensitiveValue,
 } from "@uzina/core";
 import {
   clients,
@@ -44,9 +50,27 @@ import {
   type UzinaDb,
 } from "@uzina/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { createEngineeringSpecialistAgent } from "./agents/engineering-agents.js";
 import { syncRepositoryCodebase } from "./codebase.js";
-import { WorkflowRuntimeError } from "./errors.js";
+import {
+  WorkflowRuntimeError,
+  type WorkflowRuntimeErrorCode,
+} from "./errors.js";
 import { createMemoryScoped } from "./memories.js";
+import {
+  assertProjectBelongsToOrganization,
+  assertThreadOwnershipOrCreate,
+  buildAgencyResourceId,
+  createUzinaMemory,
+  getAgencyThreadMessagesScoped,
+  listAgencyThreadsScoped,
+  mapDataOmStatusToContract,
+} from "./memory-runtime.js";
+import {
+  collectOrganizationKnownSecrets,
+  createTenantModelResolver,
+  resolveOrganizationModelConfig,
+} from "./model-resolver.js";
 import {
   DEFAULT_PROVIDER_BASE_URLS,
   DEFAULT_PROVIDER_MODELS,
@@ -58,12 +82,16 @@ import {
   approvePrototypeScoped,
   createOrImportPrototypeScoped,
 } from "./prototypes.js";
+import type { UzinaMastraStore } from "./storage.js";
 
 export {
   DEFAULT_PROVIDER_BASE_URLS,
   DEFAULT_PROVIDER_MODELS,
+  buildAgencyResourceId,
   callProviderLlmApi,
+  getAgencyThreadMessagesScoped,
   invokeOrganizationLlmForAgentScoped,
+  listAgencyThreadsScoped,
   testProviderLlmConnectionScoped,
 };
 
@@ -505,15 +533,19 @@ export async function resolveAgencyTeamWithTieringScoped(
     providerPrefix === "anthropic"
       ? "anthropic/claude-sonnet-4-5"
       : providerPrefix === "openai_compatible" || providerPrefix === "omniroute"
-        ? "openai/gpt-5"
-        : "google/gemini-2.5-pro";
+        ? "openai/gpt-4o"
+        : providerPrefix === "ollama"
+          ? "ollama/qwen2.5-coder:7b"
+          : "google/gemini-2.5-pro";
 
   const tier2Default =
     providerPrefix === "anthropic"
       ? "anthropic/claude-haiku-4-5"
       : providerPrefix === "openai_compatible" || providerPrefix === "omniroute"
         ? "openai/gpt-4o-mini"
-        : "google/gemini-2.5-flash";
+        : providerPrefix === "ollama"
+          ? "ollama/qwen2.5-coder:7b"
+          : "google/gemini-2.5-flash";
 
   return [
     {
@@ -1483,20 +1515,34 @@ function deriveDeliverableWaveFromPrompt(params: {
   ];
 }
 
-export async function handleAgencyChatScoped(
+export interface AgencyChatExecutionParams {
+  actor: {
+    organizationId: string;
+    userId: string;
+    role: OrgRole;
+  };
+  request: AgencyChatRequest;
+  masterKey?: Buffer | string | null;
+  fetchImpl?: typeof fetch;
+  dataDir?: string;
+  databaseUrl?: string;
+  storage?: UzinaMastraStore;
+  modelOverride?: MastraModelConfig;
+  signal?: AbortSignal;
+}
+
+async function executeDeterministicAgencyMutations(
   db: UzinaDb,
-  params: {
-    actor: {
-      organizationId: string;
-      userId: string;
-      role: OrgRole;
-    };
-    request: AgencyChatRequest;
-    masterKey?: Buffer | string | null;
-    fetchImpl?: typeof fetch;
-  }
-): Promise<AgencyChatResponse> {
-  const parsed = AgencyChatRequestSchema.parse(params.request);
+  params: AgencyChatExecutionParams,
+  parsed: AgencyChatRequest
+): Promise<{
+  activeAgent: AgencyAgentProfile;
+  handedOffFrom: AgencyAgentRole | null;
+  targetProjectId: string | undefined;
+  replyLines: string[];
+  actionsExecuted: AgencyActionExecuted[];
+  isTransactionalIntent: boolean;
+}> {
   const canMutate = WRITE_ROLES.has(params.actor.role);
   const actionsExecuted: AgencyActionExecuted[] = [];
   const agents = await resolveAgencyTeamWithTieringScoped(
@@ -1506,6 +1552,14 @@ export async function handleAgencyChatScoped(
 
   const getAgent = (role: AgencyAgentRole): AgencyAgentProfile =>
     agents.find((a) => a.role === role) ?? agents[0]!;
+
+  if (parsed.projectId) {
+    await assertProjectBelongsToOrganization(
+      db,
+      parsed.projectId,
+      params.actor.organizationId
+    );
+  }
 
   const urlMatch = parsed.message.match(/https?:\/\/[^\s)>]+/i);
   const detectedGitUrl = parsed.gitUrl ?? (urlMatch ? urlMatch[0] : undefined);
@@ -2400,67 +2454,648 @@ export async function handleAgencyChatScoped(
     ];
   }
 
-  const readiness = await getSystemReadinessScoped(
-    db,
-    params.actor.organizationId
-  );
-  const projectState = targetProjectId
-    ? await resolveProjectAgencyStateScoped(db, {
-        organizationId: params.actor.organizationId,
-        projectId: targetProjectId,
-      })
-    : null;
-
-  let executionMode: "live_llm" | "local_assisted" = "local_assisted";
-  let llmLatencyMs: number | null = null;
-
-  if (readiness.llmProviderConfigured && (params.masterKey || readiness.activeProviderNames.includes("ollama"))) {
-    const llmTurn = await invokeOrganizationLlmForAgentScoped(db, {
-      organizationId: params.actor.organizationId,
-      masterKey: params.masterKey,
-      agentRole: activeAgent.role,
-      agentName: activeAgent.name,
-      agentTitle: activeAgent.title,
-      projectName: projectState?.projectName ?? null,
-      strategyLabel:
-        projectState?.architectDecision?.strategyLabel ??
-        projectState?.defaultStrategy ??
-        null,
-      phaseLabel: projectState?.phaseLabel ?? null,
-      userMessage: parsed.message,
-      contextSummary: replyLines.join("\n"),
-      fetchImpl: params.fetchImpl,
-    });
-
-    if (llmTurn.ok && llmTurn.text) {
-      executionMode = "live_llm";
-      llmLatencyMs = llmTurn.latencyMs;
-      actionsExecuted.unshift({
-        type: "invoked_live_llm",
-        label: `Resposta gerada via LLM Real (${llmTurn.providerType}/${llmTurn.modelId} · ${llmTurn.latencyMs}ms)`,
-      });
-      replyLines = [
-        llmTurn.text,
-        ``,
-        `---`,
-        `*Orquestração executada no workspace (${activeAgent.name} · \`${llmTurn.providerType}/${llmTurn.modelId}\` · ${llmTurn.latencyMs}ms):*`,
-        ...replyLines,
-      ];
-    }
-  }
-
-  return AgencyChatResponseSchema.parse({
+  return {
     activeAgent,
     handedOffFrom,
-    lifecyclePhase: projectState?.currentPhase ?? "onboarding",
-    cycleNumber: projectState?.cycleNumber ?? 1,
-    teamTopology: parsed.teamTopology,
-    autonomyMode: parsed.autonomyMode,
-    executionMode,
-    llmLatencyMs,
-    reply: replyLines.join("\n"),
+    targetProjectId,
+    replyLines,
     actionsExecuted,
-    projectState,
-    readiness,
-  });
+    isTransactionalIntent: effectiveIntent !== "general_chat",
+  };
+}
+
+export async function* streamAgencyChatScoped(
+  db: UzinaDb,
+  params: AgencyChatExecutionParams
+): AsyncIterable<AgencyStreamEvent> {
+  const parsed = AgencyChatRequestSchema.parse(params.request);
+  let settleFn: (() => Promise<void>) | undefined;
+  let knownSecrets: string[] = [];
+
+  try {
+    if (parsed.projectId) {
+      await assertProjectBelongsToOrganization(
+        db,
+        parsed.projectId,
+        params.actor.organizationId
+      );
+    }
+
+    // Valida threadId antes de qualquer mutação caso tenha sido informado pelo cliente
+    if (parsed.threadId) {
+      const preMemory = await createUzinaMemory({
+        db,
+        storage: params.storage,
+        dataDir: params.dataDir,
+        databaseUrl: params.databaseUrl,
+        observationalMemoryEnabled: false,
+      });
+      await assertThreadOwnershipOrCreate({
+        memory: preMemory.memory,
+        resourceId: buildAgencyResourceId(
+          params.actor.organizationId,
+          parsed.projectId
+        ),
+        requestedThreadId: parsed.threadId,
+      });
+    }
+
+    const mutationResult = await executeDeterministicAgencyMutations(
+      db,
+      params,
+      parsed
+    );
+    const {
+      activeAgent,
+      handedOffFrom,
+      targetProjectId,
+      actionsExecuted,
+      isTransactionalIntent,
+    } = mutationResult;
+    let replyLines = [...mutationResult.replyLines];
+
+    const readiness = await getSystemReadinessScoped(
+      db,
+      params.actor.organizationId
+    );
+    const projectState = targetProjectId
+      ? await resolveProjectAgencyStateScoped(db, {
+          organizationId: params.actor.organizationId,
+          projectId: targetProjectId,
+        })
+      : null;
+
+    const resolvedModel =
+      params.modelOverride || params.fetchImpl
+        ? null
+        : await resolveOrganizationModelConfig(db, {
+            organizationId: params.actor.organizationId,
+            agentRole: activeAgent.role,
+            masterKey: params.masterKey,
+          });
+    const orgSecrets = await collectOrganizationKnownSecrets(db, {
+      organizationId: params.actor.organizationId,
+      masterKey: params.masterKey,
+    });
+    knownSecrets = Array.from(
+      new Set([...orgSecrets, ...(resolvedModel?.knownSecrets ?? [])])
+    );
+
+    const useMastraLiveAgent = Boolean(
+      !params.fetchImpl && (params.modelOverride || resolvedModel)
+    );
+
+    const { memory, settle } = await createUzinaMemory({
+      db,
+      storage: params.storage,
+      dataDir: params.dataDir,
+      databaseUrl: params.databaseUrl,
+      masterKey: params.masterKey,
+      observationalMemoryEnabled: useMastraLiveAgent,
+      modelOverride: params.modelOverride,
+    });
+    settleFn = settle;
+
+    const resourceId = buildAgencyResourceId(
+      params.actor.organizationId,
+      targetProjectId
+    );
+    const threadId = await assertThreadOwnershipOrCreate({
+      memory,
+      resourceId,
+      requestedThreadId: parsed.projectId ? parsed.threadId : undefined,
+      title:
+        projectState?.projectName ??
+        redactSensitiveText(parsed.message.slice(0, 80), knownSecrets),
+    });
+
+    let executionMode: "live_llm" | "local_assisted" = "local_assisted";
+    let llmLatencyMs: number | null = null;
+    const toolsUsed: string[] = [];
+    let latestOmStatus: ObservationalMemoryStatus | null = null;
+
+    yield {
+      type: "thread_ready",
+      threadId,
+      executionMode:
+        useMastraLiveAgent ||
+        (Boolean(params.fetchImpl) && readiness.llmProviderConfigured)
+          ? "live_llm"
+          : "local_assisted",
+      activeAgent,
+      handedOffFrom,
+    };
+
+    for (const action of actionsExecuted) {
+      yield { type: "action_executed", action };
+    }
+
+    if (params.fetchImpl && readiness.llmProviderConfigured && (params.masterKey || readiness.activeProviderNames.includes("ollama"))) {
+      const llmTurn = await invokeOrganizationLlmForAgentScoped(db, {
+        organizationId: params.actor.organizationId,
+        masterKey: params.masterKey,
+        agentRole: activeAgent.role,
+        agentName: activeAgent.name,
+        agentTitle: activeAgent.title,
+        projectName: projectState?.projectName ?? null,
+        strategyLabel:
+          projectState?.architectDecision?.strategyLabel ??
+          projectState?.defaultStrategy ??
+          null,
+        phaseLabel: projectState?.phaseLabel ?? null,
+        userMessage: parsed.message,
+        contextSummary: replyLines.join("\n"),
+        fetchImpl: params.fetchImpl,
+      });
+
+      if (llmTurn.ok && llmTurn.text) {
+        executionMode = "live_llm";
+        llmLatencyMs = llmTurn.latencyMs;
+        const llmAction: AgencyActionExecuted = {
+          type: "invoked_live_llm",
+          label: `Resposta gerada via LLM Real (${llmTurn.providerType}/${llmTurn.modelId} · ${llmTurn.latencyMs}ms)`,
+        };
+        actionsExecuted.unshift(llmAction);
+        yield { type: "action_executed", action: llmAction };
+        replyLines = [
+          llmTurn.text,
+          ``,
+          `---`,
+          `*Orquestração executada no workspace (${activeAgent.name} · \`${llmTurn.providerType}/${llmTurn.modelId}\` · ${llmTurn.latencyMs}ms):*`,
+          ...replyLines,
+        ];
+      }
+
+      const fullReply = redactSensitiveText(replyLines.join("\n"), knownSecrets);
+      await memory.saveMessages({
+        messages: [
+          {
+            id: crypto.randomUUID(),
+            role: "user",
+            threadId,
+            resourceId,
+            createdAt: new Date(),
+            content: {
+              format: 2,
+              parts: [
+                {
+                  type: "text",
+                  text: redactSensitiveText(parsed.message, knownSecrets),
+                },
+              ],
+            },
+          },
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            threadId,
+            resourceId,
+            createdAt: new Date(),
+            content: {
+              format: 2,
+              parts: [{ type: "text", text: fullReply }],
+              metadata: {
+                agentRole: activeAgent.role,
+                agentName: activeAgent.name,
+                executionMode,
+                boundModelId: activeAgent.boundModelId,
+                actionsExecuted,
+              },
+            },
+          },
+        ],
+      });
+      yield { type: "token", text: fullReply };
+
+      const response = AgencyChatResponseSchema.parse({
+        activeAgent,
+        handedOffFrom,
+        lifecyclePhase: projectState?.currentPhase ?? "onboarding",
+        cycleNumber: projectState?.cycleNumber ?? 1,
+        teamTopology: parsed.teamTopology,
+        autonomyMode: parsed.autonomyMode,
+        executionMode,
+        llmLatencyMs,
+        threadId,
+        toolsUsed,
+        omStatus: latestOmStatus,
+        reply: fullReply,
+        actionsExecuted,
+        projectState,
+        readiness,
+      });
+      yield { type: "done", response };
+      return;
+    }
+
+    if (useMastraLiveAgent) {
+      const startedAt = Date.now();
+      let streamedText = "";
+      let liveAborted = false;
+      let fallbackToLocal = false;
+
+      try {
+        const resolver = createTenantModelResolver({
+          db,
+          masterKey: params.masterKey,
+          modelOverride: params.modelOverride,
+        });
+        const availableProviders = await resolver.preloadOrganizationProviders(
+          params.actor.organizationId
+        );
+
+        // Para intents transacionais já executados acima, evita tools mutantes repetidas
+        const effectiveActorRole: OrgRole = isTransactionalIntent
+          ? "auditor"
+          : params.actor.role;
+
+        const turnExtraInstructions = [
+          targetProjectId
+            ? `[Contexto do Projeto Ativo]: ${projectState?.projectName ?? targetProjectId} | Fase: ${projectState?.phaseLabel ?? "onboarding"} | Ciclo #${projectState?.cycleNumber ?? 1}`
+            : "",
+          replyLines.length > 0
+            ? `[Ações já consolidadas no workspace neste turno]:\n${replyLines.join("\n")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const flushedTails: string[] = [];
+        const agent = createEngineeringSpecialistAgent({
+          role: activeAgent.role,
+          db,
+          masterKey: params.masterKey,
+          memory,
+          actorRole: effectiveActorRole,
+          providerType: resolvedModel?.providerType,
+          knownSecrets,
+          modelOverride: params.modelOverride ?? resolvedModel?.mastraModel.model,
+          extraInstructions: turnExtraInstructions || undefined,
+          onTailFlushed: (tail) => {
+            flushedTails.push(tail);
+          },
+        });
+
+        const rc = new RequestContext();
+        rc.set("actor", {
+          ...params.actor,
+          role: effectiveActorRole,
+        });
+        if (targetProjectId) rc.set("projectId", targetProjectId);
+        rc.set("availableProviders", availableProviders);
+
+        const streamResult = await agent.stream(
+          redactSensitiveText(parsed.message, knownSecrets),
+          {
+            memory: { thread: threadId, resource: resourceId },
+            requestContext: rc,
+            abortSignal: params.signal,
+            maxSteps: 4,
+          }
+        );
+
+        for await (const chunk of streamResult.fullStream) {
+          if (params.signal?.aborted) {
+            liveAborted = true;
+            break;
+          }
+
+          if (chunk.type === "tool-call") {
+            const toolName = chunk.payload.toolName;
+            if (!toolsUsed.includes(toolName)) {
+              toolsUsed.push(toolName);
+            }
+            const rawInput =
+              chunk.payload.args && typeof chunk.payload.args === "object"
+                ? (chunk.payload.args as Record<string, unknown>)
+                : {};
+            yield {
+              type: "tool_call",
+              toolName,
+              input: redactSensitiveValue(
+                rawInput,
+                knownSecrets
+              ) as Record<string, unknown>,
+            };
+          } else if (chunk.type === "tool-result") {
+            const outObj =
+              chunk.payload.result && typeof chunk.payload.result === "object"
+                ? (chunk.payload.result as Record<string, unknown>)
+                : { result: chunk.payload.result };
+            yield {
+              type: "tool_result",
+              toolName: chunk.payload.toolName,
+              output: redactSensitiveValue(
+                outObj,
+                knownSecrets
+              ) as Record<string, unknown>,
+            };
+          } else if (chunk.type === "text-delta") {
+            const safeDelta = redactSensitiveText(
+              chunk.payload.text,
+              knownSecrets
+            );
+            if (safeDelta.length > 0) {
+              streamedText += safeDelta;
+              yield { type: "token", text: safeDelta };
+            }
+          } else if (chunk.type === "data-om-status") {
+            const omStatus = mapDataOmStatusToContract(
+              (chunk as { data?: unknown }).data
+            );
+            if (omStatus) {
+              latestOmStatus = omStatus;
+              yield { type: "om_status", status: omStatus };
+            }
+          } else if (chunk.type === "error") {
+            if (streamedText.length === 0 && !params.modelOverride) {
+              fallbackToLocal = true;
+              break;
+            }
+            const errText =
+              chunk.payload.error instanceof Error
+                ? chunk.payload.error.message
+                : String(chunk.payload.error ?? "Erro na execução do agente.");
+            yield {
+              type: "error",
+              code: "AGENCY_AGENT_ERROR",
+              message: redactSensitiveText(errText, knownSecrets),
+            };
+            return;
+          }
+        }
+
+        if (liveAborted) {
+          yield {
+            type: "error",
+            code: "ABORTED",
+            message: "Execução interrompida pelo cliente.",
+          };
+          return;
+        }
+
+        for (const tail of flushedTails) {
+          if (tail.length > 0) {
+            streamedText += tail;
+            yield { type: "token", text: tail };
+          }
+        }
+
+        if (!fallbackToLocal) {
+          const rawFinalText = streamedText || (await streamResult.text) || "";
+          const safeFinalText = redactSensitiveText(rawFinalText, knownSecrets);
+          if (!streamedText && safeFinalText.trim().length > 0) {
+            yield { type: "token", text: safeFinalText };
+          }
+
+          if (safeFinalText.trim().length > 0 || params.modelOverride) {
+            executionMode = "live_llm";
+            llmLatencyMs = Date.now() - startedAt;
+            const llmAction: AgencyActionExecuted = {
+              type: "invoked_live_llm",
+              label: `Resposta gerada via Mastra Agent (${resolvedModel?.providerType ?? "mock"}/${resolvedModel?.rawModelName ?? "model"} · ${llmLatencyMs}ms)`,
+            };
+            actionsExecuted.unshift(llmAction);
+            yield { type: "action_executed", action: llmAction };
+
+            const combinedReply =
+              isTransactionalIntent && replyLines.length > 0
+                ? [
+                    safeFinalText,
+                    ``,
+                    `---`,
+                    `*Orquestração executada no workspace (${activeAgent.name} · ${llmLatencyMs}ms):*`,
+                    ...replyLines,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                : safeFinalText || replyLines.join("\n");
+
+            const safeCombinedReply = redactSensitiveText(
+              combinedReply,
+              knownSecrets
+            );
+
+            const recalledLatest = await memory
+              .recall({
+                threadId,
+                perPage: 6,
+                page: 0,
+                orderBy: { field: "createdAt", direction: "DESC" },
+              })
+              .catch(() => null);
+            const lastAssistant = recalledLatest?.messages.find(
+              (m) => m.role === "assistant"
+            );
+            if (lastAssistant) {
+              await memory
+                .updateMessages({
+                  messages: [
+                    {
+                      ...lastAssistant,
+                      content: {
+                        ...lastAssistant.content,
+                        format: 2,
+                        parts: [{ type: "text", text: safeCombinedReply }],
+                        metadata: {
+                          ...(lastAssistant.content.metadata ?? {}),
+                          agentRole: activeAgent.role,
+                          agentName: activeAgent.name,
+                          executionMode,
+                          boundModelId: activeAgent.boundModelId,
+                          toolsUsed,
+                          actionsExecuted,
+                        },
+                      },
+                    },
+                  ],
+                })
+                .catch(() => undefined);
+            }
+
+            const response = AgencyChatResponseSchema.parse({
+              activeAgent,
+              handedOffFrom,
+              lifecyclePhase: projectState?.currentPhase ?? "onboarding",
+              cycleNumber: projectState?.cycleNumber ?? 1,
+              teamTopology: parsed.teamTopology,
+              autonomyMode: parsed.autonomyMode,
+              executionMode,
+              llmLatencyMs,
+              threadId,
+              toolsUsed,
+              omStatus: latestOmStatus,
+              reply: safeCombinedReply,
+              actionsExecuted,
+              projectState,
+              readiness,
+            });
+
+            yield { type: "done", response };
+            return;
+          }
+          fallbackToLocal = true;
+        }
+      } catch (liveErr) {
+        if (streamedText.length > 0 || params.modelOverride) {
+          const msg =
+            liveErr instanceof Error
+              ? liveErr.message
+              : "Erro na execução do agente.";
+          yield {
+            type: "error",
+            code: "AGENCY_AGENT_ERROR",
+            message: redactSensitiveText(msg, knownSecrets),
+          };
+          return;
+        }
+        fallbackToLocal = true;
+      }
+
+      if (!fallbackToLocal) {
+        return;
+      }
+    }
+
+    // Modo assistido local (offline / sem chave LLM) com persistência da thread no servidor
+    const fullReply = redactSensitiveText(replyLines.join("\n"), knownSecrets);
+    await memory.saveMessages({
+      messages: [
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          threadId,
+          resourceId,
+          createdAt: new Date(),
+          content: {
+            format: 2,
+            parts: [
+              {
+                type: "text",
+                text: redactSensitiveText(parsed.message, knownSecrets),
+              },
+            ],
+          },
+        },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          threadId,
+          resourceId,
+          createdAt: new Date(),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: fullReply }],
+            metadata: {
+              agentRole: activeAgent.role,
+              agentName: activeAgent.name,
+              executionMode: "local_assisted",
+              boundModelId: activeAgent.boundModelId,
+              actionsExecuted,
+            },
+          },
+        },
+      ],
+    });
+
+    const parts = fullReply.split(/(?<=\.)\s+|\n+/);
+    for (const part of parts) {
+      if (part.trim().length > 0) {
+        yield { type: "token", text: `${part}\n` };
+      }
+    }
+
+    const response = AgencyChatResponseSchema.parse({
+      activeAgent,
+      handedOffFrom,
+      lifecyclePhase: projectState?.currentPhase ?? "onboarding",
+      cycleNumber: projectState?.cycleNumber ?? 1,
+      teamTopology: parsed.teamTopology,
+      autonomyMode: parsed.autonomyMode,
+      executionMode: "local_assisted",
+      llmLatencyMs: null,
+      threadId,
+      toolsUsed,
+      omStatus: null,
+      reply: fullReply,
+      actionsExecuted,
+      projectState,
+      readiness,
+    });
+
+    yield { type: "done", response };
+  } catch (err) {
+    if (err instanceof WorkflowRuntimeError) {
+      yield {
+        type: "error",
+        code: err.code,
+        message: redactSensitiveText(err.message, knownSecrets),
+      };
+      return;
+    }
+    const msg =
+      err instanceof Error ? err.message : "Erro ao processar orquestração.";
+    yield {
+      type: "error",
+      code: "AGENCY_STREAM_ERROR",
+      message: redactSensitiveText(msg, knownSecrets),
+    };
+  } finally {
+    if (settleFn) {
+      void settleFn().catch(() => undefined);
+    }
+  }
+}
+
+function toWorkflowRuntimeErrorCode(code: string): WorkflowRuntimeErrorCode {
+  switch (code) {
+    case "DELIVERABLE_NOT_FOUND":
+    case "DELIVERABLE_LOCKED":
+    case "DECISION_NOT_FOUND":
+    case "DECISION_ALREADY_RESOLVED":
+    case "WORKFLOW_ALREADY_RUNNING":
+    case "WORKFLOW_NOT_SUSPENDED":
+    case "WORKFLOW_RUN_NOT_FOUND":
+    case "INVALID_WORKFLOW_INPUT":
+    case "MISSING_PRECONDITION":
+    case "EXECUTION_FAILED":
+    case "FORBIDDEN_PROJECT_SCOPE":
+    case "FORBIDDEN_THREAD_ACCESS":
+    case "AGENCY_NO_RESPONSE":
+      return code;
+    default:
+      return "EXECUTION_FAILED";
+  }
+}
+
+export async function handleAgencyChatScoped(
+  db: UzinaDb,
+  params: AgencyChatExecutionParams
+): Promise<AgencyChatResponse> {
+  let finalResponse: AgencyChatResponse | null = null;
+  for await (const ev of streamAgencyChatScoped(db, params)) {
+    if (ev.type === "error") {
+      throw new WorkflowRuntimeError({
+        statusCode:
+          ev.code === "FORBIDDEN_PROJECT_SCOPE" ||
+          ev.code === "FORBIDDEN_THREAD_ACCESS" ||
+          ev.code === "INVALID_WORKFLOW_INPUT"
+            ? 403
+            : 500,
+        code: toWorkflowRuntimeErrorCode(ev.code),
+        message: ev.message,
+      });
+    }
+    if (ev.type === "done") {
+      finalResponse = ev.response;
+    }
+  }
+  if (!finalResponse) {
+    throw new WorkflowRuntimeError({
+      statusCode: 500,
+      code: "AGENCY_NO_RESPONSE",
+      message: "Orquestração encerrou sem resposta final.",
+    });
+  }
+  return finalResponse;
 }

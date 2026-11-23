@@ -1,6 +1,7 @@
 import {
   TestProviderConnectionRequestSchema,
   TestProviderConnectionResponseSchema,
+  isPrivateOrLoopbackUrl,
   type AgencyAgentRole,
   type AgentRole,
   type ProviderType,
@@ -50,6 +51,18 @@ export const DEFAULT_PROVIDER_MODELS: Record<
   },
 };
 
+function isLocalhost8080Url(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    return (
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1") &&
+      u.port === "8080"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function normalizeBaseUrl(
   providerType: ProviderType,
   rawBaseUrl?: string | null
@@ -59,7 +72,7 @@ function normalizeBaseUrl(
   if (
     !trimmed ||
     ((providerType === "google" || providerType === "anthropic") &&
-      trimmed.includes("localhost:8080"))
+      isLocalhost8080Url(trimmed))
   ) {
     return DEFAULT_PROVIDER_BASE_URLS[providerType];
   }
@@ -84,11 +97,14 @@ function normalizeModelIdForProvider(
   if (providerType === "ollama") {
     return trimmed.replace(/^ollama\//i, "");
   }
-  if (
-    (providerType === "openai_compatible" || providerType === "omniroute") &&
-    baseUrl.includes("api.openai.com")
-  ) {
-    return trimmed.replace(/^openai\//i, "");
+  if (providerType === "openai_compatible" || providerType === "omniroute") {
+    try {
+      if (new URL(baseUrl).hostname === "api.openai.com") {
+        return trimmed.replace(/^openai\//i, "");
+      }
+    } catch {
+      // ignora URL inválida
+    }
   }
   return trimmed;
 }
@@ -131,6 +147,20 @@ export async function callProviderLlmApi(params: {
   const startedAt = Date.now();
   const fetchFn = params.fetchImpl ?? globalThis.fetch;
   const baseUrl = normalizeBaseUrl(params.providerType, params.baseUrl);
+  if (
+    (params.providerType === "google" || params.providerType === "anthropic") &&
+    isPrivateOrLoopbackUrl(baseUrl)
+  ) {
+    return {
+      ok: false,
+      providerType: params.providerType,
+      modelId: params.modelId?.trim() || DEFAULT_PROVIDER_MODELS[params.providerType].tier2,
+      latencyMs: 0,
+      text: null,
+      error:
+        "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
+    };
+  }
   const rawModel =
     params.modelId?.trim() ||
     DEFAULT_PROVIDER_MODELS[params.providerType].tier2;
@@ -447,6 +477,21 @@ export async function testProviderLlmConnectionScoped(
       bindings.builder?.modelId ??
       DEFAULT_PROVIDER_MODELS[resolvedType].tier2;
 
+    if (
+      (resolvedType === "google" || resolvedType === "anthropic") &&
+      resolvedBaseUrl &&
+      isPrivateOrLoopbackUrl(resolvedBaseUrl)
+    ) {
+      return TestProviderConnectionResponseSchema.parse({
+        ok: false,
+        providerType: resolvedType,
+        modelId: resolvedModelId,
+        latencyMs: 0,
+        replyPreview: null,
+        error: "URL privada ou loopback não permitida para provedor cloud (anti-SSRF).",
+      });
+    }
+
     if (!resolvedApiKey && row.encryptedApiKey) {
       const mkBuf = toMasterKeyBuffer(params.masterKey);
       if (!mkBuf) {
@@ -477,6 +522,21 @@ export async function testProviderLlmConnectionScoped(
         });
       }
     }
+  }
+
+  if (
+    (resolvedType === "google" || resolvedType === "anthropic") &&
+    resolvedBaseUrl &&
+    isPrivateOrLoopbackUrl(resolvedBaseUrl)
+  ) {
+    return TestProviderConnectionResponseSchema.parse({
+      ok: false,
+      providerType: resolvedType,
+      modelId: resolvedModelId ?? DEFAULT_PROVIDER_MODELS[resolvedType].tier2,
+      latencyMs: 0,
+      replyPreview: null,
+      error: "URL privada ou loopback não permitida para provedor cloud (anti-SSRF).",
+    });
   }
 
   const pingResult = await callProviderLlmApi({

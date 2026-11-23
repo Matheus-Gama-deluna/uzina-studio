@@ -246,6 +246,7 @@ export type AgencyChatMessage = z.infer<typeof AgencyChatMessageSchema>;
 export const AgencyChatRequestSchema = z
   .object({
     message: z.string().trim().min(2).max(6000),
+    threadId: z.string().trim().min(1).max(160).optional(),
     history: z.array(AgencyChatMessageSchema).max(20).optional(),
     clientId: z.uuid().optional(),
     projectId: z.uuid().optional(),
@@ -291,6 +292,60 @@ export type AgencyActionExecuted = z.infer<typeof AgencyActionExecutedSchema>;
 export const LlmExecutionModeSchema = z.enum(["live_llm", "local_assisted"]);
 export type LlmExecutionMode = z.infer<typeof LlmExecutionModeSchema>;
 
+export const ObservationalMemoryStatusSchema = z
+  .object({
+    activeMessageTokens: z.number().int().nonnegative(),
+    messageTokensThreshold: z.number().int().positive(),
+    activeObservationTokens: z.number().int().nonnegative(),
+    observationTokensThreshold: z.number().int().positive(),
+    generationCount: z.number().int().nonnegative(),
+    bufferingStatus: z.enum(["idle", "running", "complete"]),
+  })
+  .strict();
+export type ObservationalMemoryStatus = z.infer<
+  typeof ObservationalMemoryStatusSchema
+>;
+
+export const AgencyThreadSummarySchema = z
+  .object({
+    threadId: z.string().min(1).max(160),
+    projectId: z.uuid().nullable(),
+    title: z.string().max(240).nullable(),
+    updatedAt: z.iso.datetime(),
+    messageCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgencyThreadSummary = z.infer<typeof AgencyThreadSummarySchema>;
+
+export const AgencyThreadMessageItemSchema = z
+  .object({
+    id: z.string().min(1).max(160),
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1),
+    createdAt: z.iso.datetime(),
+    agentRole: AgencyAgentRoleSchema.optional(),
+    agentName: z.string().min(1).max(120).optional(),
+    executionMode: LlmExecutionModeSchema.optional(),
+    boundModelId: z.string().min(1).max(160).optional(),
+    toolsUsed: z.array(z.string()).optional(),
+    actionsExecuted: z.array(AgencyActionExecutedSchema).optional(),
+  })
+  .strict();
+export type AgencyThreadMessageItem = z.infer<
+  typeof AgencyThreadMessageItemSchema
+>;
+
+export const AgencyThreadListResponseSchema = z
+  .object({
+    threads: z.array(AgencyThreadSummarySchema),
+    activeThreadId: z.string().min(1).max(160).nullable(),
+    messages: z.array(AgencyThreadMessageItemSchema),
+  })
+  .strict();
+export type AgencyThreadListResponse = z.infer<
+  typeof AgencyThreadListResponseSchema
+>;
+
 export const AgencyChatResponseSchema = z.object({
   activeAgent: AgencyAgentProfileSchema,
   handedOffFrom: AgencyAgentRoleSchema.nullable(),
@@ -300,9 +355,70 @@ export const AgencyChatResponseSchema = z.object({
   autonomyMode: AutonomyModeSchema,
   executionMode: LlmExecutionModeSchema.default("local_assisted"),
   llmLatencyMs: z.number().int().min(0).nullable().optional(),
+  threadId: z.string().min(1).max(160).nullable().optional(),
+  toolsUsed: z.array(z.string()).optional(),
+  omStatus: ObservationalMemoryStatusSchema.nullable().optional(),
   reply: z.string().min(1),
   actionsExecuted: z.array(AgencyActionExecutedSchema),
   projectState: AgencyProjectStateSchema.nullable(),
   readiness: SystemReadinessStatusSchema,
 });
 export type AgencyChatResponse = z.infer<typeof AgencyChatResponseSchema>;
+
+export const AgencyStreamEventSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("thread_ready"),
+      threadId: z.string().min(1).max(160),
+      executionMode: LlmExecutionModeSchema,
+      activeAgent: AgencyAgentProfileSchema,
+      handedOffFrom: AgencyAgentRoleSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("action_executed"),
+      action: AgencyActionExecutedSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_call"),
+      toolName: z.string().min(1),
+      input: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_result"),
+      toolName: z.string().min(1),
+      output: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("token"),
+      text: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("om_status"),
+      status: ObservationalMemoryStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("done"),
+      response: AgencyChatResponseSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("error"),
+      code: z.string().min(1),
+      message: z.string().min(1),
+    })
+    .strict(),
+]);
+export type AgencyStreamEvent = z.infer<typeof AgencyStreamEventSchema>;

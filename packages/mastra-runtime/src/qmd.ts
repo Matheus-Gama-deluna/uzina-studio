@@ -93,7 +93,10 @@ function collectMarkdownFiles(
   subDirs: readonly string[]
 ): Array<{ relativePath: string; absolutePath: string }> {
   const results: Array<{ relativePath: string; absolutePath: string }> = [];
-  const resolvedRoot = path.resolve(rootDir);
+  const rawResolved = path.resolve(rootDir);
+  const resolvedRoot = fs.existsSync(rawResolved)
+    ? assertPathInsideWorkspace(rawResolved, rawResolved, { allowRoot: true })
+    : rawResolved;
 
   const walk = (dirPath: string) => {
     if (!fs.existsSync(dirPath)) return;

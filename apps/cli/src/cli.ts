@@ -646,7 +646,10 @@ export async function runCli(
   }
 
   if (parsed.command === "memory:search") {
-    const resolvedRoot = path.resolve(parsed.rootDir ?? cwd);
+    const rawRoot = path.resolve(parsed.rootDir ?? cwd);
+    const resolvedRoot = fs.existsSync(rawRoot)
+      ? assertPathInsideWorkspace(rawRoot, rawRoot, { allowRoot: true })
+      : rawRoot;
     const mdFiles: Array<{ relPath: string; absPath: string }> = [];
     const walkDocs = (dir: string) => {
       if (!fs.existsSync(dir)) return;

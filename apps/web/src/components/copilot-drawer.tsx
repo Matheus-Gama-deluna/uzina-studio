@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import type {
   CopilotActionRequest,
   CopilotStreamEvent,
+  LlmExecutionMode,
+  ObservationalMemoryStatus,
   ProjectListResponse,
 } from "@uzina/contracts";
 import {
@@ -40,6 +42,12 @@ export function CopilotDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [executionMode, setExecutionMode] =
+    useState<LlmExecutionMode | null>(null);
+  const [omStatus, setOmStatus] = useState<ObservationalMemoryStatus | null>(
+    null
+  );
   const [inputText, setInputText] = useState("");
   const [draftTitle, setDraftTitle] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -92,6 +100,7 @@ export function CopilotDrawer({
         body: JSON.stringify({
           messages: [{ role: "user", content: promptText.trim() }],
           ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+          ...(threadId ? { threadId } : {}),
           ...(action ? { action } : {}),
         }),
       });
@@ -128,18 +137,32 @@ export function CopilotDrawer({
                   : m
               )
             );
+          } else if (ev.type === "om_status") {
+            setOmStatus(ev.status);
           } else if (ev.type === "done") {
+            if (ev.threadId) {
+              setThreadId(ev.threadId);
+            }
+            if (ev.executionMode) {
+              setExecutionMode(ev.executionMode);
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId ? { ...m, toolsUsed: ev.toolsUsed } : m
               )
             );
           } else if (ev.type === "error") {
+            setMessages((prev) =>
+              prev.filter((m) => !(m.id === assistantId && !m.content))
+            );
             setErrorMsg(ev.message);
           }
         }
       }
     } catch (err) {
+      setMessages((prev) =>
+        prev.filter((m) => !(m.id === assistantId && !m.content))
+      );
       setErrorMsg(
         err instanceof Error ? err.message : "Erro ao processar resposta."
       );
@@ -197,7 +220,12 @@ export function CopilotDrawer({
             <select
               id="copilot-project-scope"
               value={effectiveProjectId || "__org__"}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              onChange={(e) => {
+                setSelectedProjectId(e.target.value);
+                setThreadId(null);
+                setExecutionMode(null);
+                setOmStatus(null);
+              }}
               className="mt-1 min-h-9 w-full rounded border border-border-default bg-surface px-2.5 py-1 text-xs text-fg-primary focus:border-accent focus:outline-none"
             >
               <option value="__org__">Organização inteira</option>
@@ -207,6 +235,29 @@ export function CopilotDrawer({
                 </option>
               ))}
             </select>
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-fg-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className={`size-1.5 rounded-full ${
+                    executionMode === "live_llm" ? "bg-status-ok" : "bg-status-warn"
+                  }`}
+                />
+                <span>
+                  {executionMode === "live_llm"
+                    ? "LLM Real"
+                    : "Assistido Local"}
+                </span>
+              </span>
+              <span
+                data-om-status={omStatus?.bufferingStatus ?? "idle"}
+                className="tabular-nums"
+              >
+                {omStatus
+                  ? `OM · Gen ${omStatus.generationCount} · ${omStatus.activeMessageTokens} tok`
+                  : "OM Pronto"}
+              </span>
+            </div>
 
             <div className="mt-2 flex flex-wrap gap-1.5">
               <button

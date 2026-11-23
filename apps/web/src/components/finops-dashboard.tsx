@@ -22,6 +22,7 @@ const TECHNIQUE_LABELS: Record<TokenSavingsTechnique, string> = {
   qmd: "QMD Híbrido",
   ast_graph: "Grafo AST & Slices",
   skeleton: "Esqueleto AST",
+  observational_memory: "Memória Observacional",
 };
 
 export function FinopsDashboard() {

@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "@uzina/core";
+import { redactSensitiveText, redactSensitiveValue } from "@uzina/core";
 import { getDb, resolveDataDir, type UzinaDb } from "@uzina/db";
 import {
   createMastraRuntime,
@@ -31,7 +31,10 @@ function getSingletonState(): WebWorkflowSingletonState {
 export async function getWebWorkflowRuntime(): Promise<MastraWorkflowService> {
   const state = getSingletonState();
   const { db } = await getDb();
-  const dataDir = resolveDataDir(process.env);
+  const dataDir =
+    process.env.VITEST && !process.env.UZINA_DATA_DIR
+      ? ":memory:"
+      : resolveDataDir(process.env);
   const dataDirKey = `${process.env.DATABASE_URL ?? ""}:${dataDir}`;
 
   if (state.service && state.dbRef === db && state.dataDirKey === dataDirKey) {
@@ -96,7 +99,7 @@ export function handleWorkflowRouteError(err: unknown) {
       code: err.code,
     });
   }
-  console.error("[workflow-runtime] erro inesperado:", err);
+  console.error("[workflow-runtime] erro inesperado:", redactSensitiveValue(err));
   return jsonError(500, {
     error: "Erro interno ao operar workflow durável.",
     code: "WORKFLOW_INTERNAL_ERROR",

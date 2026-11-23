@@ -9,6 +9,7 @@ export const TokenSavingsTechniqueSchema = z.enum([
   "qmd",
   "ast_graph",
   "skeleton",
+  "observational_memory",
 ]);
 export type TokenSavingsTechnique = z.infer<typeof TokenSavingsTechniqueSchema>;
 

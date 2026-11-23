@@ -24,6 +24,7 @@
   "dependencies": {
     "@mastra/core": "1.85.0",
     "@mastra/libsql": "1.31.1",
+    "@mastra/memory": "1.41.2",
     "@mastra/pg": "1.37.0",
     "@uzina/codebase-intel": "workspace:*",
     "@uzina/contracts": "workspace:*",

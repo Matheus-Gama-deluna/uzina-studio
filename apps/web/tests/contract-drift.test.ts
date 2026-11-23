@@ -4,11 +4,14 @@ import path from "node:path";
 import {
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  AgencyStreamEventSchema,
+  AgencyThreadListResponseSchema,
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
   CodebaseReindexResponseSchema,
   CodebaseTreeResponseSchema,
+  CopilotStreamEventSchema,
   DecisionListResponseSchema,
   ProvenanceListResponseSchema,
   SymbolGraphResponseSchema,
@@ -39,7 +42,9 @@ import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
 import { POST as postCopilotChat } from "../src/app/api/copilot/chat/route";
 import { POST as postAgencyChatRoute } from "../src/app/api/agency/chat/route";
+import { POST as postAgencyChatStreamRoute } from "../src/app/api/agency/chat/stream/route";
 import { GET as getAgencyStatusRoute } from "../src/app/api/agency/status/route";
+import { GET as getAgencyThreadsRoute } from "../src/app/api/agency/threads/route";
 import { GET as getEngineConfigRoute } from "../src/app/api/finops/config/route";
 import { GET as getFinopsSummaryRoute } from "../src/app/api/finops/summary/route";
 import { GET as getDecisions } from "../src/app/api/decisions/route";
@@ -74,6 +79,7 @@ import {
 import { POST as generateDesignMd } from "../src/app/api/projects/[id]/design-assets/generate-design-md/route";
 import { GET as getDesignAssets, POST as createDesignAsset } from "../src/app/api/projects/[id]/design-assets/route";
 import { GET as getProjects, POST as createProject } from "../src/app/api/projects/route";
+import { PATCH as patchProviderRoute } from "../src/app/api/providers/[id]/route";
 import { GET as getProviders, POST as createProvider } from "../src/app/api/providers/route";
 import { PATCH as patchSecurityFinding } from "../src/app/api/security/findings/[id]/route";
 import { GET as getSecurityScanById } from "../src/app/api/security/scans/[id]/route";
@@ -82,6 +88,20 @@ import { GET as getSecurityScans, POST as runSecurityScanRoute } from "../src/ap
 import { resetAuthForTests } from "../src/lib/auth";
 import { resetWebWorkflowRuntimeForTests } from "../src/lib/workflow-runtime";
 import { server } from "../src/mocks/server";
+
+function parseSseEvents<T>(
+  raw: string,
+  parser: { parse: (val: unknown) => T }
+): T[] {
+  const parsed: T[] = [];
+  for (const block of raw.split("\n\n").filter(Boolean)) {
+    const dataLine = block.split("\n").find((l) => l.startsWith("data: "));
+    if (dataLine) {
+      parsed.push(parser.parse(JSON.parse(dataLine.slice(6))));
+    }
+  }
+  return parsed;
+}
 
 function getCookie(res: Response): string {
   return res.headers
@@ -646,7 +666,12 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         }),
       });
       expect(mswCopilotRes.status).toBe(200);
-      expect(await mswCopilotRes.text()).toContain("event: token");
+      const mswCopilotEvents = parseSseEvents(
+        await mswCopilotRes.text(),
+        CopilotStreamEventSchema
+      );
+      expect(mswCopilotEvents.some((ev) => ev.type === "token")).toBe(true);
+      expect(mswCopilotEvents.some((ev) => ev.type === "done")).toBe(true);
 
       const realCreateMemRes = await createMemoryRoute(
         new Request("http://localhost:3000/api/memories", {
@@ -737,7 +762,12 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       expect(realCopilotRes.headers.get("content-type")).toContain(
         "text/event-stream"
       );
-      expect(await realCopilotRes.text()).toContain("event: done");
+      const realCopilotEvents = parseSseEvents(
+        await realCopilotRes.text(),
+        CopilotStreamEventSchema
+      );
+      expect(realCopilotEvents.some((ev) => ev.type === "token")).toBe(true);
+      expect(realCopilotEvents.some((ev) => ev.type === "done")).toBe(true);
 
       const realDeleteMemRes = await deleteMemoryRoute(
         new Request(`http://localhost:3000/api/memories/${createdMem.id}`, {
@@ -967,6 +997,143 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realAgencyChat.status).toBe(200);
       AgencyChatResponseSchema.parse(await realAgencyChat.json());
+
+      // Slice 18: SSE Agency Stream, Threads Isoladas & Anti-SSRF (MSW vs Rotas Reais)
+      const unauthThreads = await getAgencyThreadsRoute(
+        new Request("http://localhost:3000/api/agency/threads")
+      );
+      expect(unauthThreads.status).toBe(401);
+
+      const unauthAgencyStream = await postAgencyChatStreamRoute(
+        new Request("http://localhost:3000/api/agency/chat/stream", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Sem sessão", projectId }),
+        })
+      );
+      expect(unauthAgencyStream.status).toBe(401);
+
+      const mswAgencyStream = await fetch(
+        "http://msw.local/api/agency/chat/stream",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Analise o status da arquitetura do projeto.",
+            projectId,
+          }),
+        }
+      );
+      expect(mswAgencyStream.status).toBe(200);
+      expect(mswAgencyStream.headers.get("content-type")).toContain(
+        "text/event-stream"
+      );
+      const mswAgencyEvents = parseSseEvents(
+        await mswAgencyStream.text(),
+        AgencyStreamEventSchema
+      );
+      expect(mswAgencyEvents.some((ev) => ev.type === "thread_ready")).toBe(true);
+      expect(mswAgencyEvents.some((ev) => ev.type === "token")).toBe(true);
+      expect(mswAgencyEvents.some((ev) => ev.type === "done")).toBe(true);
+
+      const realAgencyStream = await postAgencyChatStreamRoute(
+        new Request("http://localhost:3000/api/agency/chat/stream", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            message: "Resuma o progresso atual do projeto.",
+            projectId,
+          }),
+        })
+      );
+      expect(realAgencyStream.status).toBe(200);
+      expect(realAgencyStream.headers.get("content-type")).toContain(
+        "text/event-stream"
+      );
+      const realAgencyEvents = parseSseEvents(
+        await realAgencyStream.text(),
+        AgencyStreamEventSchema
+      );
+      const threadReadyEv = realAgencyEvents.find(
+        (ev): ev is Extract<typeof ev, { type: "thread_ready" }> =>
+          ev.type === "thread_ready"
+      );
+      expect(threadReadyEv?.threadId).toBeTruthy();
+      expect(realAgencyEvents.some((ev) => ev.type === "token")).toBe(true);
+      expect(realAgencyEvents.some((ev) => ev.type === "done")).toBe(true);
+
+      const mswThreads = await fetch(
+        `http://msw.local/api/agency/threads?projectId=${encodeURIComponent(projectId)}`
+      );
+      expect(mswThreads.status).toBe(200);
+      AgencyThreadListResponseSchema.parse(await mswThreads.json());
+
+      const streamThreadId = threadReadyEv!.threadId;
+      const realThreads = await getAgencyThreadsRoute(
+        new Request(
+          `http://localhost:3000/api/agency/threads?projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(streamThreadId)}`,
+          { headers: { cookie } }
+        )
+      );
+      expect(realThreads.status).toBe(200);
+      const realThreadsParsed = AgencyThreadListResponseSchema.parse(
+        await realThreads.json()
+      );
+      expect(realThreadsParsed.threads.length).toBeGreaterThanOrEqual(1);
+      expect(realThreadsParsed.activeThreadId).toBe(streamThreadId);
+      expect(realThreadsParsed.messages.length).toBeGreaterThanOrEqual(2);
+
+      const invalidThreadsUuid = await getAgencyThreadsRoute(
+        new Request(
+          "http://localhost:3000/api/agency/threads?projectId=not-a-uuid",
+          { headers: { cookie } }
+        )
+      );
+      expect(invalidThreadsUuid.status).toBe(400);
+
+      const unknownThreadRes = await getAgencyThreadsRoute(
+        new Request(
+          `http://localhost:3000/api/agency/threads?projectId=${encodeURIComponent(projectId)}&threadId=thread-inexistente`,
+          { headers: { cookie } }
+        )
+      );
+      expect(unknownThreadRes.status).toBe(403);
+
+      const forbiddenThreads = await getAgencyThreadsRoute(
+        new Request(
+          "http://localhost:3000/api/agency/threads?projectId=99999999-9999-4999-8999-999999999999",
+          { headers: { cookie } }
+        )
+      );
+      expect(forbiddenThreads.status).toBe(403);
+
+      const createGoogleProvRes = await createProvider(
+        new Request("http://localhost:3000/api/providers", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            name: "Google SSRF Guard Check",
+            providerType: "google",
+            baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            apiKey: "AIzaSyDriftGuardCheck0000000000000000",
+            isDefault: false,
+          }),
+        })
+      );
+      expect(createGoogleProvRes.status).toBe(201);
+      const createdGoogleProv = (await createGoogleProvRes.json()) as { id: string };
+
+      const ssrfPatchRes = await patchProviderRoute(
+        new Request(`http://localhost:3000/api/providers/${createdGoogleProv.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            baseUrl: "http://127.0.0.1:8080/v1",
+          }),
+        }),
+        { params: Promise.resolve({ id: createdGoogleProv.id }) }
+      );
+      expect(ssrfPatchRes.status).toBe(400);
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

@@ -1,6 +1,7 @@
 import {
   ProviderTypeSchema,
   UpdateProviderProfileSchema,
+  isPrivateOrLoopbackUrl,
 } from "@uzina/contracts";
 import { encryptSecret, maskApiKey } from "@uzina/core";
 import { getDb, providerProfiles } from "@uzina/db";
@@ -45,6 +46,18 @@ export async function PATCH(
   }
 
   const providerType = ProviderTypeSchema.parse(existing.providerType);
+
+  if (
+    (providerType === "google" || providerType === "anthropic") &&
+    body.data.baseUrl &&
+    isPrivateOrLoopbackUrl(body.data.baseUrl)
+  ) {
+    return jsonError(400, {
+      error:
+        "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
+      code: "VALIDATION_ERROR",
+    });
+  }
 
   let nextEncryptedKey = existing.encryptedApiKey;
   let nextPreview = existing.keyPreview;

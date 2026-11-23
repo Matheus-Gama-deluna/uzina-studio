@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AgentRoleSchema, ProviderTypeSchema } from "./enums.js";
-import { HttpUrlSchema } from "./errors.js";
+import { HttpUrlSchema, isPrivateOrLoopbackUrl } from "./errors.js";
 
 export const RoleBindingEntrySchema = z.object({
   modelId: z.string().trim().min(1).max(160),
@@ -39,6 +39,7 @@ export const CreateProviderProfileSchema = z
     roleBindings: RoleBindingsSchema.default({}),
     isDefault: z.boolean().default(false),
   })
+  .strict()
   .superRefine((val, ctx) => {
     if (val.providerType !== "ollama" && !val.apiKey) {
       ctx.addIssue({
@@ -57,6 +58,18 @@ export const CreateProviderProfileSchema = z
         code: "custom",
         path: ["baseUrl"],
         message: "baseUrl é obrigatória para OmniRoute, OpenAI-compatible e Ollama",
+      });
+    }
+    if (
+      (val.providerType === "google" || val.providerType === "anthropic") &&
+      val.baseUrl &&
+      isPrivateOrLoopbackUrl(val.baseUrl)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message:
+          "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
       });
     }
   });
@@ -100,6 +113,18 @@ export const TestProviderConnectionRequestSchema = z
         path: ["providerType"],
         message:
           "Informe providerId de um perfil salvo ou providerType para teste direto.",
+      });
+    }
+    if (
+      (val.providerType === "google" || val.providerType === "anthropic") &&
+      val.baseUrl &&
+      isPrivateOrLoopbackUrl(val.baseUrl)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message:
+          "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
       });
     }
   });
