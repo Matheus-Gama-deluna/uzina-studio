@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 11 concluído e integrado na `main`** (`487 passed | 0 skipped` em PostgreSQL + `pgvector` live, Playwright `2 passed`). → **Próximo passo:** Planejamento da **Fase 3** ou operação contínua.
+> **Estado Atual:** ★ **Slice 12 concluído e integrado na `main`** (`494 passed | 0 skipped` em PostgreSQL + `pgvector` live, Playwright `2 passed`). → **Próximo passo:** Uso operacional em `http://localhost:3000/app` ou planejamento da **Fase 3**.
 
 ---
 
@@ -20,6 +20,7 @@ flowchart LR
     S8 --> S9["Slice 9: Estúdio Visual 3 Níveis & Google Stitch (CONCLUÍDO)"]
     S9 --> S10["Slice 10: DockerExecutionWorkspace & FinOps de Tokens ★ Fase 2 (CONCLUÍDO)"]
     S10 --> S11["Slice 11: Configuração Dinâmica, Embeddings Semânticos & AST Poliglota (CONCLUÍDO)"]
+    S11 --> S12["Slice 12: Guia de Prontidão, Central Multi-Agente, Model Tiering & Artefatos Cíclicos (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -47,6 +48,7 @@ flowchart LR
 | **Slice 9 — Estúdio Visual & Google Stitch** | *Contract-First + Frontend-First* | 3 Níveis (Wireframe, W3C, Stitch MCP + HTML), sanitizador XSS, preview CSP + `<iframe sandbox="">`, handoff `.uzina/prototypes/` | **Sim** (`readiness` + `appsec`) | [slice-09](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-09-visual-studio-3levels-google-stitch.md) | 🟢 Concluído (`feat/slice-09-visual-studio-stitch`) |
 | **Slice 10 — Docker Workspace & FinOps ★** | *Domain-First + Release Eng.* | `DockerExecutionWorkspace` (hardening), `token_savings_events`, painel `/app/finops`, `uzina doctor` (**Fase 2 Completa**) | **Sim** (`readiness` + `design` + `appsec`) | [slice-10](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-10-docker-workspace-token-finops.md) | 🟢 Concluído (`feat/slice-10-docker-workspace-finops`) |
 | **Slice 11 — Motores Dinâmicos, Embeddings & AST Poliglota** | *Contract-First + Vertical Slice* | `engine_configs` (hot-reload), `onnx_e5_small`/`ollama`, AST poliglota (`.py/.go/.rs/.sql/.java/.cs`), auto-injeção `prompt_cache` e painel Consumo × Benefício em `/app/finops` | Seletiva (`readiness`) | [slice-11](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-11-dynamic-engine-config-polyglot-ast-semantic-embeddings.md) | 🟢 Concluído (`feat/slice-11-dynamic-engines-polyglot-ast`) |
+| **Slice 12 — Guia, Central Multi-Agente, Tiering & Artefatos** | *Contract-First + Vertical Slice* | Guia de Prontidão, Supervisor Multi-Agente com Model Tiering (Tier 3 Pro vs Tier 2 Flash), Greenfield + URL Git Brownfield, Inspetor de Artefatos (Longo Prazo + Slices) e Ciclo Autônomo em `/app` | Seletiva (`readiness`) | [slice-12](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-12-onboarding-conversational-agency-cyclic-workflows.md) | 🟢 Concluído (`feat/slice-12-autonomous-agency-chat-onboarding`) |
 
 ---
 

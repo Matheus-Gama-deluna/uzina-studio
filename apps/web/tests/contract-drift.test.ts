@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  AgencyChatResponseSchema,
+  AgencyOverviewResponseSchema,
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
@@ -36,6 +38,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
 import { POST as postCopilotChat } from "../src/app/api/copilot/chat/route";
+import { POST as postAgencyChatRoute } from "../src/app/api/agency/chat/route";
+import { GET as getAgencyStatusRoute } from "../src/app/api/agency/status/route";
 import { GET as getEngineConfigRoute } from "../src/app/api/finops/config/route";
 import { GET as getFinopsSummaryRoute } from "../src/app/api/finops/summary/route";
 import { GET as getDecisions } from "../src/app/api/decisions/route";
@@ -927,6 +931,42 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realEngineCfg.status).toBe(200);
       EngineConfigResponseSchema.parse(await realEngineCfg.json());
+
+      const mswAgencyStatus = await fetch("http://msw.local/api/agency/status");
+      expect(mswAgencyStatus.status).toBe(200);
+      AgencyOverviewResponseSchema.parse(await mswAgencyStatus.json());
+
+      const realAgencyStatus = await getAgencyStatusRoute(
+        new Request("http://localhost:3000/api/agency/status", {
+          headers: { cookie },
+        })
+      );
+      expect(realAgencyStatus.status).toBe(200);
+      AgencyOverviewResponseSchema.parse(await realAgencyStatus.json());
+
+      const mswAgencyChat = await fetch("http://msw.local/api/agency/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Analise o status da arquitetura do projeto.",
+          projectId,
+        }),
+      });
+      expect(mswAgencyChat.status).toBe(200);
+      AgencyChatResponseSchema.parse(await mswAgencyChat.json());
+
+      const realAgencyChat = await postAgencyChatRoute(
+        new Request("http://localhost:3000/api/agency/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            message: "Analise o status da arquitetura do projeto.",
+            projectId,
+          }),
+        })
+      );
+      expect(realAgencyChat.status).toBe(200);
+      AgencyChatResponseSchema.parse(await realAgencyChat.json());
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

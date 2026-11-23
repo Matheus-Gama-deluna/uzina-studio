@@ -6,6 +6,7 @@ export * from "./qmd.js";
 export * from "./codebase.js";
 export * from "./prototypes.js";
 export * from "./finops.js";
+export * from "./agency.js";
 export * from "./agents/executive-copilot.js";
 export * from "./workflows/deliverable-lifecycle.js";
 export * from "./service.js";

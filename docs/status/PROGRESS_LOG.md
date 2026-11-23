@@ -227,3 +227,17 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (12.5s)`**.
   * `browser` (`flash`): **PASS** em `/app/finops` (hot-reload `onnx_e5_small`, `polyglot`, `2500` persistido após reload sem restart, `7/7` cards de telemetria, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
 * **Próximo passo:** Planejamento da **Fase 3** ou uso operacional em produção.
+
+---
+
+## 2026-11-22 — Slice 12: Guia de Prontidão, Central Conversacional de Agentes, Model Tiering & Artefatos Cíclicos (`feat/slice-12-autonomous-agency-chat-onboarding`)
+
+* **Entregue:**
+  * `@uzina/contracts`: `src/agency.ts` (`AgencyAgentRoleSchema`, `ModelTierLevelSchema`, `ProjectLifecyclePhaseSchema`, `AutonomyModeSchema`, `SystemReadinessStatusSchema`, `LongTermArtifactSummarySchema`, `SliceArtifactDetailSchema`, `AgencyChatRequestSchema.strict()`, `AgencyChatResponseSchema`) (`158/158` testes).
+  * `@uzina/mastra-runtime`: `src/agency.ts` (`getSystemReadinessScoped`, `resolveAgencyTeamWithTieringScoped`, `resolveProjectAgencyStateScoped`, `getAgencyOverviewScoped`, `handleAgencyChatScoped` com fluxos Greenfield, Brownfield via URL Git + AST Poliglota, Ciclo Autônomo sem pular fases com pausa em `decision_pending`, aprovação e retorno cíclico `Ciclo #2+`) + subpath `@uzina/mastra-runtime/agency` (`23/23` testes).
+  * `@uzina/web`: `/api/agency/status` (`GET`), `/api/agency/chat` (`POST`), `<AgencyCommandCenter />` integrado à Torre de Controle (`/app`), MSW + `contract-drift.test.ts` (`28/28` testes).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
+  * `Vitest` (9 pacotes): **`65` arquivos de teste, `494 passed | 0 skipped`**.
+  * `pnpm --filter @uzina/web test:e2e`: **`2 passed (26.8s)`**.
+  * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (Guia de Prontidão, Barra de Equipe com Model Tiering, Importação Brownfield via URL Git, Inspetor Duplo de Artefatos Longo Prazo & Slices, Ciclo Autônomo até Portão HITL e Retorno Cíclico `Ciclo #2`, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).

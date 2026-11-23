@@ -138,42 +138,39 @@ export async function POST(request: Request): Promise<Response> {
   const slug = body.data.slug ?? slugify(body.data.name);
 
   try {
-    const result = await db.transaction(async (tx) => {
-      const [created] = await tx
-        .insert(projects)
+    const [created] = await db
+      .insert(projects)
+      .values({
+        clientId: ownerClient.id,
+        name: body.data.name,
+        slug,
+        description: body.data.description ?? null,
+        defaultDevelopmentStrategy: body.data.defaultDevelopmentStrategy,
+      })
+      .returning();
+
+    if (!created) {
+      throw new Error("CREATE_PROJECT_FAILED");
+    }
+
+    const createdRepos: (typeof projectRepositories.$inferSelect)[] = [];
+    if (body.data.repository) {
+      const [repo] = await db
+        .insert(projectRepositories)
         .values({
-          clientId: ownerClient.id,
-          name: body.data.name,
-          slug,
-          description: body.data.description ?? null,
-          defaultDevelopmentStrategy: body.data.defaultDevelopmentStrategy,
+          projectId: created.id,
+          name: body.data.repository.name,
+          localPath: body.data.repository.localPath,
+          remoteUrl: body.data.repository.remoteUrl ?? null,
+          defaultBranch: body.data.repository.defaultBranch,
         })
         .returning();
-
-      if (!created) {
-        throw new Error("CREATE_PROJECT_FAILED");
+      if (repo) {
+        createdRepos.push(repo);
       }
+    }
 
-      const createdRepos: (typeof projectRepositories.$inferSelect)[] = [];
-      if (body.data.repository) {
-        const [repo] = await tx
-          .insert(projectRepositories)
-          .values({
-            projectId: created.id,
-            name: body.data.repository.name,
-            localPath: body.data.repository.localPath,
-            remoteUrl: body.data.repository.remoteUrl ?? null,
-            defaultBranch: body.data.repository.defaultBranch,
-          })
-          .returning();
-        if (repo) {
-          createdRepos.push(repo);
-        }
-      }
-
-      return mapProject(created, createdRepos);
-    });
-
+    const result = mapProject(created, createdRepos);
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
     if (isPgUniqueViolation(error)) {

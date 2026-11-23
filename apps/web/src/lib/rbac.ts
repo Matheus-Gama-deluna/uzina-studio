@@ -1,10 +1,11 @@
 import { OrgRoleSchema, type OrgRole } from "@uzina/contracts";
 import {
+  clients,
   ensureDefaultOrgAndInternalClient,
   getDb,
   users,
 } from "@uzina/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getAuth } from "./auth";
 import { jsonError } from "./api-utils";
 import { bootstrapOmniRouteIfConfigured } from "./vault";
@@ -92,7 +93,19 @@ export async function requireOrgRoleFromHeaders(
       effectiveRole = refreshed.role;
     }
   } else {
-    await ensureDefaultOrgAndInternalClient(db, dbUser.id);
+    const [existingInternal] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(
+        and(
+          eq(clients.organizationId, organizationId),
+          eq(clients.isDefaultInternal, true)
+        )
+      )
+      .limit(1);
+    if (!existingInternal) {
+      await ensureDefaultOrgAndInternalClient(db, dbUser.id);
+    }
   }
 
   const parsedRole = OrgRoleSchema.safeParse(effectiveRole);

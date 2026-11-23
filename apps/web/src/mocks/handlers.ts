@@ -1,4 +1,7 @@
 import {
+  AgencyChatRequestSchema,
+  AgencyChatResponseSchema,
+  AgencyOverviewResponseSchema,
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
@@ -77,6 +80,8 @@ import {
   mockDesignAssets,
   mockDesignPrototypes,
   mockEngineConfigResponse,
+  mockAgencyChatResponse,
+  mockAgencyOverviewResponse,
   mockExecutionEvents,
   mockFinopsSummary,
   mockMemories,
@@ -1018,6 +1023,31 @@ export const handlers = [
           parsed.data.embeddingMode === "onnx_e5_small"
             ? false
             : mockEngineConfigResponse.degraded,
+      })
+    );
+  }),
+
+  http.get("*/api/agency/status", () => {
+    return HttpResponse.json(
+      AgencyOverviewResponseSchema.parse(mockAgencyOverviewResponse)
+    );
+  }),
+
+  http.post("*/api/agency/chat", async ({ request }) => {
+    const parsed = AgencyChatRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      AgencyChatResponseSchema.parse({
+        ...mockAgencyChatResponse,
+        autonomyMode: parsed.data.autonomyMode,
       })
     );
   }),
