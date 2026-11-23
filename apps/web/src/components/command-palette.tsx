@@ -6,9 +6,12 @@ import {
   ClipboardCheck,
   Coins,
   Command,
-  Kanban,
   KeyRound,
+  Layers,
+  Lightbulb,
+  MessageSquare,
   Moon,
+  Palette,
   Search,
   ShieldAlert,
   Sun,
@@ -24,7 +27,10 @@ interface CommandItem {
   hint: string;
   action: () => void;
   icon:
+    | "ideas"
     | "board"
+    | "studio"
+    | "deliverables"
     | "decisions"
     | "security"
     | "memories"
@@ -57,12 +63,42 @@ export function CommandPalette({
   const items = useMemo<CommandItem[]>(
     () => [
       {
+        id: "nav-ideas",
+        label: "Ir para Ideias & Novos Projetos",
+        hint: "/app/ideas",
+        icon: "ideas",
+        action: () => {
+          router.push("/app/ideas");
+          onOpenChange(false);
+        },
+      },
+      {
         id: "nav-board",
-        label: "Ir para Torre de Controle (Kanban & Lista)",
+        label: "Ir para Chat da Engenharia",
         hint: "/app",
         icon: "board",
         action: () => {
           router.push("/app");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "nav-studio",
+        label: "Ir para Estúdio Visual (Preview Multi-Viewport)",
+        hint: "/app/studio",
+        icon: "studio",
+        action: () => {
+          router.push("/app/studio");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "nav-deliverables",
+        label: "Ir para Entregas, Kanban & Documentos",
+        hint: "/app/deliverables",
+        icon: "deliverables",
+        action: () => {
+          router.push("/app/deliverables");
           onOpenChange(false);
         },
       },
@@ -203,9 +239,27 @@ export function CommandPalette({
                     className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-fg-primary transition-colors hover:bg-accent-subtle"
                   >
                     <span className="flex items-center gap-2.5">
+                      {item.icon === "ideas" && (
+                        <Lightbulb
+                          className="size-4 text-fg-secondary"
+                          strokeWidth={1.75}
+                        />
+                      )}
                       {item.icon === "board" && (
-                        <Kanban
-                          className="size-4 text-accent"
+                        <MessageSquare
+                          className="size-4 text-fg-secondary"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "studio" && (
+                        <Palette
+                          className="size-4 text-fg-secondary"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "deliverables" && (
+                        <Layers
+                          className="size-4 text-fg-secondary"
                           strokeWidth={1.75}
                         />
                       )}

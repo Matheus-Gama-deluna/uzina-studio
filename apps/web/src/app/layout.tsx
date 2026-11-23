@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "Plataforma open-source e self-hosted para engenharia de software orientada a especificações.",
 };
 
-const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem("uzina-theme");if(t==="light"){document.documentElement.dataset.theme="light";}}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem("uzina-theme");if(t==="light"){document.documentElement.dataset.theme="light";}var f=localStorage.getItem("uzina-font-scale");if(f==="compact"||f==="comfortable"||f==="large"){document.documentElement.dataset.fontScale=f;}}catch(e){}})();`;
 
 export default function RootLayout({
   children,

@@ -14,42 +14,33 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Cpu,
-  ExternalLink,
-  Eye,
-  FileCode2,
   FileText,
-  GitBranch,
   Layers,
+  Lightbulb,
   Loader2,
-  MessageSquare,
   Palette,
   Play,
-  PlusCircle,
   RotateCcw,
   Send,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import {
-  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
   type FormEvent,
   type KeyboardEvent,
-  type ReactNode,
 } from "react";
+import { setActiveContext } from "@/lib/active-project-store";
+import { IdeasHub } from "./ideas-hub";
+import { MarkdownProse } from "./markdown-prose";
 
 const emptySubscribe = () => () => {};
-
-export type MobileWorkspaceSection = "chat" | "studio" | "artifacts";
 
 interface ChatTurnItem {
   id: string;
@@ -71,114 +62,42 @@ const INITIAL_GREETING_TURN: ChatTurnItem = {
   role: "assistant",
   agentName: "Equipe de Engenharia Uzina",
   agentRole: "orchestrator",
-  tierLabel: "Tier 3 · Raciocínio & Planejamento (Pro)",
-  boundModelId: "google/gemini-2.5-pro",
+  tierLabel: "Raciocínio & Planejamento",
   cycleNumber: 1,
   content:
-    "Olá! Descreva sua ideia de sistema (ou cole a URL de um repositório Git existente) direto na caixa abaixo. Nosso **Arquiteto de Software** analisa a conversa, decide a melhor estratégia para os agentes de IA, gera o **Protótipo Visual** inicial e organiza os **Slices** automaticamente.",
+    "Converse diretamente com o especialista responsável por este projeto. Você pode refinar requisitos, pedir ajustes no **Protótipo Visual**, revisar a estratégia com o **Arquiteto** ou avançar os **Slices**.",
 };
 
 const AUTONOMY_LABELS: Record<AutonomyMode, string> = {
-  guided: "Autonomia: Guiado (Passo a Passo)",
-  semi_autonomous: "Autonomia: Semi-Autônomo (Pausa nos Portões)",
-  full_autonomous: "Autonomia: Contínuo (Ciclo Completo)",
+  guided: "Guiado (Passo a Passo)",
+  semi_autonomous: "Semi-Autônomo (Pausa nos Portões)",
+  full_autonomous: "Contínuo (Ciclo Completo)",
 };
-
-function formatInlineMarkdown(line: string): ReactNode[] {
-  const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((segment, index) => {
-    if (segment.startsWith("**") && segment.endsWith("**") && segment.length > 4) {
-      return (
-        <strong key={index} className="font-semibold text-fg-primary">
-          {segment.slice(2, -2)}
-        </strong>
-      );
-    }
-    if (segment.startsWith("`") && segment.endsWith("`") && segment.length > 2) {
-      return (
-        <code
-          key={index}
-          className="rounded border border-border-subtle bg-inset px-1 py-0.5 font-mono text-[11px] text-accent"
-        >
-          {segment.slice(1, -1)}
-        </code>
-      );
-    }
-    return <span key={index}>{segment}</span>;
-  });
-}
-
-function renderFormattedContent(content: string): ReactNode {
-  const lines = content.split(/\r?\n/);
-  return (
-    <div className="space-y-1.5 leading-relaxed">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          return <div key={idx} className="h-1" />;
-        }
-        if (trimmed.startsWith("### ")) {
-          return (
-            <h4
-              key={idx}
-              className="pt-1 text-xs font-semibold tracking-tight text-fg-primary"
-            >
-              {formatInlineMarkdown(trimmed.slice(4))}
-            </h4>
-          );
-        }
-        if (trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
-          const clean = trimmed.replace(/^#+\s*/, "");
-          return (
-            <h3
-              key={idx}
-              className="pt-1 text-xs font-bold tracking-tight text-fg-primary"
-            >
-              {formatInlineMarkdown(clean)}
-            </h3>
-          );
-        }
-        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-          return (
-            <div key={idx} className="flex items-start gap-1.5 pl-1">
-              <span className="mt-1.5 size-1 shrink-0 rounded-full bg-accent" />
-              <span>{formatInlineMarkdown(trimmed.slice(2))}</span>
-            </div>
-          );
-        }
-        return <p key={idx}>{formatInlineMarkdown(line)}</p>;
-      })}
-    </div>
-  );
-}
 
 export function AgencyCommandCenter({
   selectedClientId,
   activeProjectId,
   bootReady = true,
-  mobileSection: controlledMobileSection,
-  onMobileSectionChange,
+  hasAnyProjects = true,
   onSelectProject,
+  availableProjects = [],
 }: {
   selectedClientId: string;
   activeProjectId: string;
   bootReady?: boolean;
-  mobileSection?: MobileWorkspaceSection;
-  onMobileSectionChange?: (section: MobileWorkspaceSection) => void;
+  hasAnyProjects?: boolean;
   onSelectProject: (projectId: string) => void;
+  availableProjects?: Array<{ id: string; name: string; clientId: string }>;
 }) {
   const queryClient = useQueryClient();
 
-  const [internalMobileSection, setInternalMobileSection] =
-    useState<MobileWorkspaceSection>("chat");
-  const mobileSection = controlledMobileSection ?? internalMobileSection;
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
 
-  function setMobileSection(next: MobileWorkspaceSection) {
-    setInternalMobileSection(next);
-    onMobileSectionChange?.(next);
-  }
-
-  const [setupExpanded, setSetupExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [teamTopology, setTeamTopology] =
     useState<TeamTopologyMode>("lean_mvp");
   const [autonomyMode, setAutonomyMode] =
@@ -186,32 +105,7 @@ export function AgencyCommandCenter({
   const [selectedAgentRole, setSelectedAgentRole] = useState<
     AgencyAgentRole | "auto"
   >("auto");
-
-  const [chatMode, setChatMode] = useState<
-    "conversation" | "greenfield" | "brownfield"
-  >("conversation");
   const [chatInput, setChatInput] = useState("");
-  const [newProjectName, setNewProjectName] = useState("");
-  const [gitUrlInput, setGitUrlInput] = useState("");
-
-  const [artifactTab, setArtifactTab] = useState<
-    "visual_studio" | "slices" | "long_term"
-  >("visual_studio");
-  const [selectedLongTermId, setSelectedLongTermId] = useState<string>("");
-  const [selectedSliceId, setSelectedSliceId] = useState<string>("");
-  const [sliceSubTab, setSliceSubTab] = useState<
-    "spec" | "blueprint" | "evidence"
-  >("spec");
-  const [revisionFeedback, setRevisionFeedback] = useState("");
-  const [visualRevisionFeedback, setVisualRevisionFeedback] = useState("");
-  const [revisionTargetAgent, setRevisionTargetAgent] =
-    useState<AgencyAgentRole>("software_architect");
-
-  const isHydrated = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
 
   const storageKey = useMemo(
     () => `uzina:agency-chat-turns:${activeProjectId || "global"}`,
@@ -236,15 +130,6 @@ export function AgencyCommandCenter({
             return parsed;
           }
         }
-        const globalSaved = window.localStorage.getItem(
-          "uzina:agency-chat-turns:global"
-        );
-        if (globalSaved) {
-          const parsedGlobal = JSON.parse(globalSaved) as ChatTurnItem[];
-          if (Array.isArray(parsedGlobal) && parsedGlobal.length > 1) {
-            return parsedGlobal;
-          }
-        }
       } catch {
         // ignore storage errors
       }
@@ -263,28 +148,10 @@ export function AgencyCommandCenter({
     }));
     try {
       window.localStorage.setItem(key, JSON.stringify(nextTurns.slice(-30)));
-      window.localStorage.setItem(
-        "uzina:agency-chat-turns:global",
-        JSON.stringify(nextTurns.slice(-30))
-      );
     } catch {
-      // fallback silencioso
+      // ignore storage errors
     }
   }
-
-  // Quando o usuário clica num card no Kanban, o evento customizado abre o inspetor daquele Slice
-  useEffect(() => {
-    function handleInspectSlice(ev: Event) {
-      const custom = ev as CustomEvent<{ sliceId?: string }>;
-      if (custom.detail?.sliceId) {
-        setSelectedSliceId(custom.detail.sliceId);
-        setArtifactTab("slices");
-      }
-    }
-    window.addEventListener("uzina:inspect-slice", handleInspectSlice);
-    return () =>
-      window.removeEventListener("uzina:inspect-slice", handleInspectSlice);
-  }, []);
 
   const statusUrl = `/api/agency/status?clientId=${encodeURIComponent(
     selectedClientId
@@ -310,10 +177,7 @@ export function AgencyCommandCenter({
       message: string;
       intent: AgencyChatIntent;
       projectId?: string;
-      deliverableId?: string;
       targetAgentRole?: AgencyAgentRole;
-      projectName?: string;
-      gitUrl?: string;
     }) => {
       const res = await fetch("/api/agency/chat", {
         method: "POST",
@@ -325,14 +189,9 @@ export function AgencyCommandCenter({
           autonomyMode,
           ...(selectedClientId !== "all" ? { clientId: selectedClientId } : {}),
           ...(payload.projectId ? { projectId: payload.projectId } : {}),
-          ...(payload.deliverableId
-            ? { deliverableId: payload.deliverableId }
-            : {}),
           ...(payload.targetAgentRole
             ? { targetAgentRole: payload.targetAgentRole }
             : {}),
-          ...(payload.projectName ? { projectName: payload.projectName } : {}),
-          ...(payload.gitUrl ? { gitUrl: payload.gitUrl } : {}),
         }),
       });
       if (!res.ok) {
@@ -374,11 +233,6 @@ export function AgencyCommandCenter({
       }
 
       setChatInput("");
-      setNewProjectName("");
-      setGitUrlInput("");
-      setRevisionFeedback("");
-      setVisualRevisionFeedback("");
-      setChatMode("conversation");
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -398,90 +252,38 @@ export function AgencyCommandCenter({
   const visualFlow = projectState?.visualFlow ?? null;
   const architectDecision = projectState?.architectDecision ?? null;
 
-  const longTermArtifacts = projectState?.longTermArtifacts ?? [];
-  const activeLongTerm =
-    longTermArtifacts.find((a) => a.id === selectedLongTermId) ??
-    longTermArtifacts[0] ??
-    null;
-
-  const sliceArtifacts = projectState?.sliceArtifacts ?? [];
-  const activeSlice =
-    sliceArtifacts.find((s) => s.deliverableId === selectedSliceId) ??
-    sliceArtifacts[0] ??
-    null;
-
-  const quickPrompts = useMemo(() => {
-    if (!projectState || chatMode === "greenfield") {
-      return [
-        {
-          label: "SaaS & Faturamento",
-          prompt:
-            "Quero criar um SaaS multi-tenant de gestão financeira com dashboard de métricas, fluxo visual moderno e alertas inteligentes.",
-        },
-        {
-          label: "Atendimento & IA",
-          prompt:
-            "Criar sistema de atendimento e triagem inteligente com painel operacional, fila de prioridades e relatórios executivos.",
-        },
-        {
-          label: "Portal Compliance",
-          prompt:
-            "Construir plataforma de auditoria técnica com checklist automatizado, aprovação em portões e trilha de evidências.",
-        },
-      ];
-    }
-    return [
+  const quickPrompts = useMemo(
+    () => [
       {
-        label: "Revisar Estratégia IA",
+        label: "Revisar Estratégia",
         prompt:
           "Arquiteto, revise a estratégia de desenvolvimento atual e detalhe os próximos contratos Zod e testes necessários.",
       },
       {
-        label: "Refinar Protótipo Visual",
+        label: "Ajustar Protótipo",
         prompt:
-          "Designer, ajuste o protótipo visual para destacar indicadores principais e melhorar a hierarquia das telas.",
+          "Designer, ajuste o protótipo visual para melhorar a hierarquia das telas e indicadores principais.",
       },
       {
-        label: "Planejar Próximo Slice",
+        label: "Avançar Ciclo",
         prompt:
-          "Analisar o estado atual do projeto e estruturar uma nova entrega vertical com critérios de aceitação claros.",
+          "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão.",
       },
-    ];
-  }, [projectState, chatMode]);
+    ],
+    []
+  );
 
-  function submitCurrentChat(overrideText?: string) {
-    const trimmedMsg = (overrideText ?? chatInput).trim();
-    if (!trimmedMsg && chatMode === "conversation") return;
+  // Se o boot terminou e não há nenhum projeto cadastrado ainda, exibe diretamente a tela ampla de Ideias & Novo Projeto (Decisão A2)
+  if (bootReady && !hasAnyProjects && !projectState) {
+    return <IdeasHub embedded />;
+  }
+
+  function submitCurrentChat() {
+    const trimmedMsg = chatInput.trim();
+    if (!trimmedMsg) return;
 
     const chosenRole =
       selectedAgentRole === "auto" ? undefined : selectedAgentRole;
-
-    if (chatMode === "greenfield") {
-      const prompt =
-        trimmedMsg ||
-        `Criar sistema ${newProjectName.trim() || "Novo Produto"} com arquitetura modular, fluxo visual validado e contratos Zod.`;
-      chatMutation.mutate({
-        message: prompt,
-        intent: "start_greenfield",
-        projectName: newProjectName.trim() || undefined,
-        targetAgentRole: "product_discovery",
-      });
-      return;
-    }
-
-    if (chatMode === "brownfield") {
-      const prompt =
-        trimmedMsg ||
-        `Importar e analisar repositório ${gitUrlInput.trim() || "existente"} para evolução arquitetural.`;
-      chatMutation.mutate({
-        message: prompt,
-        intent: "import_git_or_repo",
-        projectName: newProjectName.trim() || undefined,
-        gitUrl: gitUrlInput.trim() || undefined,
-        targetAgentRole: "software_architect",
-      });
-      return;
-    }
 
     chatMutation.mutate({
       message: trimmedMsg,
@@ -504,1255 +306,573 @@ export function AgencyCommandCenter({
   }
 
   return (
-    <div className="space-y-2.5">
-      {/* Barra Superior Integrada & Ultracompacta: Prontidão + Topologia de Equipe + Autonomia */}
-      <section
-        data-testid="onboarding-readiness-guide"
-        className="rounded-lg border border-border-default bg-surface px-3 py-2"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Esquerda: Status de Prontidão + Botão de Expandir Setup */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              data-testid="toggle-setup-guide-btn"
-              onClick={() => setSetupExpanded((prev) => !prev)}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 font-mono text-xs font-semibold text-accent hover:border-accent"
-            >
-              <Settings2 className="size-3.5" strokeWidth={1.75} />
-              <span>
-                Setup &amp; Prontidão:{" "}
-                <strong className="tabular-nums">
-                  {readiness?.readinessPercent ?? 67}%
-                </strong>
-              </span>
-              {setupExpanded ? (
-                <ChevronUp className="size-3.5" />
-              ) : (
-                <ChevronDown className="size-3.5" />
-              )}
-            </button>
-
-            <Link
-              href="/app/providers"
-              data-testid="llm-execution-mode-badge"
-              className={`inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs font-medium transition-colors ${
-                readiness?.llmProviderConfigured
-                  ? "border-status-ok/40 bg-status-ok/10 text-status-ok hover:border-status-ok"
-                  : "border-status-warn/40 bg-status-warn/10 text-status-warn hover:border-accent"
-              }`}
-            >
-              <span>
-                {readiness?.llmProviderConfigured
-                  ? `🟢 LLM Real Ativo (${readiness.activeProviderNames.join(", ")})`
-                  : "🟡 Modo Simulado Local · Conectar Chave LLM Real →"}
-              </span>
-            </Link>
-          </div>
-
-          {/* Direita: Alternância Equipe Enxuta (MVP) vs Equipe Completa (6) + Modo de Autonomia */}
-          <div
-            data-testid="agency-team-bar"
-            className="flex flex-wrap items-center gap-2"
-          >
-            {projectState && (
-              <span
-                data-testid="project-cycle-badge"
-                className="tabular-nums rounded border border-accent/40 bg-accent-subtle px-2 py-1 font-mono text-xs font-semibold text-accent"
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
+      {/* Barra de Contexto Minimalista (1 linha neutra, zero poluição laranja) */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+          {availableProjects.length > 0 ? (
+            <>
+              <label htmlFor="chat-project-select" className="sr-only">
+                Projeto ativo
+              </label>
+              <select
+                id="chat-project-select"
+                data-testid="chat-project-select"
+                value={projectState?.projectId ?? activeProjectId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const proj = availableProjects.find((p) => p.id === id);
+                  setActiveContext({
+                    ...(proj ? { clientId: proj.clientId } : {}),
+                    projectId: id,
+                  });
+                  onSelectProject(id);
+                }}
+                className="min-h-9 rounded-md border border-border-default bg-surface px-3 text-sm font-semibold text-fg-primary focus:border-border-strong focus:outline-none"
               >
+                {availableProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <h1 className="text-lg font-semibold text-fg-primary">
+              Chat da Engenharia
+            </h1>
+          )}
+
+          {projectState && (
+            <span
+              data-testid="project-cycle-badge"
+              className="inline-flex items-center gap-2 text-sm text-fg-secondary"
+            >
+              <span className="size-1.5 rounded-full bg-fg-muted" />
+              <span className="tabular-nums">
                 Ciclo #{projectState.cycleNumber} · {projectState.phaseLabel}
               </span>
-            )}
-
-            <div
-              role="group"
-              aria-label="Topologia da equipe de agentes"
-              data-testid="team-topology-toggle"
-              className="inline-flex rounded-md border border-border-default bg-inset p-0.5"
-            >
-              <button
-                type="button"
-                data-testid="topology-lean-mvp"
-                onClick={() => setTeamTopology("lean_mvp")}
-                className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 text-[11px] font-medium ${
-                  teamTopology === "lean_mvp"
-                    ? "bg-surface text-fg-primary shadow-2xs"
-                    : "text-fg-secondary hover:text-fg-primary"
-                }`}
-              >
-                <Sparkles className="size-3 text-accent" />
-                <span>Equipe Enxuta (MVP · 3)</span>
-              </button>
-              <button
-                type="button"
-                data-testid="topology-full-enterprise"
-                onClick={() => setTeamTopology("full_enterprise")}
-                className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 text-[11px] font-medium ${
-                  teamTopology === "full_enterprise"
-                    ? "bg-surface text-fg-primary shadow-2xs"
-                    : "text-fg-secondary hover:text-fg-primary"
-                }`}
-              >
-                <Users className="size-3 text-status-info" />
-                <span>Completa (6)</span>
-              </button>
-            </div>
-
-            <label htmlFor="autonomy-mode-select" className="sr-only">
-              Modo de Autonomia
-            </label>
-            <select
-              id="autonomy-mode-select"
-              data-testid="autonomy-mode-select"
-              value={autonomyMode}
-              onChange={(e) => setAutonomyMode(e.target.value as AutonomyMode)}
-              className="min-h-8 rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary"
-            >
-              {(Object.keys(AUTONOMY_LABELS) as AutonomyMode[]).map((m) => (
-                <option key={m} value={m}>
-                  {AUTONOMY_LABELS[m]}
-                </option>
-              ))}
-            </select>
-          </div>
+            </span>
+          )}
         </div>
 
-        {/* Painel Expansível de Configuração & Guia Ideal */}
-        {setupExpanded && readiness && (
-          <div className="mt-2.5 grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-2.5 md:grid-cols-3">
-            {readiness.steps.map((step) => (
-              <article
-                key={step.id}
-                data-testid={`onboarding-step-${step.id}`}
-                className={`flex flex-col justify-between rounded-md border p-2.5 ${
-                  step.completed
-                    ? "border-status-ok/35 bg-status-ok/5"
-                    : "border-status-warn/40 bg-status-warn/5"
-                }`}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/app/providers"
+            data-testid="llm-execution-mode-badge"
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+          >
+            <span
+              className={`size-2 rounded-full ${
+                readiness?.llmProviderConfigured
+                  ? "bg-status-ok"
+                  : "bg-status-warn"
+              }`}
+            />
+            <span>
+              {readiness?.llmProviderConfigured
+                ? `LLM Real (${readiness.activeProviderNames.join(", ")})`
+                : "Modo Simulado Local"}
+            </span>
+          </Link>
+
+          <Link
+            href="/app/ideas"
+            data-testid="btn-new-idea-shortcut"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+          >
+            <Lightbulb className="size-3.5" strokeWidth={1.75} />
+            <span className="hidden sm:inline">Nova Ideia</span>
+          </Link>
+
+          <button
+            type="button"
+            data-testid="toggle-session-settings-btn"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((prev) => !prev)}
+            className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors ${
+              settingsOpen
+                ? "border-border-strong bg-elevated text-fg-primary"
+                : "border-border-subtle bg-surface text-fg-secondary hover:border-border-strong hover:text-fg-primary"
+            }`}
+          >
+            <Settings2 className="size-3.5" strokeWidth={1.75} />
+            <span>Configurações</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Painel Discreto & Retrátil de Configurações da Sessão (Equipe, Autonomia, Setup & Estratégia do Arquiteto) */}
+      {settingsOpen && (
+        <section
+          data-testid="session-settings-panel"
+          className="space-y-4 rounded-xl border border-border-default bg-surface p-4 sm:p-5"
+        >
+          <div className="flex items-center justify-between border-b border-border-subtle pb-2.5">
+            <h2 className="text-sm font-semibold text-fg-primary">
+              Configurações da Sessão &amp; Orquestração
+            </h2>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(false)}
+              aria-label="Fechar configurações da sessão"
+              className="rounded p-1 text-fg-muted hover:text-fg-primary"
+            >
+              <X className="size-4" strokeWidth={1.75} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Topologia da Equipe */}
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-fg-secondary">
+                Topologia da Equipe Visível
+              </span>
+              <div
+                role="group"
+                aria-label="Topologia da equipe de agentes"
+                data-testid="team-topology-toggle"
+                className="inline-flex w-full rounded-md border border-border-default bg-inset p-1"
               >
-                <div>
+                <button
+                  type="button"
+                  data-testid="topology-lean-mvp"
+                  onClick={() => setTeamTopology("lean_mvp")}
+                  className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                    teamTopology === "lean_mvp"
+                      ? "border border-border-subtle bg-surface text-fg-primary"
+                      : "text-fg-secondary hover:text-fg-primary"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  <span>Equipe Enxuta (3)</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="topology-full-enterprise"
+                  onClick={() => setTeamTopology("full_enterprise")}
+                  className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                    teamTopology === "full_enterprise"
+                      ? "border border-border-subtle bg-surface text-fg-primary"
+                      : "text-fg-secondary hover:text-fg-primary"
+                  }`}
+                >
+                  <Users className="size-3.5" />
+                  <span>Completa (6)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modo de Autonomia */}
+            <div className="space-y-1.5">
+              <label
+                htmlFor="autonomy-mode-select"
+                className="block text-xs font-medium text-fg-secondary"
+              >
+                Modo de Autonomia do Ciclo
+              </label>
+              <select
+                id="autonomy-mode-select"
+                data-testid="autonomy-mode-select"
+                value={autonomyMode}
+                onChange={(e) =>
+                  setAutonomyMode(e.target.value as AutonomyMode)
+                }
+                className="min-h-10 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
+              >
+                {(Object.keys(AUTONOMY_LABELS) as AutonomyMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {AUTONOMY_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Estratégia do Arquiteto & Ações de Ciclo */}
+          {projectState && (
+            <div
+              data-testid="architect-strategy-banner"
+              className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-inset p-3.5 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-fg-secondary">
+                  Estratégia definida pelo Arquiteto:{" "}
+                  <strong className="font-mono text-fg-primary">
+                    {architectDecision?.strategyLabel ??
+                      projectState.defaultStrategy}
+                  </strong>
+                </p>
+                {architectDecision?.rationale && (
+                  <p className="text-xs leading-relaxed text-fg-muted">
+                    {architectDecision.rationale}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="btn-run-autonomous-cycle"
+                  disabled={chatMutation.isPending}
+                  onClick={() =>
+                    chatMutation.mutate({
+                      message:
+                        "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão visual ou HITL.",
+                      intent: "advance_cycle",
+                      projectId: projectState.projectId,
+                    })
+                  }
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+                >
+                  <Play className="size-3.5" />
+                  <span>Executar Ciclo Autônomo</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-cycle-architect"
+                  disabled={chatMutation.isPending}
+                  onClick={() =>
+                    chatMutation.mutate({
+                      message:
+                        "Iniciar novo ciclo evolutivo com o Agente Arquiteto para reavaliar a arquitetura e atualizar os artefatos.",
+                      intent: "revisit_architecture",
+                      projectId: projectState.projectId,
+                      targetAgentRole: "software_architect",
+                    })
+                  }
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                >
+                  <RotateCcw className="size-3.5" />
+                  <span>Ciclo #{projectState.cycleNumber + 1}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Setup & Prontidão Compacto */}
+          {readiness && (
+            <div className="grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-3 md:grid-cols-3">
+              {readiness.steps.map((step) => (
+                <Link
+                  key={step.id}
+                  href={step.id === "first_project_chat" ? "/app/ideas" : step.actionHref}
+                  className="flex flex-col justify-between rounded-lg border border-border-subtle bg-inset p-3 transition-colors hover:border-border-strong"
+                >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-semibold text-fg-primary">
+                    <span className="text-xs font-medium text-fg-primary">
                       {step.title}
                     </span>
                     <span
-                      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
-                        step.completed
-                          ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
-                          : "border-status-warn/40 bg-status-warn/10 text-status-warn"
+                      className={`mt-1 size-2 shrink-0 rounded-full ${
+                        step.completed ? "bg-status-ok" : "bg-status-warn"
                       }`}
-                    >
-                      {step.completed ? "OK" : "Pendente"}
-                    </span>
+                    />
                   </div>
-                  <p className="mt-1 text-[11px] text-fg-secondary">
-                    {step.description}
-                  </p>
-                </div>
-                <div className="mt-2 flex items-center justify-between border-t border-border-subtle pt-2">
-                  <span className="font-mono text-[10px] text-fg-muted">
+                  <span className="mt-2 font-mono text-xs text-fg-muted">
                     {step.statusBadge}
                   </span>
-                  {step.id === "first_project_chat" ? (
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        data-testid="guide-btn-start-greenfield"
-                        onClick={() => {
-                          setChatMode("greenfield");
-                          setSetupExpanded(false);
-                          setMobileSection("chat");
-                        }}
-                        className="min-h-7 rounded bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-fg"
-                      >
-                        Do Zero
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="guide-btn-start-brownfield"
-                        onClick={() => {
-                          setChatMode("brownfield");
-                          setSetupExpanded(false);
-                          setMobileSection("chat");
-                        }}
-                        className="min-h-7 rounded border border-border-default bg-surface px-2.5 py-1 text-[11px] text-fg-primary"
-                      >
-                        URL Git
-                      </button>
-                    </div>
-                  ) : (
-                    <Link
-                      href={step.actionHref}
-                      prefetch={false}
-                      className="inline-flex min-h-7 items-center rounded border border-border-default bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-primary hover:border-accent"
-                    >
-                      {step.actionLabel}
-                    </Link>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* SWITCHER SEGMENTADO MOBILE (Padrão Claude Artifacts / Devin Mobile — 1 toque, sem maratona de scroll) */}
-      <div
-        role="tablist"
-        aria-label="Alternar superfície no celular"
-        data-testid="mobile-workspace-switcher"
-        className="grid grid-cols-3 gap-1 rounded-lg border border-border-default bg-surface p-1 lg:hidden"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mobileSection === "chat"}
-          data-testid="mobile-tab-chat"
-          onClick={() => setMobileSection("chat")}
-          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
-            mobileSection === "chat"
-              ? "bg-accent text-accent-fg"
-              : "text-fg-secondary hover:text-fg-primary"
-          }`}
-        >
-          <MessageSquare className="size-3.5 shrink-0" />
-          <span>Chat IA</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mobileSection === "studio"}
-          data-testid="mobile-tab-studio"
-          onClick={() => {
-            setArtifactTab("visual_studio");
-            setMobileSection("studio");
-          }}
-          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
-            mobileSection === "studio"
-              ? "bg-accent text-accent-fg"
-              : "text-fg-secondary hover:text-fg-primary"
-          }`}
-        >
-          <Palette className="size-3.5 shrink-0" />
-          <span>Estúdio</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mobileSection === "artifacts"}
-          data-testid="mobile-tab-artifacts"
-          onClick={() => {
-            if (artifactTab === "visual_studio") {
-              setArtifactTab("slices");
-            }
-            setMobileSection("artifacts");
-          }}
-          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
-            mobileSection === "artifacts"
-              ? "bg-accent text-accent-fg"
-              : "text-fg-secondary hover:text-fg-primary"
-          }`}
-        >
-          <Layers className="size-3.5 shrink-0" />
-          <span>Slices ({sliceArtifacts.length})</span>
-        </button>
-      </div>
-
-      {/* WORKSPACE SPLIT-PANE: Chat Amplo à Esquerda (7/12) + Workbench à Direita (5/12) */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
-        {/* COLUNA ESQUERDA (7/12): Chat Principal com a Equipe de Agentes (Cabe 100% na 1ª Dobra no Desktop!) */}
-        <section
-          data-testid="agency-chat-panel"
-          className={`${
-            mobileSection === "chat" ? "flex" : "hidden lg:flex"
-          } flex-col justify-between rounded-lg border border-border-default bg-surface p-3 lg:col-span-7`}
-        >
-          <div>
-            {/* Cabeçalho Compacto do Chat + Pílulas dos Agentes Ativos */}
-            <div className="space-y-2 border-b border-border-subtle pb-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Bot className="size-4 text-accent" strokeWidth={1.75} />
-                  <h2 className="text-sm font-semibold text-fg-primary">
-                    Central Conversacional de Engenharia
-                  </h2>
-                </div>
-
-                {/* Ações rápidas de modo de conversa + Limpar histórico */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    data-testid="chat-mode-conversation"
-                    onClick={() => setChatMode("conversation")}
-                    className={`min-h-7 rounded px-2.5 py-1 text-xs font-medium ${
-                      chatMode === "conversation"
-                        ? "bg-accent text-accent-fg"
-                        : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
-                    }`}
-                  >
-                    Conversa
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="chat-mode-greenfield"
-                    onClick={() => setChatMode("greenfield")}
-                    className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
-                      chatMode === "greenfield"
-                        ? "bg-accent text-accent-fg"
-                        : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
-                    }`}
-                  >
-                    <PlusCircle className="size-3" />
-                    <span>Novo Projeto (Ideia)</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="chat-mode-brownfield"
-                    onClick={() => setChatMode("brownfield")}
-                    className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
-                      chatMode === "brownfield"
-                        ? "bg-accent text-accent-fg"
-                        : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
-                    }`}
-                  >
-                    <GitBranch className="size-3" />
-                    <span>Importar URL Git</span>
-                  </button>
-                  {chatTurns.length > 1 && (
-                    <button
-                      type="button"
-                      data-testid="btn-clear-chat-history"
-                      title="Reiniciar histórico visual desta conversa"
-                      onClick={() => persistTurns([INITIAL_GREETING_TURN])}
-                      className="inline-flex min-h-7 items-center gap-1 rounded border border-border-subtle bg-inset px-2 py-1 text-[11px] text-fg-muted hover:border-border-strong hover:text-fg-primary"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Pílulas de Seleção de Agente (Roteamento Automático + Equipe Enxuta ou Completa) */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  data-testid="agent-pill-auto"
-                  onClick={() => setSelectedAgentRole("auto")}
-                  className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                    selectedAgentRole === "auto"
-                      ? "border-accent bg-accent-subtle text-accent"
-                      : "border-border-subtle bg-inset text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <Sparkles className="size-3" />
-                  <span>
-                    Automático ({projectState?.activeAgentName ?? "Pela Fase"})
-                  </span>
-                </button>
-
-                {visibleAgents.map((ag) => {
-                  const isLeader = projectState?.activeAgentRole === ag.role;
-                  const isSelected = selectedAgentRole === ag.role;
-                  const label =
-                    teamTopology === "lean_mvp" && ag.leanDisplayName
-                      ? ag.leanDisplayName
-                      : ag.name;
-                  return (
-                    <button
-                      key={ag.role}
-                      type="button"
-                      data-testid={`agent-card-${ag.role}`}
-                      onClick={() =>
-                        setSelectedAgentRole((prev) =>
-                          prev === ag.role ? "auto" : ag.role
-                        )
-                      }
-                      className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                        isSelected
-                          ? "border-accent bg-accent text-accent-fg font-semibold"
-                          : isLeader
-                            ? "border-status-ok/50 bg-status-ok/10 text-fg-primary font-medium"
-                            : "border-border-subtle bg-canvas text-fg-secondary hover:border-border-strong hover:text-fg-primary"
-                      }`}
-                    >
-                      <span>{label}</span>
-                      <span
-                        className={`rounded px-1 py-0.2 font-mono text-[9px] ${
-                          isSelected
-                            ? "bg-black/20 text-accent-fg"
-                            : ag.recommendedTier === "tier3_deep_reasoning"
-                              ? "bg-accent/15 text-accent"
-                              : "bg-status-info/15 text-status-info"
-                        }`}
-                      >
-                        {ag.recommendedTier === "tier3_deep_reasoning"
-                          ? "Pro"
-                          : "Flash"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Decisão de Estratégia do Arquiteto + Botões de Ciclo Autônomo (quando há projeto ativo) */}
-              {projectState && (
-                <div
-                  data-testid="architect-strategy-banner"
-                  className="flex flex-col gap-2 rounded-md border border-border-subtle bg-inset px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 flex-1 space-y-0.5 text-xs">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-semibold text-fg-primary">
-                        {projectState.projectName}
-                      </span>
-                      <span className="rounded border border-accent/35 bg-accent-subtle px-1.5 py-0.5 font-mono text-[10px] text-accent">
-                        Estratégia do Arquiteto:{" "}
-                        {architectDecision?.strategyLabel ??
-                          projectState.defaultStrategy}
-                      </span>
-                    </div>
-                    {architectDecision?.rationale && (
-                      <p className="line-clamp-1 text-[11px] text-fg-secondary">
-                        {architectDecision.rationale}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      data-testid="btn-run-autonomous-cycle"
-                      disabled={chatMutation.isPending}
-                      onClick={() =>
-                        chatMutation.mutate({
-                          message:
-                            "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão visual ou HITL.",
-                          intent: "advance_cycle",
-                          projectId: projectState.projectId,
-                        })
-                      }
-                      className="inline-flex min-h-7 items-center gap-1 rounded bg-accent px-2.5 py-1 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
-                    >
-                      <Play className="size-3" />
-                      <span>Executar Ciclo Autônomo</span>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="btn-cycle-architect"
-                      disabled={chatMutation.isPending}
-                      onClick={() =>
-                        chatMutation.mutate({
-                          message:
-                            "Iniciar novo ciclo evolutivo com o Agente Arquiteto para reavaliar a arquitetura e atualizar os artefatos.",
-                          intent: "revisit_architecture",
-                          projectId: projectState.projectId,
-                          targetAgentRole: "software_architect",
-                        })
-                      }
-                      className="inline-flex min-h-7 items-center gap-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:border-accent"
-                    >
-                      <RotateCcw className="size-3" />
-                      <span>Ciclo #{projectState.cycleNumber + 1}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Área de Mensagens do Chat (Altura Calibrada p/ Caber 100% na 1ª Dobra Desktop + Markdown Formatado) */}
-            <div
-              data-testid="agency-chat-history"
-              className="mt-2.5 h-[220px] sm:h-[235px] space-y-2.5 overflow-y-auto pr-1 select-text"
-            >
-              {chatTurns.map((turn) => (
-                <article
-                  key={turn.id}
-                  className={`rounded-lg border p-3 text-xs ${
-                    turn.role === "user"
-                      ? "ml-6 border-accent/35 bg-accent-subtle/25 text-fg-primary"
-                      : "border-border-subtle bg-canvas text-fg-primary"
-                  }`}
-                >
-                  {turn.role === "assistant" && (
-                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-1">
-                      <span className="font-semibold text-accent">
-                        {turn.agentName ?? "Agente Uzina"}
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-fg-muted">
-                        {turn.cycleNumber && (
-                          <span className="rounded border border-border-subtle bg-inset px-1.5 py-0.5">
-                            Ciclo #{turn.cycleNumber}
-                          </span>
-                        )}
-                        {turn.executionMode === "live_llm" ||
-                        readiness?.llmProviderConfigured ? (
-                          <span className="rounded border border-status-ok/35 bg-status-ok/10 px-1.5 py-0.5 text-status-ok">
-                            🟢 {turn.boundModelId ?? "LLM Real"}
-                            {turn.llmLatencyMs ? ` · ${turn.llmLatencyMs}ms` : ""}
-                          </span>
-                        ) : (
-                          <span className="rounded border border-border-subtle bg-inset px-1.5 py-0.5 text-fg-muted">
-                            Modo Assistido Local (Sem Chave no Cofre)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {renderFormattedContent(turn.content)}
-
-                  {turn.actionsExecuted && turn.actionsExecuted.length > 0 && (
-                    <div className="mt-2.5 space-y-1 border-t border-border-subtle pt-1.5">
-                      <span className="block font-mono text-[10px] uppercase tracking-wider text-fg-muted">
-                        Ações executadas pelos agentes:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {turn.actionsExecuted.map((act, idx) => (
-                          <span
-                            key={`${turn.id}-act-${idx}`}
-                            data-testid={`agent-action-${act.type}`}
-                            className="inline-flex items-center gap-1 rounded border border-status-ok/35 bg-status-ok/10 px-2 py-0.5 font-mono text-[10px] text-status-ok"
-                          >
-                            <CheckCircle2 className="size-3 shrink-0" />
-                            <span>{act.label}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </article>
+                </Link>
               ))}
-            </div>
-          </div>
-
-          {/* Composer Único Multilinha Consistente + Chips de Quick-Prompts (Sempre visível na 1ª dobra!) */}
-          <form
-            onSubmit={handleSendChat}
-            className="mt-2.5 space-y-2 border-t border-border-subtle pt-2.5"
-          >
-            {/* Quick-Prompts Clicáveis */}
-            <div
-              data-testid="quick-prompts-bar"
-              className="flex flex-wrap items-center gap-1.5"
-            >
-              <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
-                Sugestões:
-              </span>
-              {quickPrompts.map((qp, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  data-testid={`quick-prompt-chip-${idx}`}
-                  onClick={() => setChatInput(qp.prompt)}
-                  className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border-default bg-inset px-2.5 py-0.5 text-[11px] text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
-                >
-                  <Sparkles className="size-2.5 text-accent" />
-                  <span>{qp.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {chatMode === "greenfield" && (
-              <div className="flex flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 px-3 py-1.5">
-                <span className="text-xs font-medium text-accent">
-                  Novo Projeto do Zero:
-                </span>
-                <input
-                  id="greenfield-project-name"
-                  data-testid="input-greenfield-project-name"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="Nome sugerido (opcional — o agente pode batizar)"
-                  className="h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
-                />
-                <span className="font-mono text-[10px] text-fg-secondary">
-                  O Arquiteto decidirá a melhor estratégia para IA.
-                </span>
-              </div>
-            )}
-
-            {chatMode === "brownfield" && (
-              <div className="grid grid-cols-1 gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 p-2 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="brownfield-git-url"
-                    className="mb-1 block text-[11px] font-medium text-fg-secondary"
-                  >
-                    URL do Repositório Git (HTTPS)
-                  </label>
-                  <input
-                    id="brownfield-git-url"
-                    data-testid="input-brownfield-git-url"
-                    value={gitUrlInput}
-                    onChange={(e) => setGitUrlInput(e.target.value)}
-                    placeholder="https://github.com/sua-empresa/repositorio.git"
-                    className="h-8 w-full rounded border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="brownfield-project-name"
-                    className="mb-1 block text-[11px] font-medium text-fg-secondary"
-                  >
-                    Nome do Projeto (opcional)
-                  </label>
-                  <input
-                    id="brownfield-project-name"
-                    data-testid="input-brownfield-project-name"
-                    value={newProjectName}
-                    onChange={(e) => setNewProjectName(e.target.value)}
-                    placeholder="Ex.: Core Platform IA"
-                    className="h-8 w-full rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label htmlFor="agency-chat-input" className="sr-only">
-                Mensagem para o Agente Responsável
-              </label>
-              <textarea
-                id="agency-chat-input"
-                data-testid="agency-chat-input"
-                rows={2}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={handleTextareaKeyDown}
-                placeholder={
-                  chatMode === "greenfield"
-                    ? "Conte a ideia do sistema, público e fluxos visuais. O Arquiteto decidirá a estratégia para IA e gerará o protótipo..."
-                    : chatMode === "brownfield"
-                      ? "Explique o que deseja analisar, refatorar ou evoluir nesse repositório Git..."
-                      : "Converse com o agente responsável, descreva um novo sistema do zero, cole uma URL do Git ou peça ajustes no protótipo visual (Enter envia · Shift+Enter quebra linha)..."
-                }
-                className="w-full resize-y rounded-md border border-border-default bg-inset p-2.5 text-xs leading-relaxed text-fg-primary focus:border-accent focus:outline-none"
-              />
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-[11px] text-fg-muted">
-                  Respondendo:{" "}
-                  <strong className="text-fg-secondary">
-                    {selectedAgentRole === "auto"
-                      ? `Roteamento Automático (${projectState?.activeAgentName ?? "Supervisor"})`
-                      : (allAgents.find((a) => a.role === selectedAgentRole)
-                          ?.name ?? selectedAgentRole)}
-                  </strong>
-                </span>
-
-                <button
-                  type="submit"
-                  data-testid="agency-chat-submit"
-                  disabled={chatMutation.isPending}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
-                >
-                  {chatMutation.isPending ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Send className="size-3.5" />
-                  )}
-                  <span>
-                    {chatMode === "greenfield"
-                      ? "Iniciar Projeto & Definir Estratégia"
-                      : chatMode === "brownfield"
-                        ? "Importar Git & Analisar Arquitetura"
-                        : "Enviar Mensagem"}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {chatMutation.error && (
-              <p role="alert" className="text-xs text-status-danger">
-                {(chatMutation.error as Error).message}
-              </p>
-            )}
-          </form>
-        </section>
-
-        {/* COLUNA DIREITA (5/12): Workbench — Estúdio & Protótipo Visual · Dossiês de Slices · Artefatos de Longo Prazo */}
-        <section
-          data-testid="agency-artifacts-panel"
-          className={`${
-            mobileSection !== "chat" ? "flex" : "hidden lg:flex"
-          } flex-col justify-between rounded-lg border border-border-default bg-surface p-3 lg:col-span-5`}
-        >
-          <div>
-            <div
-              className={`${
-                mobileSection === "studio" ? "hidden lg:flex" : "flex"
-              } flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2.5`}
-            >
-              <div
-                role="tablist"
-                aria-label="Camada de artefatos e prototipação"
-                className="grid w-full grid-cols-3 gap-1 rounded-md border border-border-default bg-inset p-0.5"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={artifactTab === "visual_studio"}
-                  data-testid="tab-visual-studio-flow"
-                  onClick={() => {
-                    setArtifactTab("visual_studio");
-                    setMobileSection("studio");
-                  }}
-                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
-                    artifactTab === "visual_studio"
-                      ? "border border-border-subtle bg-surface text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <Palette className="size-3.5 shrink-0 text-accent" />
-                  <span className="truncate">Estúdio &amp; Protótipo</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={artifactTab === "slices"}
-                  data-testid="tab-slice-artifacts"
-                  onClick={() => {
-                    setArtifactTab("slices");
-                    setMobileSection("artifacts");
-                  }}
-                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
-                    artifactTab === "slices"
-                      ? "border border-border-subtle bg-surface text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <Layers className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    Slices ({sliceArtifacts.length})
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={artifactTab === "long_term"}
-                  data-testid="tab-long-term-artifacts"
-                  onClick={() => {
-                    setArtifactTab("long_term");
-                    setMobileSection("artifacts");
-                  }}
-                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
-                    artifactTab === "long_term"
-                      ? "border border-border-subtle bg-surface text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <FileText className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    Longo Prazo ({longTermArtifacts.length})
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {!projectState ? (
-              <div className="flex flex-col items-center justify-center py-14 text-center">
-                <FileCode2
-                  className="mb-2 size-8 text-fg-muted"
-                  strokeWidth={1.5}
-                />
-                <p className="text-xs font-semibold text-fg-primary">
-                  Aguardando Conversa Inicial no Chat
-                </p>
-                <p className="mt-1 max-w-xs text-[11px] leading-relaxed text-fg-secondary">
-                  Assim que você descrever sua ideia ou colar a URL do Git no Chat à esquerda, o Arquiteto e o Designer exibirão aqui o Protótipo Visual, os Slices e o PRD Vivo.
-                </p>
-              </div>
-            ) : artifactTab === "visual_studio" ? (
-              /* ABA 1: Estúdio & Fase de Prototipação Visual Integrada (Portão Visual Antes do Código) */
-              <div
-                data-testid="visual-flow-inspector"
-                className="mt-2.5 space-y-2.5"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-inset p-2.5">
-                  <div className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-fg-primary">
-                      {visualFlow?.latestPrototypeTitle ??
-                        `Protótipo Visual — ${projectState.projectName}`}
-                    </span>
-                    <p className="font-mono text-[10px] text-fg-secondary">
-                      {visualFlow?.fidelityLevel ??
-                        "Nível 3 (HTML/Tailwind + W3C)"}
-                    </p>
-                  </div>
-                  <span
-                    data-testid="visual-flow-status-badge"
-                    className={`shrink-0 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${
-                      visualFlow?.approvedForCodeHandoff
-                        ? "border-status-ok/40 bg-status-ok/15 text-status-ok"
-                        : "border-status-warn/40 bg-status-warn/15 text-status-warn"
-                    }`}
-                  >
-                    {visualFlow?.approvedForCodeHandoff
-                      ? "Fluxo Visual Aprovado p/ Código"
-                      : "Portão Visual: Aguardando Aprovação"}
-                  </span>
-                </div>
-
-                {/* Preview Sandboxed do Protótipo Visual (Sem scroll horizontal no mobile) */}
-                {visualFlow?.previewUrl ? (
-                  <div className="w-full max-w-full min-w-0 overflow-hidden rounded-md border border-border-default bg-canvas">
-                    <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border-subtle bg-inset px-2.5 py-1.5 text-[11px] text-fg-secondary">
-                      <span className="inline-flex items-center gap-1.5 font-mono">
-                        <Eye className="size-3.5 text-accent" />
-                        <span>Preview Visual Seguro (Sandbox CSP)</span>
-                      </span>
-                      <Link
-                        href={visualFlow.studioHref}
-                        prefetch={false}
-                        className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
-                      >
-                        <span>Abrir Estúdio Completo &amp; Stitch</span>
-                        <ExternalLink className="size-3" />
-                      </Link>
-                    </div>
-                    <iframe
-                      title="Preview do Protótipo Visual do Projeto"
-                      data-testid="visual-prototype-iframe"
-                      src={visualFlow.previewUrl}
-                      sandbox=""
-                      className="block h-56 w-full max-w-full border-0 bg-canvas"
-                    />
-                  </div>
-                ) : null}
-
-                {/* Fluxo de Telas & Tokens W3C (Sem truncamento agressivo!) */}
-                {visualFlow && (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
-                    <div className="rounded border border-border-subtle bg-inset p-2.5 sm:col-span-7">
-                      <span className="block font-mono text-[10px] uppercase text-fg-muted">
-                        Fluxo de Telas Planejado:
-                      </span>
-                      <ul className="mt-1.5 space-y-1 text-[11px] leading-snug text-fg-primary">
-                        {visualFlow.screensFlow.map((scr, i) => (
-                          <li key={i} className="break-words">
-                            {scr}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="rounded border border-border-subtle bg-inset p-2.5 sm:col-span-5">
-                      <span className="block font-mono text-[10px] uppercase text-fg-muted">
-                        Tokens (.uzina/DESIGN.md):
-                      </span>
-                      <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-1">
-                        {visualFlow.tokensPreview.map((tk) => (
-                          <div
-                            key={tk.name}
-                            className="flex items-center gap-1.5 font-mono text-[10px] text-fg-secondary"
-                          >
-                            <span
-                              className="size-3 shrink-0 rounded-xs border border-border-default"
-                              style={{ backgroundColor: tk.value }}
-                            />
-                            <span className="break-all">{tk.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Ações do Portão Visual: Diferencia Estado Pendente vs. Já Aprovado */}
-                <div className="space-y-2 border-t border-border-subtle pt-2">
-                  {visualFlow?.approvedForCodeHandoff ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-ok/35 bg-status-ok/10 px-2.5 py-2">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-status-ok">
-                        <CheckCircle2 className="size-3.5 shrink-0" />
-                        <span>Fluxo Visual Homologado p/ Codificação</span>
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          data-testid="btn-advance-after-visual"
-                          disabled={chatMutation.isPending}
-                          onClick={() =>
-                            chatMutation.mutate({
-                              message:
-                                "Com o fluxo visual aprovado, avançar os slices para Contratos Zod & TDD.",
-                              intent: "advance_cycle",
-                              projectId: projectState.projectId,
-                            })
-                          }
-                          className="inline-flex min-h-8 items-center gap-1 rounded bg-accent px-2.5 text-[11px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
-                        >
-                          <span>Avançar p/ Contratos &amp; TDD</span>
-                          <ArrowRight className="size-3" />
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="btn-approve-visual-flow"
-                          disabled={chatMutation.isPending}
-                          onClick={() =>
-                            chatMutation.mutate({
-                              message:
-                                "Ressincronizar o contrato visual .uzina/DESIGN.md com o protótipo aprovado.",
-                              intent: "approve_visual_flow",
-                              projectId: projectState.projectId,
-                              targetAgentRole: "ux_designer",
-                            })
-                          }
-                          className="inline-flex min-h-8 items-center gap-1 rounded border border-border-default bg-surface px-2 text-[10px] font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
-                        >
-                          <ShieldCheck className="size-3 text-status-ok" />
-                          <span>Revalidar DESIGN.md</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold text-fg-primary">
-                        Garantir que o código nasça com este fluxo visual:
-                      </span>
-                      <button
-                        type="button"
-                        data-testid="btn-approve-visual-flow"
-                        disabled={chatMutation.isPending}
-                        onClick={() =>
-                          chatMutation.mutate({
-                            message:
-                              "Aprovar o protótipo e o fluxo visual atual para liberar a codificação dos slices de interface.",
-                            intent: "approve_visual_flow",
-                            projectId: projectState.projectId,
-                            targetAgentRole: "ux_designer",
-                          })
-                        }
-                        className="inline-flex min-h-8 items-center gap-1 rounded bg-status-ok px-3 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
-                      >
-                        <ShieldCheck className="size-3.5" />
-                        <span>Aprovar Fluxo Visual p/ Codificação</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Campo de Revisão Visual Responsivo (100% de largura no celular, sem cortar placeholder!) */}
-                  <div className="flex flex-col gap-1.5 sm:flex-row">
-                    <input
-                      aria-label="Feedback para ajustar o protótipo visual"
-                      data-testid="input-visual-revision"
-                      value={visualRevisionFeedback}
-                      onChange={(e) =>
-                        setVisualRevisionFeedback(e.target.value)
-                      }
-                      placeholder="Pedir ajuste no layout, cores ou fluxo de telas..."
-                      className="min-h-9 w-full flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
-                    />
-                    <button
-                      type="button"
-                      data-testid="btn-revise-visual-flow"
-                      disabled={chatMutation.isPending}
-                      onClick={() =>
-                        chatMutation.mutate({
-                          message:
-                            visualRevisionFeedback.trim() ||
-                            "Refinar o protótipo visual destacando indicadores principais no topo.",
-                          intent: "revise_visual_flow",
-                          projectId: projectState.projectId,
-                          targetAgentRole: "ux_designer",
-                        })
-                      }
-                      className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded border border-accent bg-accent-subtle px-3 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
-                    >
-                      <RotateCcw className="size-3" />
-                      <span>Ajustar Visual</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : artifactTab === "long_term" ? (
-              /* ABA 3: Artefatos de Longo Prazo do Projeto */
-              <div className="mt-2.5 space-y-2.5">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {longTermArtifacts.map((art) => {
-                    const isSelected = activeLongTerm?.id === art.id;
-                    return (
-                      <button
-                        key={art.id}
-                        type="button"
-                        data-testid={`long-term-artifact-${art.kind}`}
-                        onClick={() => setSelectedLongTermId(art.id)}
-                        className={`rounded-md border p-2.5 text-left transition-colors ${
-                          isSelected
-                            ? "border-accent bg-accent-subtle/40"
-                            : "border-border-subtle bg-canvas hover:border-border-strong"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="line-clamp-2 text-xs font-semibold leading-snug text-fg-primary">
-                            {art.title}
-                          </span>
-                          <span className="shrink-0 rounded border border-border-subtle bg-inset px-1.5 py-0.5 font-mono text-[9px] text-fg-muted">
-                            Ciclo #{art.cycleNumber}
-                          </span>
-                        </div>
-                        <p className="mt-1 line-clamp-1 text-[11px] text-fg-secondary">
-                          {art.summary}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {activeLongTerm && (
-                  <div
-                    data-testid="long-term-artifact-viewer"
-                    className="rounded-md border border-border-subtle bg-inset p-3"
-                  >
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2">
-                      <span className="text-xs font-semibold text-fg-primary">
-                        {activeLongTerm.title}
-                      </span>
-                      <span className="font-mono text-[10px] text-fg-muted">
-                        {activeLongTerm.ownerAgentName}
-                      </span>
-                    </div>
-                    <div className="max-h-60 overflow-y-auto text-xs text-fg-primary select-text">
-                      {renderFormattedContent(activeLongTerm.contentMarkdown)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* ABA 2: Artefatos Táticos de Cada Slice (Dossiê, Blueprint, Evidências + Aprovação / Retorno Cíclico) */
-              <div className="mt-2.5 space-y-2.5">
-                {sliceArtifacts.length === 0 ? (
-                  <p className="py-8 text-center text-xs text-fg-muted">
-                    Este projeto ainda não possui slices gerados.
-                  </p>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label
-                        htmlFor="select-slice-inspector"
-                        className="text-xs font-medium text-fg-secondary"
-                      >
-                        Slice:
-                      </label>
-                      <select
-                        id="select-slice-inspector"
-                        data-testid="select-slice-inspector"
-                        value={activeSlice?.deliverableId ?? ""}
-                        onChange={(e) => setSelectedSliceId(e.target.value)}
-                        className="min-h-8 flex-1 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
-                      >
-                        {sliceArtifacts.map((s) => (
-                          <option key={s.deliverableId} value={s.deliverableId}>
-                            [{s.statusLabel}] {s.title} (Ciclo #{s.cycleNumber})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {activeSlice && (
-                      <div
-                        data-testid="slice-artifact-inspector"
-                        className="space-y-2.5 rounded-md border border-border-subtle bg-canvas p-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2">
-                          <div>
-                            <h4 className="text-xs font-semibold text-fg-primary">
-                              {activeSlice.title}
-                            </h4>
-                            <p className="font-mono text-[10px] text-fg-secondary">
-                              Estágio:{" "}
-                              <strong className="text-accent">
-                                {activeSlice.statusLabel}
-                              </strong>{" "}
-                              · Estratégia: {activeSlice.strategy} · Ciclo #
-                              {activeSlice.cycleNumber}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-1">
-                            <button
-                              type="button"
-                              data-testid="slice-subtab-spec"
-                              onClick={() => setSliceSubTab("spec")}
-                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
-                                sliceSubTab === "spec"
-                                  ? "bg-accent text-accent-fg"
-                                  : "bg-inset text-fg-secondary"
-                              }`}
-                            >
-                              Dossiê (Spec)
-                            </button>
-                            <button
-                              type="button"
-                              data-testid="slice-subtab-blueprint"
-                              onClick={() => setSliceSubTab("blueprint")}
-                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
-                                sliceSubTab === "blueprint"
-                                  ? "bg-accent text-accent-fg"
-                                  : "bg-inset text-fg-secondary"
-                              }`}
-                            >
-                              Blueprint &amp; Tiers
-                            </button>
-                            <button
-                              type="button"
-                              data-testid="slice-subtab-evidence"
-                              onClick={() => setSliceSubTab("evidence")}
-                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
-                                sliceSubTab === "evidence"
-                                  ? "bg-accent text-accent-fg"
-                                  : "bg-inset text-fg-secondary"
-                              }`}
-                            >
-                              Evidências &amp; Gate
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="max-h-52 overflow-y-auto rounded border border-border-subtle bg-inset p-2.5 select-text">
-                          {sliceSubTab === "spec" && (
-                            <div
-                              data-testid="slice-spec-markdown"
-                              className="text-xs text-fg-primary"
-                            >
-                              {renderFormattedContent(activeSlice.specMarkdown)}
-                            </div>
-                          )}
-                          {sliceSubTab === "blueprint" && (
-                            <pre
-                              data-testid="slice-blueprint-json"
-                              className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-fg-primary"
-                            >
-                              {JSON.stringify(activeSlice.blueprintJson, null, 2)}
-                            </pre>
-                          )}
-                          {sliceSubTab === "evidence" && (
-                            <div
-                              data-testid="slice-evidence-summary"
-                              className="space-y-2 text-xs text-fg-primary"
-                            >
-                              <p>{activeSlice.evidenceSummary}</p>
-                              <p className="font-mono text-[11px] text-fg-secondary">
-                                Tentativas do Verify Gate:{" "}
-                                {activeSlice.verifyAttempts}/
-                                {activeSlice.maxVerifyAttempts}
-                              </p>
-                              {activeSlice.pendingDecisionSummary && (
-                                <div className="rounded border border-status-warn/40 bg-status-warn/10 p-2 text-[11px] text-status-warn">
-                                  <strong>Portão HITL Ativo:</strong>{" "}
-                                  {activeSlice.pendingDecisionSummary}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-2 border-t border-border-subtle pt-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-[11px] font-semibold text-fg-primary">
-                              Governança do Slice:
-                            </span>
-                            <button
-                              type="button"
-                              data-testid="btn-approve-slice-artifact"
-                              disabled={
-                                chatMutation.isPending ||
-                                activeSlice.status === "merged"
-                              }
-                              onClick={() =>
-                                chatMutation.mutate({
-                                  message: `Aprovar artefato e avançar o slice '${activeSlice.title}'.`,
-                                  intent: "approve_slice_artifact",
-                                  projectId: projectState.projectId,
-                                  deliverableId: activeSlice.deliverableId,
-                                })
-                              }
-                              className="inline-flex min-h-8 items-center gap-1 rounded bg-status-ok px-2.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
-                            >
-                              <ShieldCheck className="size-3.5" />
-                              <span>Aprovar Artefato &amp; Avançar</span>
-                            </button>
-                          </div>
-
-                          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
-                            <select
-                              aria-label="Agente para revisão em ciclo"
-                              data-testid="select-revision-agent"
-                              value={revisionTargetAgent}
-                              onChange={(e) =>
-                                setRevisionTargetAgent(
-                                  e.target.value as AgencyAgentRole
-                                )
-                              }
-                              className="min-h-8 rounded border border-border-default bg-inset px-2 text-[11px] text-fg-primary"
-                            >
-                              <option value="software_architect">
-                                Voltar ao Arquiteto
-                              </option>
-                              <option value="product_discovery">
-                                Voltar ao Produto
-                              </option>
-                              <option value="ux_designer">
-                                Voltar ao Design
-                              </option>
-                              <option value="tech_lead">
-                                Voltar ao Tech Lead
-                              </option>
-                            </select>
-                            <input
-                              aria-label="Feedback de correção para retorno em ciclo"
-                              data-testid="input-slice-revision-feedback"
-                              value={revisionFeedback}
-                              onChange={(e) =>
-                                setRevisionFeedback(e.target.value)
-                              }
-                              placeholder="O que corrigir neste slice?"
-                              className="min-h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
-                            />
-                            <button
-                              type="button"
-                              data-testid="btn-revise-slice-artifact"
-                              disabled={chatMutation.isPending}
-                              onClick={() =>
-                                chatMutation.mutate({
-                                  message:
-                                    revisionFeedback.trim() ||
-                                    `Revisar arquitetura e especificações do slice '${activeSlice.title}' em novo ciclo.`,
-                                  intent: "request_slice_revision",
-                                  projectId: projectState.projectId,
-                                  deliverableId: activeSlice.deliverableId,
-                                  targetAgentRole: revisionTargetAgent,
-                                })
-                              }
-                              className="inline-flex min-h-8 items-center justify-center gap-1 rounded border border-accent bg-accent-subtle px-2.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
-                            >
-                              <RotateCcw className="size-3" />
-                              <span>Corrigir em Ciclo</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {projectState?.repositoryUrl && (
-            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-2 font-mono text-[11px] text-fg-secondary">
-              <span className="inline-flex items-center gap-1.5 truncate">
-                <GitBranch className="size-3.5 text-accent" />
-                <span>Git: {projectState.repositoryUrl}</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-status-ok">
-                <Cpu className="size-3.5" />
-                <span>AST Poliglota Ativo</span>
-              </span>
             </div>
           )}
         </section>
-      </div>
+      )}
+
+      {/* Feed Amplo & Confortável de Mensagens (15px, leading-7, zero poluição visual) */}
+      <section
+        data-testid="agency-chat-panel"
+        className="flex flex-col rounded-xl border border-border-subtle bg-surface"
+      >
+        <div
+          data-testid="agency-chat-history"
+          className="min-h-[340px] max-h-[calc(100vh-22rem)] space-y-4 overflow-y-auto p-4 sm:p-6 select-text"
+        >
+          {chatTurns.map((turn) => {
+            const hasPrototypeAction = turn.actionsExecuted?.some(
+              (a) =>
+                a.type === "generated_visual_prototype" ||
+                a.type === "approved_visual_flow"
+            );
+            const hasSlicesAction = turn.actionsExecuted?.some(
+              (a) =>
+                a.type === "created_deliverables_wave" ||
+                a.type === "advanced_deliverable_stage" ||
+                a.type === "approved_slice_artifact" ||
+                a.type === "revised_slice_artifact"
+            );
+
+            return (
+              <article
+                key={turn.id}
+                className={
+                  turn.role === "user"
+                    ? "ml-auto max-w-[85%] rounded-xl border border-border-default bg-elevated px-4 py-3 text-fg-primary"
+                    : "space-y-3 border-b border-border-subtle/70 pb-5 last:border-b-0 last:pb-1"
+                }
+              >
+                {turn.role === "assistant" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Bot
+                        className="size-4 text-fg-secondary"
+                        strokeWidth={1.75}
+                      />
+                      <span className="text-sm font-semibold text-fg-primary">
+                        {turn.agentName ?? "Equipe Uzina"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+                      {turn.cycleNumber && (
+                        <span className="tabular-nums">
+                          Ciclo #{turn.cycleNumber}
+                        </span>
+                      )}
+                      <span>·</span>
+                      {turn.executionMode === "live_llm" ||
+                      readiness?.llmProviderConfigured ? (
+                        <span className="inline-flex items-center gap-1.5 text-fg-secondary">
+                          <span className="size-1.5 rounded-full bg-status-ok" />
+                          <span>{turn.boundModelId ?? "LLM Real"}</span>
+                          {turn.llmLatencyMs ? (
+                            <span className="tabular-nums">
+                              ({turn.llmLatencyMs}ms)
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span>Modo Assistido Local</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <MarkdownProse content={turn.content} />
+
+                {/* Cartões Inline estilo Claude Artifacts (ligando o Chat diretamente ao Estúdio e às Entregas) */}
+                {(hasPrototypeAction || hasSlicesAction) && projectState && (
+                  <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
+                    {hasPrototypeAction && (
+                      <Link
+                        href={`/app/studio?projectId=${encodeURIComponent(
+                          projectState.projectId
+                        )}`}
+                        data-testid="inline-artifact-studio-card"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border-default bg-inset px-4 py-3 transition-colors hover:border-border-strong"
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <Palette
+                            className="size-4 shrink-0 text-fg-secondary"
+                            strokeWidth={1.75}
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-fg-primary">
+                              Protótipo Visual Pronto
+                            </p>
+                            <p className="truncate text-xs text-fg-muted">
+                              Abrir em tela cheia para revisar
+                            </p>
+                          </div>
+                        </div>
+                        <ArrowRight className="size-4 shrink-0 text-fg-muted" />
+                      </Link>
+                    )}
+
+                    {hasSlicesAction && (
+                      <Link
+                        href={`/app/deliverables?projectId=${encodeURIComponent(
+                          projectState.projectId
+                        )}`}
+                        data-testid="inline-artifact-deliverables-card"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border-default bg-inset px-4 py-3 transition-colors hover:border-border-strong"
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <Layers
+                            className="size-4 shrink-0 text-fg-secondary"
+                            strokeWidth={1.75}
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-fg-primary">
+                              Entregas &amp; Documentos ({projectState.totalDeliverables})
+                            </p>
+                            <p className="truncate text-xs text-fg-muted">
+                              Ver Slices, Kanban e PRD
+                            </p>
+                          </div>
+                        </div>
+                        <ArrowRight className="size-4 shrink-0 text-fg-muted" />
+                      </Link>
+                    )}
+                  </div>
+                )}
+
+                {turn.actionsExecuted && turn.actionsExecuted.length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-fg-muted">
+                    {turn.actionsExecuted.map((act, idx) => (
+                      <span
+                        key={`${turn.id}-act-${idx}`}
+                        data-testid={`agent-action-${act.type}`}
+                        className="inline-flex items-center gap-1.5"
+                      >
+                        <CheckCircle2 className="size-3.5 shrink-0 text-status-ok" />
+                        <span>{act.label}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+
+        {/* Faixa Discreta de Atalhos do Projeto + Seletor de Especialista + Composer Limpo */}
+        <form
+          onSubmit={handleSendChat}
+          className="space-y-3 border-t border-border-subtle bg-inset/50 p-4 sm:px-6"
+        >
+          {/* Atalhos diretos para os outros momentos do projeto */}
+          {projectState && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-secondary">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={`/app/studio?projectId=${encodeURIComponent(
+                    projectState.projectId
+                  )}`}
+                  data-testid="chat-footer-open-studio"
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+                >
+                  <Palette className="size-3.5" strokeWidth={1.75} />
+                  <span>
+                    Estúdio Visual{" "}
+                    {visualFlow?.approvedForCodeHandoff
+                      ? "(Aprovado)"
+                      : "(Revisar)"}
+                  </span>
+                </Link>
+                <Link
+                  href={`/app/deliverables?projectId=${encodeURIComponent(
+                    projectState.projectId
+                  )}`}
+                  data-testid="chat-footer-open-deliverables"
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+                >
+                  <Layers className="size-3.5" strokeWidth={1.75} />
+                  <span>
+                    Entregas ({projectState.sliceArtifacts.length})
+                  </span>
+                </Link>
+                <Link
+                  href={`/app/deliverables?projectId=${encodeURIComponent(
+                    projectState.projectId
+                  )}&tab=docs`}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+                >
+                  <FileText className="size-3.5" strokeWidth={1.75} />
+                  <span>Docs ({projectState.longTermArtifacts.length})</span>
+                </Link>
+              </div>
+
+              {chatTurns.length > 1 && (
+                <button
+                  type="button"
+                  data-testid="btn-clear-chat-history"
+                  onClick={() => persistTurns([INITIAL_GREETING_TURN])}
+                  className="inline-flex min-h-8 items-center gap-1 rounded px-2 text-xs text-fg-muted hover:text-fg-primary"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>Limpar conversa</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Caixa de Texto Confortável + Sugestões Discretas */}
+          <div className="space-y-2">
+            <label htmlFor="agency-chat-input" className="sr-only">
+              Mensagem para o Agente Responsável
+            </label>
+            <textarea
+              id="agency-chat-input"
+              data-testid="agency-chat-input"
+              rows={2}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleTextareaKeyDown}
+              placeholder="Converse com o agente responsável, peça ajustes visuais ou novos slices (Enter envia · Shift+Enter quebra linha)..."
+              className="w-full resize-y rounded-lg border border-border-default bg-inset p-3.5 text-[15px] leading-relaxed text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              {/* Esquerda: Seletor Discreto de Agente + Chips Neutros */}
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="select-chat-agent" className="sr-only">
+                  Especialista respondendo
+                </label>
+                <select
+                  id="select-chat-agent"
+                  data-testid="select-chat-agent"
+                  value={selectedAgentRole}
+                  onChange={(e) =>
+                    setSelectedAgentRole(
+                      e.target.value as AgencyAgentRole | "auto"
+                    )
+                  }
+                  className="min-h-9 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary"
+                >
+                  <option value="auto">
+                    Agente: Automático ({projectState?.activeAgentName ?? "Pela Fase"})
+                  </option>
+                  {visibleAgents.map((ag) => (
+                    <option key={ag.role} value={ag.role}>
+                      {teamTopology === "lean_mvp" && ag.leanDisplayName
+                        ? ag.leanDisplayName
+                        : ag.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div
+                  data-testid="quick-prompts-bar"
+                  className="hidden flex-wrap items-center gap-1.5 sm:flex"
+                >
+                  {quickPrompts.map((qp, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      data-testid={`quick-prompt-chip-${idx}`}
+                      onClick={() => setChatInput(qp.prompt)}
+                      className="inline-flex min-h-8 items-center rounded-full border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+                    >
+                      {qp.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Direita: Único CTA Primário da Tela */}
+              <button
+                type="submit"
+                data-testid="agency-chat-submit"
+                disabled={chatMutation.isPending}
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
+              >
+                {chatMutation.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                <span>Enviar Mensagem</span>
+              </button>
+            </div>
+          </div>
+
+          {chatMutation.error && (
+            <p role="alert" className="text-sm text-status-danger">
+              {(chatMutation.error as Error).message}
+            </p>
+          )}
+        </form>
+      </section>
     </div>
   );
 }
