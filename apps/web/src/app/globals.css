@@ -2,6 +2,7 @@
 
 :root {
   color-scheme: dark;
+  font-size: 16px;
   --bg-canvas: oklch(0.13 0.006 260);
   --bg-surface: oklch(0.17 0.007 260);
   --bg-elevated: oklch(0.21 0.008 260);
@@ -12,9 +13,9 @@
   --border-strong: oklch(0.38 0.012 260);
 
   --fg-primary: oklch(0.96 0.004 260);
-  --fg-secondary: oklch(0.76 0.01 260);
-  --fg-muted: oklch(0.58 0.012 260);
-  --fg-disabled: oklch(0.42 0.008 260);
+  --fg-secondary: oklch(0.8 0.008 260);
+  --fg-muted: oklch(0.62 0.01 260);
+  --fg-disabled: oklch(0.45 0.008 260);
 
   --accent: oklch(0.72 0.16 55);
   --accent-hover: oklch(0.77 0.15 55);
@@ -27,6 +28,18 @@
   --status-danger: oklch(0.66 0.2 25);
   --status-info: oklch(0.7 0.14 235);
   --status-neutral: oklch(0.62 0.01 260);
+}
+
+[data-font-scale="compact"] {
+  font-size: 14.5px;
+}
+
+[data-font-scale="comfortable"] {
+  font-size: 16px;
+}
+
+[data-font-scale="large"] {
+  font-size: 18px;
 }
 
 [data-theme="light"] {

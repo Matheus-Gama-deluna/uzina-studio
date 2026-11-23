@@ -1,6 +1,6 @@
 # Contrato Visual Oficial — Uzina Studio (`.uzina/DESIGN.md`)
 
-> **Direção Estética:** *Precision Industrial Dark (padrão)* + *Crisp Light (alternância)* — inspirado em Linear, Raycast e Vercel. Superfícies neutras em **OKLCH**, bordas hairline de `1px`, tipografia nítida com precisão numérica (`tabular-nums`) e uma única cor de acento funcional (**Âmbar/Cobre Uzina**).
+> **Direção Estética:** *Calm Precision Dark (padrão)* + *Crisp Light (alternância)* — inspirado em Linear, Lovable, Claude Artifacts e Vercel. Superfícies neutras em **OKLCH**, disciplina cromática **90/10** (90%+ neutro monocromático + **no máximo 1 CTA primário com preenchimento Âmbar/Cobre por tela**), bordas hairline de `1px`, zero badges coloridos empilhados em excesso e tipografia confortável com controle global de escala (`A- | A | A+`).
 > **Implementação Alvo:** Tailwind CSS v4 (CSS-first `@theme` em `apps/web/src/app/globals.css`, sem `tailwind.config.js`) + Radix UI / shadcn moderno (`data-slot`, sem `forwardRef` legado).
 
 ---
@@ -39,11 +39,15 @@
 
 * **Família Sans (UI):** `Geist`, `Plus Jakarta Sans`, `system-ui`, `sans-serif`.
 * **Família Mono (Código, Hashes, Logs, Valores):** `Geist Mono`, `JetBrains Mono`, `ui-monospace`, `monospace`.
-* **Escala Fluida e Compacta:**
-  * Page Title (`h1`): `clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem)` (`font-semibold`, `tracking-[-0.02em]`).
-  * Section Title (`h2`): `0.9375rem` (`15px`, `font-semibold`).
-  * Body / Table Cell: `0.875rem` (`14px`, `leading-5`).
-  * Micro / Kicker / Badge: `0.75rem` (`12px`, `font-medium`).
+* **Escala Fluida, Confortável e Ajustável (`data-font-scale`):**
+  * Controle global no cabeçalho (`compact` = `14.5px`, `comfortable` = `16px` padrão, `large` = `18px`).
+  * Page Title (`h1`): `clamp(1.375rem, 1.2rem + 0.6vw, 1.625rem)` (`font-semibold`, `tracking-[-0.02em]`).
+  * Section Title (`h2`): `1rem` (`16px`, `font-semibold`).
+  * Body / Chat / Leitura: `0.9375rem` (`15px`, `leading-7`) ou `0.875rem` (`14px`, `leading-6`).
+  * Metadado / Kicker / Badge: mínimo `0.75rem` (`12px`, `font-medium`) — proibido micro-texto `9px–10px` em conteúdo de leitura.
+* **Disciplina Cromática 90/10 (Fim da Poluição de Acento):**
+  * No máximo **1 botão primário** (`bg-accent text-accent-fg`) por visão/tela.
+  * Itens ativos de navegação usam superfície neutra elevada (`bg-elevated text-fg-primary border-border-subtle`), e badges de status usam ponto semântico discreto (`6px`) + texto neutro.
 * **Obrigação de `tabular-nums`:** todo contador, custo em USD, consumo de tokens, duração/latência (`ms`/`s`), data UTC e coluna numérica de tabela deve usar `font-variant-numeric: tabular-nums` (`tabular-nums` no Tailwind) para eliminar trepidação visual (*layout jitter*).
 
 ---

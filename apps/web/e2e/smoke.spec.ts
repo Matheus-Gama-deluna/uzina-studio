@@ -48,7 +48,7 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
 
     await page.waitForURL("**/app**");
     await expect(
-      page.getByRole("heading", { name: "Torre de Controle" })
+      page.getByRole("heading", { name: "O que vamos construir hoje?" })
     ).toBeVisible();
 
     await page.getByTestId("btn-new-project").click();
@@ -56,9 +56,13 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
       .getByPlaceholder("Ex.: Cockpit Operacional")
       .fill(`Projeto E2E ${suffix}`);
     await page.getByTestId("submit-project").click();
-    await expect(
-      page.getByText(`Projeto E2E ${suffix}`).first()
-    ).toBeVisible();
+    await page.waitForURL("**/app?projectId=**");
+    await expect(page.getByTestId("chat-project-select")).toContainText(
+      `Projeto E2E ${suffix}`
+    );
+
+    await page.goto("/app/deliverables");
+    await expect(page.getByTestId("deliverables-docs-hub")).toBeVisible();
 
     await page.getByTestId("btn-new-deliverable").click();
     await page
@@ -68,6 +72,12 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
     await expect(
       page.getByText(`Entrega E2E ${suffix}`).first()
     ).toBeVisible();
+
+    await page.goto("/app/ideas");
+    await expect(page.getByTestId("ideas-hub-root")).toBeVisible();
+
+    await page.goto("/app/studio");
+    await expect(page.getByTestId("visual-studio-workspace")).toBeVisible();
 
     const operationalRoutes = [
       {
@@ -85,6 +95,10 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
       {
         path: "/app/memories",
         heading: "Memórias (Organização, Cliente e Projeto)",
+      },
+      {
+        path: "/app/finops",
+        heading: "FinOps de Tokens & Isolamento",
       },
     ];
 

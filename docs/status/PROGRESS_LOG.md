@@ -283,3 +283,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
   * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed (13.2s)`).
   * `browser` (`flash`) em `http://localhost:3000`: **PASS** (Ping HTTP real validado em `/app/providers`, protótipo visual de domínio renderizado em Desktop e Mobile sem abas duplicadas e sem overflow horizontal).
+
+
+---
+
+## 2026-11-23 — Slice 16: Redesign Visual Calmo (90/10), Tipografia Confortável (`A- | A | A+`) & Arquitetura em 4 Momentos Dedicados (`feat/slice-16-calm-ui-typography-four-moments`)
+
+* **Entregue:**
+  * **Design System & Ergonomia Visual (`.uzina/DESIGN.md`, `globals.css`, `layout.tsx`, `FontScaleToggle`):** disciplina cromática **90/10** (superfícies neutras com bordas *hairline* `1px`, status discretos e no máximo 1 CTA âmbar por tela), escala base legível (`14px–15px` no corpo), controle global **`A- | A | A+`** persistido em `localStorage` com restauração pré-hidratação (`THEME_INIT_SCRIPT`), e barra lateral recolhível no desktop (`CockpitShell` + `active-project-store.ts`).
+  * **Arquitetura em 4 Momentos Dedicados (`apps/web`):**
+    1. **Ideias & Projetos (`/app/ideas` · `IdeasHub`):** hero limpo (*"O que vamos construir hoje?"*) com abas *Nova Ideia do Zero* / *Importar Repositório Git*, exemplos rápidos e portfólio de projetos por cliente (também exibido automaticamente em `/app` quando a organização ainda possui 0 projetos).
+    2. **Chat da Engenharia (`/app` · `AgencyCommandCenter` + `MarkdownProse`):** leitura centralizada (`max-w-4xl`), barra recolhível de configurações da sessão (`toggle-session-settings-btn`), cards inline de contexto e 1 único CTA âmbar (*Enviar Mensagem*).
+    3. **Estúdio Visual (`/app/studio` · `VisualStudioWorkspace`):** preview sandboxed em tela ampla com alternância instantânea `Desktop | Tablet (640px) | Celular (390px)`, painel lateral retrátil de revisão visual/tokens e aba secundária `Referências, Stitch & Workflow` preservando a montagem do `<iframe>`.
+    4. **Entregas & Docs (`/app/deliverables` · `DeliverablesDocsHub`):** abas separadas para `Entregas & Slices` (`Lista | Kanban` + Dossiê/Blueprint/Evidências) e `Documentos` (`15px` estilo Notion/Linear).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65` arquivos, `199` testes, `0` violações).
+  * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed`).
+  * `browser` (`flash`) em `http://localhost:3000`: **PASS** em Desktop `1440×900` (Dark/Light, `A+`, sidebar recolhível, hidratação pós-reload) e Mobile `390×844` nos 4 momentos (`0` erros de console, `0` HTTP `>= 500`, `0` overflow horizontal).
