@@ -25,3 +25,7 @@ Não são necessárias para a **Fase 0** nem para iniciar o **Slice 0** em modo 
 | **GitHub CLI (`gh`)** | Slice 4 (`stage_finalize` com abertura automática de Draft PR) | `winget install GitHub.cli` e `gh auth login` |
 | **OpenCode CLI** | Slice 2+ (execução real de agentes `plan`/`build` em worktrees) | Instalação conforme documentação oficial do OpenCode (`opencode.ai`) |
 | **Scanners AppSec** | Slice 4 (`gitleaks`, `opengrep`/`semgrep`, `trivy`, `osv-scanner`) | Instaláveis via `uzina sec install-tools` para `~/.uzina/bin` ou pré-embarcados no Docker do Slice 6 |
+
+
+## 5. Portabilidade de Skills, Plugins, MCPs e Subagentes
+Para continuar o projeto em outra máquina/ambiente mantendo exatamente o mesmo conjunto de skills, regras, subagentes (`fast-scout`, `doc-researcher`, `test-critic`, `appsec-auditor`, `factory-verifier`), servidores MCP e plugins (`chrome-devtools-plugin`, `context7`, `egm`, `mobbin`, `modern-web-guidance-plugin`), consulte [`docs/AMBIENTE_SKILLS_PLUGINS_HANDOFF.md`](AMBIENTE_SKILLS_PLUGINS_HANDOFF.md).
