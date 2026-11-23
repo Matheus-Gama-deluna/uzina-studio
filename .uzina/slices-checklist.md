@@ -100,3 +100,9 @@
   - [x] `decideOptimalAiStrategy`: Arquiteto de Software decide a estratégia ideal para execução por IA sem exigir escolha manual do usuário
   - [x] Topologia de equipe adaptativa (`Equipe Enxuta MVP · 3` vs `Completa · 6 Especialistas`)
   - [x] Aba `Estúdio & Protótipo` integrada ao lado do Chat com preview `<iframe sandbox="">`, geração automática de protótipo inicial e Portão Visual antes da codificação (`495 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-13-chat-first-architect-strategy-visual-gate`)
+
+- [x] **Slice 14 — Polimento Visual Desktop/Mobile, Fluxo Contínuo & Eliminação de Botões Mortos** (`docs/slices/slice-14-visual-ux-polish-desktop-mobile.md`)
+  - [x] Desktop `1440×900` com Chat, Quick-Prompts em 1 linha e botão `Enviar Mensagem` 100% visíveis na primeira dobra (`y + height = 870px`)
+  - [x] Mobile `390×844` com Switcher Segmentado (`Chat IA` | `Estúdio` | `Slices`), alvos de toque `>= 40px` e preview `<iframe sandbox="">` responsivo sem scroll horizontal
+  - [x] Persistência do histórico do Chat por projeto (`localStorage` + `useSyncExternalStore` sem erro de hidratação SSR), formatação Markdown limpa e estado pós-aprovação visual com avanço direto para `Contratos & TDD`
+  - [x] Sincronização bidirecional Kanban ↔ `Slices`, Sidebar `HIERARQUIA (CLIENTES)` clicável, breadcrumbs de `/app/finops` e `/code` corrigidos e redirecionamento em `/app/settings` e `/exec` (`495 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-14-visual-ux-polish-desktop-mobile`)

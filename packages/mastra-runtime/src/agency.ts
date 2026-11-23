@@ -228,32 +228,32 @@ function buildGeneratedVisualPrototypeHtml(params: {
         .replace(/[<>&"]/g, "")
     : null;
 
-  return `<main style="font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; border: 1px solid #27272a;">
-  <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; padding-bottom: 14px; margin-bottom: 16px;">
-    <div>
-      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #f97316; font-weight: 600;">Protótipo Visual · Fluxo Aprovado p/ IA</span>
-      <h1 style="margin: 4px 0 0 0; font-size: 18px; color: #fafafa;">${safeName}</h1>
+  return `<main style="font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 14px; border-radius: 10px; border: 1px solid #27272a; box-sizing: border-box; max-width: 100%; overflow-x: hidden;">
+  <header style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #27272a; padding-bottom: 10px; margin-bottom: 12px;">
+    <div style="min-width: 160px; flex: 1;">
+      <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #f97316; font-weight: 600; display: block;">Protótipo Visual · Fluxo Aprovado p/ IA</span>
+      <h1 style="margin: 3px 0 0 0; font-size: 16px; color: #fafafa; line-height: 1.25;">${safeName}</h1>
     </div>
-    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 4px 10px; border-radius: 6px; font-size: 11px;">${params.strategyLabel}</span>
+    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap;">${params.strategyLabel}</span>
   </header>
-  <p style="font-size: 13px; color: #d4d4d8; line-height: 1.5; margin: 0 0 16px 0;">${safeSummary}</p>
+  <p style="font-size: 12px; color: #d4d4d8; line-height: 1.45; margin: 0 0 12px 0;">${safeSummary}</p>
   ${
     safeRevision
-      ? `<div style="background: #1c1917; border: 1px solid #f97316; color: #fdba74; padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 16px;"><strong>Ajuste Visual Incorporado:</strong> ${safeRevision}</div>`
+      ? `<div style="background: #1c1917; border: 1px solid #f97316; color: #fdba74; padding: 8px 10px; border-radius: 8px; font-size: 11px; margin-bottom: 12px;"><strong>Ajuste Visual Incorporado:</strong> ${safeRevision}</div>`
       : ""
   }
-  <section style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
-    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px;">
-      <div style="font-size: 11px; color: #a1a1aa;">1. Entrada &amp; Autenticação</div>
-      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Acesso &amp; Onboarding Guiado</div>
+  <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-bottom: 4px;">
+    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 10px;">
+      <div style="font-size: 10px; color: #a1a1aa;">1. Entrada &amp; Autenticação</div>
+      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Acesso &amp; Onboarding Guiado</div>
     </div>
-    <div style="background: #18181b; border: 1px solid #f97316; border-radius: 8px; padding: 12px;">
-      <div style="font-size: 11px; color: #f97316;">2. Painel Principal</div>
-      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Operação Core &amp; Indicadores</div>
+    <div style="background: #18181b; border: 1px solid #f97316; border-radius: 8px; padding: 10px;">
+      <div style="font-size: 10px; color: #f97316;">2. Painel Principal</div>
+      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Operação Core &amp; Indicadores</div>
     </div>
-    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px;">
-      <div style="font-size: 11px; color: #a1a1aa;">3. Gestão &amp; Auditoria</div>
-      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Relatórios &amp; Configurações</div>
+    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 10px;">
+      <div style="font-size: 10px; color: #a1a1aa;">3. Gestão &amp; Auditoria</div>
+      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Relatórios &amp; Configurações</div>
     </div>
   </section>
 </main>`;

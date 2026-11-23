@@ -204,7 +204,24 @@ export function CockpitShell({
                 );
                 return (
                   <li key={client.id} className="space-y-0.5">
-                    <div className="flex items-center justify-between rounded px-2 py-1 text-xs font-medium text-fg-primary">
+                    <button
+                      type="button"
+                      data-testid={`sidebar-client-${client.id}`}
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        window.dispatchEvent(
+                          new CustomEvent("uzina:select-context", {
+                            detail: { clientId: client.id },
+                          })
+                        );
+                        if (pathname !== "/app") {
+                          router.push(
+                            `/app?clientId=${encodeURIComponent(client.id)}`
+                          );
+                        }
+                      }}
+                      className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs font-medium text-fg-primary transition-colors hover:bg-elevated"
+                    >
                       <span className="flex items-center gap-1.5 truncate">
                         <Building2
                           className="size-3.5 shrink-0 text-fg-muted"
@@ -217,19 +234,42 @@ export function CockpitShell({
                           Padrão
                         </span>
                       )}
-                    </div>
+                    </button>
                     {clientProjects.length > 0 && (
                       <ul className="ml-4 space-y-0.5 border-l border-border-subtle pl-2">
                         {clientProjects.map((project) => (
-                          <li
-                            key={project.id}
-                            className="flex items-center gap-1.5 truncate py-0.5 text-xs text-fg-secondary"
-                          >
-                            <FolderGit2
-                              className="size-3 shrink-0 text-fg-muted"
-                              strokeWidth={1.75}
-                            />
-                            <span className="truncate">{project.name}</span>
+                          <li key={project.id}>
+                            <button
+                              type="button"
+                              data-testid={`sidebar-project-${project.id}`}
+                              onClick={() => {
+                                setMobileMenuOpen(false);
+                                window.dispatchEvent(
+                                  new CustomEvent("uzina:select-context", {
+                                    detail: {
+                                      clientId: client.id,
+                                      projectId: project.id,
+                                    },
+                                  })
+                                );
+                                if (pathname !== "/app") {
+                                  router.push(
+                                    `/app?clientId=${encodeURIComponent(
+                                      client.id
+                                    )}&projectId=${encodeURIComponent(
+                                      project.id
+                                    )}`
+                                  );
+                                }
+                              }}
+                              className="flex w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs text-fg-secondary transition-colors hover:bg-elevated hover:text-fg-primary"
+                            >
+                              <FolderGit2
+                                className="size-3 shrink-0 text-fg-muted"
+                                strokeWidth={1.75}
+                              />
+                              <span className="truncate">{project.name}</span>
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -295,42 +335,49 @@ export function CockpitShell({
 
       {/* Coluna Principal */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-12 items-center justify-between border-b border-border-subtle bg-surface/95 px-4 backdrop-blur-xs">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-20 flex h-11 items-center justify-between border-b border-border-subtle bg-surface/95 px-3 sm:px-4 backdrop-blur-xs">
+          <div className="flex min-w-0 items-center gap-2.5">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Abrir menu lateral"
-              className="rounded border border-border-default p-1.5 text-fg-secondary hover:text-fg-primary lg:hidden"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded border border-border-default text-fg-secondary hover:text-fg-primary lg:hidden"
             >
               <Menu className="size-4" strokeWidth={1.75} />
             </button>
-            <nav aria-label="Breadcrumb" className="text-xs text-fg-secondary">
-              <span>Uzina Studio</span>
-              <span className="mx-1.5 text-fg-muted">/</span>
+            <nav
+              aria-label="Breadcrumb"
+              className="truncate whitespace-nowrap text-xs text-fg-secondary"
+            >
+              <span className="hidden sm:inline">Uzina Studio</span>
+              <span className="mx-1.5 hidden text-fg-muted sm:inline">/</span>
               <span className="font-medium text-fg-primary">
                 {pathname.includes("/studio")
                   ? "Estúdio Visual"
-                  : pathname.startsWith("/app/decisions")
-                    ? "Caixa de Decisões"
-                    : pathname.startsWith("/app/security")
-                      ? "Auditoria AppSec"
-                      : pathname.startsWith("/app/memories")
-                        ? "Memórias"
-                        : pathname.startsWith("/app/providers")
-                          ? "Provedores & Cofre"
-                          : "Torre de Controle"}
+                  : pathname.includes("/code")
+                    ? "Mapa do Código (AST)"
+                    : pathname.startsWith("/app/finops")
+                      ? "FinOps & Tokens"
+                      : pathname.startsWith("/app/decisions")
+                        ? "Caixa de Decisões"
+                        : pathname.startsWith("/app/security")
+                          ? "Auditoria AppSec"
+                          : pathname.startsWith("/app/memories")
+                            ? "Memórias"
+                            : pathname.startsWith("/app/providers")
+                              ? "Provedores & Cofre"
+                              : "Torre de Controle"}
               </span>
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => setCopilotOpen(true)}
               data-testid="open-copilot-drawer"
               aria-label="Abrir Co-piloto Executivo"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 text-xs font-medium text-accent transition-colors hover:bg-accent-subtle/80"
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 text-xs font-medium text-accent transition-colors hover:bg-accent-subtle/80"
             >
               <Bot className="size-3.5" strokeWidth={1.75} />
               <span className="hidden sm:inline">Co-piloto</span>
@@ -340,7 +387,7 @@ export function CockpitShell({
               onClick={() => setPaletteOpen(true)}
               data-testid="open-command-palette"
               aria-label="Abrir paleta de comandos"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             >
               <Command className="size-3.5" strokeWidth={1.75} />
               <span className="hidden sm:inline">Comandos</span>
@@ -352,7 +399,7 @@ export function CockpitShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        <main className="flex-1 p-2.5 sm:px-5 sm:py-2.5">{children}</main>
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

@@ -11,6 +11,7 @@ import type {
   TeamTopologyMode,
 } from "@uzina/contracts";
 import {
+  ArrowRight,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -23,6 +24,7 @@ import {
   GitBranch,
   Layers,
   Loader2,
+  MessageSquare,
   Palette,
   Play,
   PlusCircle,
@@ -31,10 +33,23 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+
+const emptySubscribe = () => () => {};
+
+export type MobileWorkspaceSection = "chat" | "studio" | "artifacts";
 
 interface ChatTurnItem {
   id: string;
@@ -49,24 +64,117 @@ interface ChatTurnItem {
   actionsExecuted?: AgencyActionExecuted[];
 }
 
+const INITIAL_GREETING_TURN: ChatTurnItem = {
+  id: "initial-greeting",
+  role: "assistant",
+  agentName: "Equipe de Engenharia Uzina",
+  agentRole: "orchestrator",
+  tierLabel: "Tier 3 · Raciocínio & Planejamento (Pro)",
+  boundModelId: "google/gemini-2.5-pro",
+  cycleNumber: 1,
+  content:
+    "Olá! Descreva sua ideia de sistema (ou cole a URL de um repositório Git existente) direto na caixa abaixo. Nosso **Arquiteto de Software** analisa a conversa, decide a melhor estratégia para os agentes de IA, gera o **Protótipo Visual** inicial e organiza os **Slices** automaticamente.",
+};
+
 const AUTONOMY_LABELS: Record<AutonomyMode, string> = {
   guided: "Autonomia: Guiado (Passo a Passo)",
   semi_autonomous: "Autonomia: Semi-Autônomo (Pausa nos Portões)",
   full_autonomous: "Autonomia: Contínuo (Ciclo Completo)",
 };
 
+function formatInlineMarkdown(line: string): ReactNode[] {
+  const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((segment, index) => {
+    if (segment.startsWith("**") && segment.endsWith("**") && segment.length > 4) {
+      return (
+        <strong key={index} className="font-semibold text-fg-primary">
+          {segment.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (segment.startsWith("`") && segment.endsWith("`") && segment.length > 2) {
+      return (
+        <code
+          key={index}
+          className="rounded border border-border-subtle bg-inset px-1 py-0.5 font-mono text-[11px] text-accent"
+        >
+          {segment.slice(1, -1)}
+        </code>
+      );
+    }
+    return <span key={index}>{segment}</span>;
+  });
+}
+
+function renderFormattedContent(content: string): ReactNode {
+  const lines = content.split(/\r?\n/);
+  return (
+    <div className="space-y-1.5 leading-relaxed">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="h-1" />;
+        }
+        if (trimmed.startsWith("### ")) {
+          return (
+            <h4
+              key={idx}
+              className="pt-1 text-xs font-semibold tracking-tight text-fg-primary"
+            >
+              {formatInlineMarkdown(trimmed.slice(4))}
+            </h4>
+          );
+        }
+        if (trimmed.startsWith("## ") || trimmed.startsWith("# ")) {
+          const clean = trimmed.replace(/^#+\s*/, "");
+          return (
+            <h3
+              key={idx}
+              className="pt-1 text-xs font-bold tracking-tight text-fg-primary"
+            >
+              {formatInlineMarkdown(clean)}
+            </h3>
+          );
+        }
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          return (
+            <div key={idx} className="flex items-start gap-1.5 pl-1">
+              <span className="mt-1.5 size-1 shrink-0 rounded-full bg-accent" />
+              <span>{formatInlineMarkdown(trimmed.slice(2))}</span>
+            </div>
+          );
+        }
+        return <p key={idx}>{formatInlineMarkdown(line)}</p>;
+      })}
+    </div>
+  );
+}
+
 export function AgencyCommandCenter({
   selectedClientId,
   activeProjectId,
   bootReady = true,
+  mobileSection: controlledMobileSection,
+  onMobileSectionChange,
   onSelectProject,
 }: {
   selectedClientId: string;
   activeProjectId: string;
   bootReady?: boolean;
+  mobileSection?: MobileWorkspaceSection;
+  onMobileSectionChange?: (section: MobileWorkspaceSection) => void;
   onSelectProject: (projectId: string) => void;
 }) {
   const queryClient = useQueryClient();
+
+  const [internalMobileSection, setInternalMobileSection] =
+    useState<MobileWorkspaceSection>("chat");
+  const mobileSection = controlledMobileSection ?? internalMobileSection;
+
+  function setMobileSection(next: MobileWorkspaceSection) {
+    setInternalMobileSection(next);
+    onMobileSectionChange?.(next);
+  }
 
   const [setupExpanded, setSetupExpanded] = useState(false);
   const [teamTopology, setTeamTopology] =
@@ -97,19 +205,84 @@ export function AgencyCommandCenter({
   const [revisionTargetAgent, setRevisionTargetAgent] =
     useState<AgencyAgentRole>("software_architect");
 
-  const [chatTurns, setChatTurns] = useState<ChatTurnItem[]>([
-    {
-      id: "initial-greeting",
-      role: "assistant",
-      agentName: "Equipe de Engenharia Uzina",
-      agentRole: "orchestrator",
-      tierLabel: "Tier 3 · Raciocínio & Planejamento (Pro)",
-      boundModelId: "google/gemini-2.5-pro",
-      cycleNumber: 1,
-      content:
-        "Olá! Descreva sua ideia de sistema (ou cole a URL de um repositório Git existente) direto na caixa abaixo. Você não precisa escolher estratégia técnica nem criar entregas manualmente: nosso Arquiteto de Software analisa a conversa, decide a melhor estratégia para os agentes de IA, gera o Protótipo Visual inicial e organiza os Slices automaticamente.",
-    },
-  ]);
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
+  const storageKey = useMemo(
+    () => `uzina:agency-chat-turns:${activeProjectId || "global"}`,
+    [activeProjectId]
+  );
+
+  const [turnsByKey, setTurnsByKey] = useState<Record<string, ChatTurnItem[]>>(
+    {}
+  );
+
+  const chatTurns = useMemo<ChatTurnItem[]>(() => {
+    const inMemory = turnsByKey[storageKey];
+    if (inMemory && inMemory.length > 0) {
+      return inMemory;
+    }
+    if (isHydrated && typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved) as ChatTurnItem[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+        const globalSaved = window.localStorage.getItem(
+          "uzina:agency-chat-turns:global"
+        );
+        if (globalSaved) {
+          const parsedGlobal = JSON.parse(globalSaved) as ChatTurnItem[];
+          if (Array.isArray(parsedGlobal) && parsedGlobal.length > 1) {
+            return parsedGlobal;
+          }
+        }
+      } catch {
+        // ignore storage errors
+      }
+    }
+    return [INITIAL_GREETING_TURN];
+  }, [turnsByKey, storageKey, isHydrated]);
+
+  function persistTurns(nextTurns: ChatTurnItem[], targetProjectId?: string) {
+    const key = `uzina:agency-chat-turns:${
+      targetProjectId || activeProjectId || "global"
+    }`;
+    setTurnsByKey((prev) => ({
+      ...prev,
+      [storageKey]: nextTurns,
+      [key]: nextTurns,
+    }));
+    try {
+      window.localStorage.setItem(key, JSON.stringify(nextTurns.slice(-30)));
+      window.localStorage.setItem(
+        "uzina:agency-chat-turns:global",
+        JSON.stringify(nextTurns.slice(-30))
+      );
+    } catch {
+      // fallback silencioso
+    }
+  }
+
+  // Quando o usuário clica num card no Kanban, o evento customizado abre o inspetor daquele Slice
+  useEffect(() => {
+    function handleInspectSlice(ev: Event) {
+      const custom = ev as CustomEvent<{ sliceId?: string }>;
+      if (custom.detail?.sliceId) {
+        setSelectedSliceId(custom.detail.sliceId);
+        setArtifactTab("slices");
+      }
+    }
+    window.addEventListener("uzina:inspect-slice", handleInspectSlice);
+    return () =>
+      window.removeEventListener("uzina:inspect-slice", handleInspectSlice);
+  }, []);
 
   const statusUrl = `/api/agency/status?clientId=${encodeURIComponent(
     selectedClientId
@@ -169,8 +342,9 @@ export function AgencyCommandCenter({
       return (await res.json()) as AgencyChatResponse;
     },
     onSuccess: async (data, variables) => {
-      setChatTurns((prev) => [
-        ...prev,
+      const resolvedProjId = data.projectState?.projectId ?? activeProjectId;
+      const updatedTurns: ChatTurnItem[] = [
+        ...chatTurns,
         {
           id: crypto.randomUUID(),
           role: "user",
@@ -188,13 +362,11 @@ export function AgencyCommandCenter({
           handedOffFrom: data.handedOffFrom,
           actionsExecuted: data.actionsExecuted,
         },
-      ]);
+      ];
+      persistTurns(updatedTurns, resolvedProjId);
 
-      if (
-        data.projectState?.projectId &&
-        data.projectState.projectId !== activeProjectId
-      ) {
-        onSelectProject(data.projectState.projectId);
+      if (resolvedProjId && resolvedProjId !== activeProjectId) {
+        onSelectProject(resolvedProjId);
       }
 
       setChatInput("");
@@ -234,8 +406,47 @@ export function AgencyCommandCenter({
     sliceArtifacts[0] ??
     null;
 
-  function submitCurrentChat() {
-    const trimmedMsg = chatInput.trim();
+  const quickPrompts = useMemo(() => {
+    if (!projectState || chatMode === "greenfield") {
+      return [
+        {
+          label: "SaaS & Faturamento",
+          prompt:
+            "Quero criar um SaaS multi-tenant de gestão financeira com dashboard de métricas, fluxo visual moderno e alertas inteligentes.",
+        },
+        {
+          label: "Atendimento & IA",
+          prompt:
+            "Criar sistema de atendimento e triagem inteligente com painel operacional, fila de prioridades e relatórios executivos.",
+        },
+        {
+          label: "Portal Compliance",
+          prompt:
+            "Construir plataforma de auditoria técnica com checklist automatizado, aprovação em portões e trilha de evidências.",
+        },
+      ];
+    }
+    return [
+      {
+        label: "Revisar Estratégia IA",
+        prompt:
+          "Arquiteto, revise a estratégia de desenvolvimento atual e detalhe os próximos contratos Zod e testes necessários.",
+      },
+      {
+        label: "Refinar Protótipo Visual",
+        prompt:
+          "Designer, ajuste o protótipo visual para destacar indicadores principais e melhorar a hierarquia das telas.",
+      },
+      {
+        label: "Planejar Próximo Slice",
+        prompt:
+          "Analisar o estado atual do projeto e estruturar uma nova entrega vertical com critérios de aceitação claros.",
+      },
+    ];
+  }, [projectState, chatMode]);
+
+  function submitCurrentChat(overrideText?: string) {
+    const trimmedMsg = (overrideText ?? chatInput).trim();
     if (!trimmedMsg && chatMode === "conversation") return;
 
     const chosenRole =
@@ -268,7 +479,6 @@ export function AgencyCommandCenter({
       return;
     }
 
-    // No modo conversa normal: se não houver projeto ativo ou se o usuário colou uma URL Git, o backend detecta automaticamente!
     chatMutation.mutate({
       message: trimmedMsg,
       intent: "general_chat",
@@ -290,20 +500,20 @@ export function AgencyCommandCenter({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Barra Superior Integrada: Prontidão Compacta + Topologia de Equipe (Enxuta vs Completa) + Autonomia */}
+    <div className="space-y-2.5">
+      {/* Barra Superior Integrada & Ultracompacta: Prontidão + Topologia de Equipe + Autonomia */}
       <section
         data-testid="onboarding-readiness-guide"
-        className="rounded-lg border border-border-default bg-surface px-3.5 py-2.5"
+        className="rounded-lg border border-border-default bg-surface px-3 py-2"
       >
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Esquerda: Status de Prontidão + Botão de Expandir Setup */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               data-testid="toggle-setup-guide-btn"
               onClick={() => setSetupExpanded((prev) => !prev)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 font-mono text-xs font-semibold text-accent hover:border-accent"
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-accent/40 bg-accent-subtle px-2.5 font-mono text-xs font-semibold text-accent hover:border-accent"
             >
               <Settings2 className="size-3.5" strokeWidth={1.75} />
               <span>
@@ -334,7 +544,7 @@ export function AgencyCommandCenter({
             {projectState && (
               <span
                 data-testid="project-cycle-badge"
-                className="tabular-nums rounded border border-accent/40 bg-accent-subtle px-2 py-0.5 font-mono text-xs font-semibold text-accent"
+                className="tabular-nums rounded border border-accent/40 bg-accent-subtle px-2 py-1 font-mono text-xs font-semibold text-accent"
               >
                 Ciclo #{projectState.cycleNumber} · {projectState.phaseLabel}
               </span>
@@ -350,7 +560,7 @@ export function AgencyCommandCenter({
                 type="button"
                 data-testid="topology-lean-mvp"
                 onClick={() => setTeamTopology("lean_mvp")}
-                className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${
+                className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 text-[11px] font-medium ${
                   teamTopology === "lean_mvp"
                     ? "bg-surface text-fg-primary shadow-2xs"
                     : "text-fg-secondary hover:text-fg-primary"
@@ -363,7 +573,7 @@ export function AgencyCommandCenter({
                 type="button"
                 data-testid="topology-full-enterprise"
                 onClick={() => setTeamTopology("full_enterprise")}
-                className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${
+                className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 text-[11px] font-medium ${
                   teamTopology === "full_enterprise"
                     ? "bg-surface text-fg-primary shadow-2xs"
                     : "text-fg-secondary hover:text-fg-primary"
@@ -382,7 +592,7 @@ export function AgencyCommandCenter({
               data-testid="autonomy-mode-select"
               value={autonomyMode}
               onChange={(e) => setAutonomyMode(e.target.value as AutonomyMode)}
-              className="h-7 rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary"
+              className="min-h-8 rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary"
             >
               {(Object.keys(AUTONOMY_LABELS) as AutonomyMode[]).map((m) => (
                 <option key={m} value={m}>
@@ -393,9 +603,9 @@ export function AgencyCommandCenter({
           </div>
         </div>
 
-        {/* Painel Expansível de Configuração & Guia Ideal (recolhido por padrão para manter o Chat no topo!) */}
+        {/* Painel Expansível de Configuração & Guia Ideal */}
         {setupExpanded && readiness && (
-          <div className="mt-3 grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-3 md:grid-cols-3">
+          <div className="mt-2.5 grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-2.5 md:grid-cols-3">
             {readiness.steps.map((step) => (
               <article
                 key={step.id}
@@ -430,15 +640,16 @@ export function AgencyCommandCenter({
                     {step.statusBadge}
                   </span>
                   {step.id === "first_project_chat" ? (
-                    <div className="flex gap-1">
+                    <div className="flex gap-1.5">
                       <button
                         type="button"
                         data-testid="guide-btn-start-greenfield"
                         onClick={() => {
                           setChatMode("greenfield");
                           setSetupExpanded(false);
+                          setMobileSection("chat");
                         }}
-                        className="rounded bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-fg"
+                        className="min-h-7 rounded bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-fg"
                       >
                         Do Zero
                       </button>
@@ -448,8 +659,9 @@ export function AgencyCommandCenter({
                         onClick={() => {
                           setChatMode("brownfield");
                           setSetupExpanded(false);
+                          setMobileSection("chat");
                         }}
-                        className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] text-fg-primary"
+                        className="min-h-7 rounded border border-border-default bg-surface px-2.5 py-1 text-[11px] text-fg-primary"
                       >
                         URL Git
                       </button>
@@ -458,7 +670,7 @@ export function AgencyCommandCenter({
                     <Link
                       href={step.actionHref}
                       prefetch={false}
-                      className="rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-fg-primary hover:border-accent"
+                      className="inline-flex min-h-7 items-center rounded border border-border-default bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-primary hover:border-accent"
                     >
                       {step.actionLabel}
                     </Link>
@@ -470,16 +682,82 @@ export function AgencyCommandCenter({
         )}
       </section>
 
-      {/* WORKSPACE PRINCIPAL NO TOPO: Chat Amplo (7 colunas) + Estúdio Visual / Slices / Artefatos (5 colunas) */}
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">
-        {/* COLUNA ESQUERDA (7/12): Chat Principal com a Equipe de Agentes */}
+      {/* SWITCHER SEGMENTADO MOBILE (Padrão Claude Artifacts / Devin Mobile — 1 toque, sem maratona de scroll) */}
+      <div
+        role="tablist"
+        aria-label="Alternar superfície no celular"
+        data-testid="mobile-workspace-switcher"
+        className="grid grid-cols-3 gap-1 rounded-lg border border-border-default bg-surface p-1 lg:hidden"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileSection === "chat"}
+          data-testid="mobile-tab-chat"
+          onClick={() => setMobileSection("chat")}
+          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
+            mobileSection === "chat"
+              ? "bg-accent text-accent-fg"
+              : "text-fg-secondary hover:text-fg-primary"
+          }`}
+        >
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span>Chat IA</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileSection === "studio"}
+          data-testid="mobile-tab-studio"
+          onClick={() => {
+            setArtifactTab("visual_studio");
+            setMobileSection("studio");
+          }}
+          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
+            mobileSection === "studio"
+              ? "bg-accent text-accent-fg"
+              : "text-fg-secondary hover:text-fg-primary"
+          }`}
+        >
+          <Palette className="size-3.5 shrink-0" />
+          <span>Estúdio</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileSection === "artifacts"}
+          data-testid="mobile-tab-artifacts"
+          onClick={() => {
+            if (artifactTab === "visual_studio") {
+              setArtifactTab("slices");
+            }
+            setMobileSection("artifacts");
+          }}
+          className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-semibold transition-colors ${
+            mobileSection === "artifacts"
+              ? "bg-accent text-accent-fg"
+              : "text-fg-secondary hover:text-fg-primary"
+          }`}
+        >
+          <Layers className="size-3.5 shrink-0" />
+          <span>Slices ({sliceArtifacts.length})</span>
+        </button>
+      </div>
+
+      {/* WORKSPACE SPLIT-PANE: Chat Amplo à Esquerda (7/12) + Workbench à Direita (5/12) */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+        {/* COLUNA ESQUERDA (7/12): Chat Principal com a Equipe de Agentes (Cabe 100% na 1ª Dobra no Desktop!) */}
         <section
           data-testid="agency-chat-panel"
-          className="flex flex-col justify-between rounded-lg border border-border-default bg-surface p-4 lg:col-span-7"
+          className={`${
+            mobileSection === "chat" ? "flex" : "hidden lg:flex"
+          } flex-col justify-between rounded-lg border border-border-default bg-surface p-3 lg:col-span-7`}
         >
           <div>
-            {/* Cabeçalho do Chat + Pílulas dos Agentes Ativos (Sem truncamento!) */}
-            <div className="space-y-2.5 border-b border-border-subtle pb-3">
+            {/* Cabeçalho Compacto do Chat + Pílulas dos Agentes Ativos */}
+            <div className="space-y-2 border-b border-border-subtle pb-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Bot className="size-4 text-accent" strokeWidth={1.75} />
@@ -488,25 +766,25 @@ export function AgencyCommandCenter({
                   </h2>
                 </div>
 
-                {/* Ações rápidas de conversa / novo projeto / ciclo */}
+                {/* Ações rápidas de modo de conversa + Limpar histórico */}
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     type="button"
                     data-testid="chat-mode-conversation"
                     onClick={() => setChatMode("conversation")}
-                    className={`rounded px-2 py-1 text-xs font-medium ${
+                    className={`min-h-7 rounded px-2.5 py-1 text-xs font-medium ${
                       chatMode === "conversation"
                         ? "bg-accent text-accent-fg"
                         : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
                     }`}
                   >
-                    Conversa Principal
+                    Conversa
                   </button>
                   <button
                     type="button"
                     data-testid="chat-mode-greenfield"
                     onClick={() => setChatMode("greenfield")}
-                    className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
+                    className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
                       chatMode === "greenfield"
                         ? "bg-accent text-accent-fg"
                         : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
@@ -519,7 +797,7 @@ export function AgencyCommandCenter({
                     type="button"
                     data-testid="chat-mode-brownfield"
                     onClick={() => setChatMode("brownfield")}
-                    className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
+                    className={`inline-flex min-h-7 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium ${
                       chatMode === "brownfield"
                         ? "bg-accent text-accent-fg"
                         : "border border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
@@ -528,16 +806,27 @@ export function AgencyCommandCenter({
                     <GitBranch className="size-3" />
                     <span>Importar URL Git</span>
                   </button>
+                  {chatTurns.length > 1 && (
+                    <button
+                      type="button"
+                      data-testid="btn-clear-chat-history"
+                      title="Reiniciar histórico visual desta conversa"
+                      onClick={() => persistTurns([INITIAL_GREETING_TURN])}
+                      className="inline-flex min-h-7 items-center gap-1 rounded border border-border-subtle bg-inset px-2 py-1 text-[11px] text-fg-muted hover:border-border-strong hover:text-fg-primary"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Pílulas de Seleção Consistente de Agente (Roteamento Automático + Equipe Enxuta ou Completa) */}
+              {/* Pílulas de Seleção de Agente (Roteamento Automático + Equipe Enxuta ou Completa) */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   data-testid="agent-pill-auto"
                   onClick={() => setSelectedAgentRole("auto")}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
                     selectedAgentRole === "auto"
                       ? "border-accent bg-accent-subtle text-accent"
                       : "border-border-subtle bg-inset text-fg-secondary hover:text-fg-primary"
@@ -566,7 +855,7 @@ export function AgencyCommandCenter({
                           prev === ag.role ? "auto" : ag.role
                         )
                       }
-                      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
                         isSelected
                           ? "border-accent bg-accent text-accent-fg font-semibold"
                           : isLeader
@@ -597,10 +886,10 @@ export function AgencyCommandCenter({
               {projectState && (
                 <div
                   data-testid="architect-strategy-banner"
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-inset px-3 py-2"
+                  className="flex flex-col gap-2 rounded-md border border-border-subtle bg-inset px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="space-y-0.5 text-xs">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 flex-1 space-y-0.5 text-xs">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-semibold text-fg-primary">
                         {projectState.projectName}
                       </span>
@@ -617,7 +906,7 @@ export function AgencyCommandCenter({
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       data-testid="btn-run-autonomous-cycle"
@@ -630,7 +919,7 @@ export function AgencyCommandCenter({
                           projectId: projectState.projectId,
                         })
                       }
-                      className="inline-flex h-7 items-center gap-1 rounded bg-accent px-2.5 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                      className="inline-flex min-h-7 items-center gap-1 rounded bg-accent px-2.5 py-1 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
                     >
                       <Play className="size-3" />
                       <span>Executar Ciclo Autônomo</span>
@@ -648,7 +937,7 @@ export function AgencyCommandCenter({
                           targetAgentRole: "software_architect",
                         })
                       }
-                      className="inline-flex h-7 items-center gap-1 rounded border border-border-default bg-surface px-2 text-xs font-medium text-fg-primary hover:border-accent"
+                      className="inline-flex min-h-7 items-center gap-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:border-accent"
                     >
                       <RotateCcw className="size-3" />
                       <span>Ciclo #{projectState.cycleNumber + 1}</span>
@@ -658,22 +947,22 @@ export function AgencyCommandCenter({
               )}
             </div>
 
-            {/* Área de Mensagens do Chat (Mais Alta e Confortável para Leitura e Seleção) */}
+            {/* Área de Mensagens do Chat (Altura Calibrada p/ Caber 100% na 1ª Dobra Desktop + Markdown Formatado) */}
             <div
               data-testid="agency-chat-history"
-              className="mt-3 min-h-[340px] max-h-[450px] space-y-3 overflow-y-auto pr-1 select-text"
+              className="mt-2.5 h-[220px] sm:h-[235px] space-y-2.5 overflow-y-auto pr-1 select-text"
             >
               {chatTurns.map((turn) => (
                 <article
                   key={turn.id}
-                  className={`rounded-lg border p-3.5 text-xs ${
+                  className={`rounded-lg border p-3 text-xs ${
                     turn.role === "user"
-                      ? "ml-8 border-accent/35 bg-accent-subtle/25 text-fg-primary"
+                      ? "ml-6 border-accent/35 bg-accent-subtle/25 text-fg-primary"
                       : "border-border-subtle bg-canvas text-fg-primary"
                   }`}
                 >
                   {turn.role === "assistant" && (
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-1.5">
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-1">
                       <span className="font-semibold text-accent">
                         {turn.agentName ?? "Agente Uzina"}
                       </span>
@@ -688,12 +977,10 @@ export function AgencyCommandCenter({
                     </div>
                   )}
 
-                  <div className="whitespace-pre-line leading-relaxed">
-                    {turn.content}
-                  </div>
+                  {renderFormattedContent(turn.content)}
 
                   {turn.actionsExecuted && turn.actionsExecuted.length > 0 && (
-                    <div className="mt-3 space-y-1.5 border-t border-border-subtle pt-2">
+                    <div className="mt-2.5 space-y-1 border-t border-border-subtle pt-1.5">
                       <span className="block font-mono text-[10px] uppercase tracking-wider text-fg-muted">
                         Ações executadas pelos agentes:
                       </span>
@@ -716,13 +1003,35 @@ export function AgencyCommandCenter({
             </div>
           </div>
 
-          {/* Composer Único Multilinha Consistente (Sem pedir Estratégia Manual!) */}
+          {/* Composer Único Multilinha Consistente + Chips de Quick-Prompts (Sempre visível na 1ª dobra!) */}
           <form
             onSubmit={handleSendChat}
-            className="mt-3 space-y-2 border-t border-border-subtle pt-3"
+            className="mt-2.5 space-y-2 border-t border-border-subtle pt-2.5"
           >
+            {/* Quick-Prompts Clicáveis */}
+            <div
+              data-testid="quick-prompts-bar"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
+                Sugestões:
+              </span>
+              {quickPrompts.map((qp, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  data-testid={`quick-prompt-chip-${idx}`}
+                  onClick={() => setChatInput(qp.prompt)}
+                  className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border-default bg-inset px-2.5 py-0.5 text-[11px] text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
+                >
+                  <Sparkles className="size-2.5 text-accent" />
+                  <span>{qp.label}</span>
+                </button>
+              ))}
+            </div>
+
             {chatMode === "greenfield" && (
-              <div className="flex flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 px-3 py-1.5">
                 <span className="text-xs font-medium text-accent">
                   Novo Projeto do Zero:
                 </span>
@@ -732,7 +1041,7 @@ export function AgencyCommandCenter({
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="Nome sugerido (opcional — o agente pode batizar)"
-                  className="h-7 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
+                  className="h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
                 />
                 <span className="font-mono text-[10px] text-fg-secondary">
                   O Arquiteto decidirá a melhor estratégia para IA.
@@ -741,7 +1050,7 @@ export function AgencyCommandCenter({
             )}
 
             {chatMode === "brownfield" && (
-              <div className="grid grid-cols-1 gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 p-2.5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 rounded-md border border-accent/30 bg-accent-subtle/20 p-2 sm:grid-cols-2">
                 <div>
                   <label
                     htmlFor="brownfield-git-url"
@@ -784,18 +1093,18 @@ export function AgencyCommandCenter({
               <textarea
                 id="agency-chat-input"
                 data-testid="agency-chat-input"
-                rows={3}
+                rows={2}
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleTextareaKeyDown}
                 placeholder={
                   chatMode === "greenfield"
-                    ? "Conte toda a ideia do sistema, público, fluxos visuais e regras. O Agente de Produto e o Arquiteto vão decidir a estratégia ideal para IA, gerar o protótipo visual e criar os slices..."
+                    ? "Conte a ideia do sistema, público e fluxos visuais. O Arquiteto decidirá a estratégia para IA e gerará o protótipo..."
                     : chatMode === "brownfield"
                       ? "Explique o que deseja analisar, refatorar ou evoluir nesse repositório Git..."
                       : "Converse com o agente responsável, descreva um novo sistema do zero, cole uma URL do Git ou peça ajustes no protótipo visual (Enter envia · Shift+Enter quebra linha)..."
                 }
-                className="w-full resize-y rounded-md border border-border-default bg-inset p-3 text-xs leading-relaxed text-fg-primary focus:border-accent focus:outline-none"
+                className="w-full resize-y rounded-md border border-border-default bg-inset p-2.5 text-xs leading-relaxed text-fg-primary focus:border-accent focus:outline-none"
               />
 
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -813,7 +1122,7 @@ export function AgencyCommandCenter({
                   type="submit"
                   data-testid="agency-chat-submit"
                   disabled={chatMutation.isPending}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
                 >
                   {chatMutation.isPending ? (
                     <Loader2 className="size-3.5 animate-spin" />
@@ -839,68 +1148,83 @@ export function AgencyCommandCenter({
           </form>
         </section>
 
-        {/* COLUNA DIREITA (5/12): Estúdio & Protótipo Visual · Dossiês de Slices · Artefatos de Longo Prazo */}
+        {/* COLUNA DIREITA (5/12): Workbench — Estúdio & Protótipo Visual · Dossiês de Slices · Artefatos de Longo Prazo */}
         <section
           data-testid="agency-artifacts-panel"
-          className="flex flex-col justify-between rounded-lg border border-border-default bg-surface p-4 lg:col-span-5"
+          className={`${
+            mobileSection !== "chat" ? "flex" : "hidden lg:flex"
+          } flex-col justify-between rounded-lg border border-border-default bg-surface p-3 lg:col-span-5`}
         >
           <div>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2.5">
               <div
                 role="tablist"
                 aria-label="Camada de artefatos e prototipação"
-                className="inline-flex w-full justify-between rounded-md border border-border-default bg-inset p-0.5"
+                className="grid w-full grid-cols-3 gap-1 rounded-md border border-border-default bg-inset p-0.5"
               >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={artifactTab === "visual_studio"}
                   data-testid="tab-visual-studio-flow"
-                  onClick={() => setArtifactTab("visual_studio")}
-                  className={`inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium ${
+                  onClick={() => {
+                    setArtifactTab("visual_studio");
+                    setMobileSection("studio");
+                  }}
+                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
                     artifactTab === "visual_studio"
                       ? "border border-border-subtle bg-surface text-fg-primary"
                       : "text-fg-secondary hover:text-fg-primary"
                   }`}
                 >
-                  <Palette className="size-3.5 text-accent" />
-                  <span>Estúdio &amp; Protótipo</span>
+                  <Palette className="size-3.5 shrink-0 text-accent" />
+                  <span className="truncate">Estúdio &amp; Protótipo</span>
                 </button>
                 <button
                   type="button"
                   role="tab"
                   aria-selected={artifactTab === "slices"}
                   data-testid="tab-slice-artifacts"
-                  onClick={() => setArtifactTab("slices")}
-                  className={`inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium ${
+                  onClick={() => {
+                    setArtifactTab("slices");
+                    setMobileSection("artifacts");
+                  }}
+                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
                     artifactTab === "slices"
                       ? "border border-border-subtle bg-surface text-fg-primary"
                       : "text-fg-secondary hover:text-fg-primary"
                   }`}
                 >
-                  <Layers className="size-3.5" />
-                  <span>Slices ({sliceArtifacts.length})</span>
+                  <Layers className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    Slices ({sliceArtifacts.length})
+                  </span>
                 </button>
                 <button
                   type="button"
                   role="tab"
                   aria-selected={artifactTab === "long_term"}
                   data-testid="tab-long-term-artifacts"
-                  onClick={() => setArtifactTab("long_term")}
-                  className={`inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium ${
+                  onClick={() => {
+                    setArtifactTab("long_term");
+                    setMobileSection("artifacts");
+                  }}
+                  className={`inline-flex min-h-8 min-w-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium sm:px-2 sm:text-xs ${
                     artifactTab === "long_term"
                       ? "border border-border-subtle bg-surface text-fg-primary"
                       : "text-fg-secondary hover:text-fg-primary"
                   }`}
                 >
-                  <FileText className="size-3.5" />
-                  <span>Longo Prazo ({longTermArtifacts.length})</span>
+                  <FileText className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    Longo Prazo ({longTermArtifacts.length})
+                  </span>
                 </button>
               </div>
             </div>
 
             {!projectState ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="flex flex-col items-center justify-center py-14 text-center">
                 <FileCode2
                   className="mb-2 size-8 text-fg-muted"
                   strokeWidth={1.5}
@@ -916,21 +1240,22 @@ export function AgencyCommandCenter({
               /* ABA 1: Estúdio & Fase de Prototipação Visual Integrada (Portão Visual Antes do Código) */
               <div
                 data-testid="visual-flow-inspector"
-                className="mt-3 space-y-3"
+                className="mt-2.5 space-y-2.5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-inset p-2.5">
-                  <div>
-                    <span className="text-xs font-semibold text-fg-primary">
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-fg-primary">
                       {visualFlow?.latestPrototypeTitle ??
                         `Protótipo Visual — ${projectState.projectName}`}
                     </span>
                     <p className="font-mono text-[10px] text-fg-secondary">
-                      {visualFlow?.fidelityLevel ?? "Nível 3 (HTML/Tailwind + W3C)"}
+                      {visualFlow?.fidelityLevel ??
+                        "Nível 3 (HTML/Tailwind + W3C)"}
                     </p>
                   </div>
                   <span
                     data-testid="visual-flow-status-badge"
-                    className={`rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${
+                    className={`shrink-0 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${
                       visualFlow?.approvedForCodeHandoff
                         ? "border-status-ok/40 bg-status-ok/15 text-status-ok"
                         : "border-status-warn/40 bg-status-warn/15 text-status-warn"
@@ -942,10 +1267,10 @@ export function AgencyCommandCenter({
                   </span>
                 </div>
 
-                {/* Preview Sandboxed do Protótipo Visual */}
+                {/* Preview Sandboxed do Protótipo Visual (Sem scroll horizontal no mobile) */}
                 {visualFlow?.previewUrl ? (
                   <div className="overflow-hidden rounded-md border border-border-default bg-canvas">
-                    <div className="flex items-center justify-between border-b border-border-subtle bg-inset px-3 py-1.5 text-[11px] text-fg-secondary">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border-subtle bg-inset px-2.5 py-1.5 text-[11px] text-fg-secondary">
                       <span className="inline-flex items-center gap-1.5 font-mono">
                         <Eye className="size-3.5 text-accent" />
                         <span>Preview Visual Seguro (Sandbox CSP)</span>
@@ -964,31 +1289,31 @@ export function AgencyCommandCenter({
                       data-testid="visual-prototype-iframe"
                       src={visualFlow.previewUrl}
                       sandbox=""
-                      className="h-56 w-full border-0 bg-canvas"
+                      className="h-52 w-full border-0 bg-canvas"
                     />
                   </div>
                 ) : null}
 
-                {/* Fluxo de Telas & Tokens W3C */}
+                {/* Fluxo de Telas & Tokens W3C (Sem truncamento agressivo!) */}
                 {visualFlow && (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="rounded border border-border-subtle bg-inset p-2.5">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
+                    <div className="rounded border border-border-subtle bg-inset p-2.5 sm:col-span-7">
                       <span className="block font-mono text-[10px] uppercase text-fg-muted">
                         Fluxo de Telas Planejado:
                       </span>
-                      <ul className="mt-1.5 space-y-1 text-[11px] text-fg-primary">
+                      <ul className="mt-1.5 space-y-1 text-[11px] leading-snug text-fg-primary">
                         {visualFlow.screensFlow.map((scr, i) => (
-                          <li key={i} className="truncate">
+                          <li key={i} className="break-words">
                             {scr}
                           </li>
                         ))}
                       </ul>
                     </div>
-                    <div className="rounded border border-border-subtle bg-inset p-2.5">
+                    <div className="rounded border border-border-subtle bg-inset p-2.5 sm:col-span-5">
                       <span className="block font-mono text-[10px] uppercase text-fg-muted">
-                        Tokens Visuais (.uzina/DESIGN.md):
+                        Tokens (.uzina/DESIGN.md):
                       </span>
-                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-1">
                         {visualFlow.tokensPreview.map((tk) => (
                           <div
                             key={tk.name}
@@ -998,7 +1323,7 @@ export function AgencyCommandCenter({
                               className="size-3 shrink-0 rounded-xs border border-border-default"
                               style={{ backgroundColor: tk.value }}
                             />
-                            <span className="truncate">{tk.name}</span>
+                            <span className="break-all">{tk.name}</span>
                           </div>
                         ))}
                       </div>
@@ -1006,33 +1331,80 @@ export function AgencyCommandCenter({
                   </div>
                 )}
 
-                {/* Ações do Portão Visual: Aprovar Fluxo Visual ou Pedir Ajuste ao Designer */}
-                <div className="space-y-2 border-t border-border-subtle pt-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px] font-semibold text-fg-primary">
-                      Garantir que o código nasça com este fluxo visual:
-                    </span>
-                    <button
-                      type="button"
-                      data-testid="btn-approve-visual-flow"
-                      disabled={chatMutation.isPending}
-                      onClick={() =>
-                        chatMutation.mutate({
-                          message:
-                            "Aprovar o protótipo e o fluxo visual atual para liberar a codificação dos slices de interface.",
-                          intent: "approve_visual_flow",
-                          projectId: projectState.projectId,
-                          targetAgentRole: "ux_designer",
-                        })
-                      }
-                      className="inline-flex h-7 items-center gap-1 rounded bg-status-ok px-2.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
-                    >
-                      <ShieldCheck className="size-3.5" />
-                      <span>Aprovar Fluxo Visual p/ Codificação</span>
-                    </button>
-                  </div>
+                {/* Ações do Portão Visual: Diferencia Estado Pendente vs. Já Aprovado */}
+                <div className="space-y-2 border-t border-border-subtle pt-2">
+                  {visualFlow?.approvedForCodeHandoff ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-ok/35 bg-status-ok/10 px-2.5 py-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-status-ok">
+                        <CheckCircle2 className="size-3.5 shrink-0" />
+                        <span>Fluxo Visual Homologado p/ Codificação</span>
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          data-testid="btn-advance-after-visual"
+                          disabled={chatMutation.isPending}
+                          onClick={() =>
+                            chatMutation.mutate({
+                              message:
+                                "Com o fluxo visual aprovado, avançar os slices para Contratos Zod & TDD.",
+                              intent: "advance_cycle",
+                              projectId: projectState.projectId,
+                            })
+                          }
+                          className="inline-flex min-h-8 items-center gap-1 rounded bg-accent px-2.5 text-[11px] font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                        >
+                          <span>Avançar p/ Contratos &amp; TDD</span>
+                          <ArrowRight className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="btn-approve-visual-flow"
+                          disabled={chatMutation.isPending}
+                          onClick={() =>
+                            chatMutation.mutate({
+                              message:
+                                "Ressincronizar o contrato visual .uzina/DESIGN.md com o protótipo aprovado.",
+                              intent: "approve_visual_flow",
+                              projectId: projectState.projectId,
+                              targetAgentRole: "ux_designer",
+                            })
+                          }
+                          className="inline-flex min-h-8 items-center gap-1 rounded border border-border-default bg-surface px-2 text-[10px] font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                        >
+                          <ShieldCheck className="size-3 text-status-ok" />
+                          <span>Revalidar DESIGN.md</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-fg-primary">
+                        Garantir que o código nasça com este fluxo visual:
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="btn-approve-visual-flow"
+                        disabled={chatMutation.isPending}
+                        onClick={() =>
+                          chatMutation.mutate({
+                            message:
+                              "Aprovar o protótipo e o fluxo visual atual para liberar a codificação dos slices de interface.",
+                            intent: "approve_visual_flow",
+                            projectId: projectState.projectId,
+                            targetAgentRole: "ux_designer",
+                          })
+                        }
+                        className="inline-flex min-h-8 items-center gap-1 rounded bg-status-ok px-3 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
+                      >
+                        <ShieldCheck className="size-3.5" />
+                        <span>Aprovar Fluxo Visual p/ Codificação</span>
+                      </button>
+                    </div>
+                  )}
 
-                  <div className="flex gap-1.5">
+                  {/* Campo de Revisão Visual Responsivo (100% de largura no celular, sem cortar placeholder!) */}
+                  <div className="flex flex-col gap-1.5 sm:flex-row">
                     <input
                       aria-label="Feedback para ajustar o protótipo visual"
                       data-testid="input-visual-revision"
@@ -1041,7 +1413,7 @@ export function AgencyCommandCenter({
                         setVisualRevisionFeedback(e.target.value)
                       }
                       placeholder="Pedir ajuste no layout, cores ou fluxo de telas..."
-                      className="h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
+                      className="min-h-9 w-full flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
                     />
                     <button
                       type="button"
@@ -1057,7 +1429,7 @@ export function AgencyCommandCenter({
                           targetAgentRole: "ux_designer",
                         })
                       }
-                      className="inline-flex h-8 items-center gap-1 rounded border border-accent bg-accent-subtle px-2.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
+                      className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded border border-accent bg-accent-subtle px-3 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
                     >
                       <RotateCcw className="size-3" />
                       <span>Ajustar Visual</span>
@@ -1067,7 +1439,7 @@ export function AgencyCommandCenter({
               </div>
             ) : artifactTab === "long_term" ? (
               /* ABA 3: Artefatos de Longo Prazo do Projeto */
-              <div className="mt-3 space-y-3">
+              <div className="mt-2.5 space-y-2.5">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {longTermArtifacts.map((art) => {
                     const isSelected = activeLongTerm?.id === art.id;
@@ -1083,8 +1455,8 @@ export function AgencyCommandCenter({
                             : "border-border-subtle bg-canvas hover:border-border-strong"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-semibold text-fg-primary">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="line-clamp-2 text-xs font-semibold leading-snug text-fg-primary">
                             {art.title}
                           </span>
                           <span className="shrink-0 rounded border border-border-subtle bg-inset px-1.5 py-0.5 font-mono text-[9px] text-fg-muted">
@@ -1112,15 +1484,15 @@ export function AgencyCommandCenter({
                         {activeLongTerm.ownerAgentName}
                       </span>
                     </div>
-                    <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-fg-primary select-text">
-                      {activeLongTerm.contentMarkdown}
-                    </pre>
+                    <div className="max-h-60 overflow-y-auto text-xs text-fg-primary select-text">
+                      {renderFormattedContent(activeLongTerm.contentMarkdown)}
+                    </div>
                   </div>
                 )}
               </div>
             ) : (
               /* ABA 2: Artefatos Táticos de Cada Slice (Dossiê, Blueprint, Evidências + Aprovação / Retorno Cíclico) */
-              <div className="mt-3 space-y-3">
+              <div className="mt-2.5 space-y-2.5">
                 {sliceArtifacts.length === 0 ? (
                   <p className="py-8 text-center text-xs text-fg-muted">
                     Este projeto ainda não possui slices gerados.
@@ -1139,7 +1511,7 @@ export function AgencyCommandCenter({
                         data-testid="select-slice-inspector"
                         value={activeSlice?.deliverableId ?? ""}
                         onChange={(e) => setSelectedSliceId(e.target.value)}
-                        className="h-8 flex-1 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
+                        className="min-h-8 flex-1 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
                       >
                         {sliceArtifacts.map((s) => (
                           <option key={s.deliverableId} value={s.deliverableId}>
@@ -1152,7 +1524,7 @@ export function AgencyCommandCenter({
                     {activeSlice && (
                       <div
                         data-testid="slice-artifact-inspector"
-                        className="space-y-3 rounded-md border border-border-subtle bg-canvas p-3"
+                        className="space-y-2.5 rounded-md border border-border-subtle bg-canvas p-3"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2">
                           <div>
@@ -1169,12 +1541,12 @@ export function AgencyCommandCenter({
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1">
                             <button
                               type="button"
                               data-testid="slice-subtab-spec"
                               onClick={() => setSliceSubTab("spec")}
-                              className={`rounded px-2 py-1 text-[11px] font-medium ${
+                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
                                 sliceSubTab === "spec"
                                   ? "bg-accent text-accent-fg"
                                   : "bg-inset text-fg-secondary"
@@ -1186,7 +1558,7 @@ export function AgencyCommandCenter({
                               type="button"
                               data-testid="slice-subtab-blueprint"
                               onClick={() => setSliceSubTab("blueprint")}
-                              className={`rounded px-2 py-1 text-[11px] font-medium ${
+                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
                                 sliceSubTab === "blueprint"
                                   ? "bg-accent text-accent-fg"
                                   : "bg-inset text-fg-secondary"
@@ -1198,7 +1570,7 @@ export function AgencyCommandCenter({
                               type="button"
                               data-testid="slice-subtab-evidence"
                               onClick={() => setSliceSubTab("evidence")}
-                              className={`rounded px-2 py-1 text-[11px] font-medium ${
+                              className={`min-h-7 rounded px-2 py-1 text-[11px] font-medium ${
                                 sliceSubTab === "evidence"
                                   ? "bg-accent text-accent-fg"
                                   : "bg-inset text-fg-secondary"
@@ -1209,14 +1581,14 @@ export function AgencyCommandCenter({
                           </div>
                         </div>
 
-                        <div className="max-h-56 overflow-y-auto rounded border border-border-subtle bg-inset p-2.5 select-text">
+                        <div className="max-h-52 overflow-y-auto rounded border border-border-subtle bg-inset p-2.5 select-text">
                           {sliceSubTab === "spec" && (
-                            <pre
+                            <div
                               data-testid="slice-spec-markdown"
-                              className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-fg-primary"
+                              className="text-xs text-fg-primary"
                             >
-                              {activeSlice.specMarkdown}
-                            </pre>
+                              {renderFormattedContent(activeSlice.specMarkdown)}
+                            </div>
                           )}
                           {sliceSubTab === "blueprint" && (
                             <pre
@@ -1247,7 +1619,7 @@ export function AgencyCommandCenter({
                           )}
                         </div>
 
-                        <div className="space-y-2 border-t border-border-subtle pt-2.5">
+                        <div className="space-y-2 border-t border-border-subtle pt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-[11px] font-semibold text-fg-primary">
                               Governança do Slice:
@@ -1267,14 +1639,14 @@ export function AgencyCommandCenter({
                                   deliverableId: activeSlice.deliverableId,
                                 })
                               }
-                              className="inline-flex h-7 items-center gap-1 rounded bg-status-ok px-2.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
+                              className="inline-flex min-h-8 items-center gap-1 rounded bg-status-ok px-2.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-50"
                             >
                               <ShieldCheck className="size-3.5" />
                               <span>Aprovar Artefato &amp; Avançar</span>
                             </button>
                           </div>
 
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
                             <select
                               aria-label="Agente para revisão em ciclo"
                               data-testid="select-revision-agent"
@@ -1284,7 +1656,7 @@ export function AgencyCommandCenter({
                                   e.target.value as AgencyAgentRole
                                 )
                               }
-                              className="h-8 rounded border border-border-default bg-inset px-2 text-[11px] text-fg-primary"
+                              className="min-h-8 rounded border border-border-default bg-inset px-2 text-[11px] text-fg-primary"
                             >
                               <option value="software_architect">
                                 Voltar ao Arquiteto
@@ -1307,7 +1679,7 @@ export function AgencyCommandCenter({
                                 setRevisionFeedback(e.target.value)
                               }
                               placeholder="O que corrigir neste slice?"
-                              className="h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
+                              className="min-h-8 flex-1 rounded border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
                             />
                             <button
                               type="button"
@@ -1324,7 +1696,7 @@ export function AgencyCommandCenter({
                                   targetAgentRole: revisionTargetAgent,
                                 })
                               }
-                              className="inline-flex h-8 items-center gap-1 rounded border border-accent bg-accent-subtle px-2.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
+                              className="inline-flex min-h-8 items-center justify-center gap-1 rounded border border-accent bg-accent-subtle px-2.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-fg disabled:opacity-50"
                             >
                               <RotateCcw className="size-3" />
                               <span>Corrigir em Ciclo</span>
@@ -1340,7 +1712,7 @@ export function AgencyCommandCenter({
           </div>
 
           {projectState?.repositoryUrl && (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-2.5 font-mono text-[11px] text-fg-secondary">
+            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-2 font-mono text-[11px] text-fg-secondary">
               <span className="inline-flex items-center gap-1.5 truncate">
                 <GitBranch className="size-3.5 text-accent" />
                 <span>Git: {projectState.repositoryUrl}</span>

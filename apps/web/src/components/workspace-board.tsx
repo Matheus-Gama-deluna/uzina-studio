@@ -28,8 +28,11 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, type FormEvent } from "react";
-import { AgencyCommandCenter } from "./agency-command-center";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  AgencyCommandCenter,
+  type MobileWorkspaceSection,
+} from "./agency-command-center";
 
 type ViewMode = "kanban" | "list";
 
@@ -75,6 +78,27 @@ export function WorkspaceBoard() {
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [mobileSection, setMobileSection] =
+    useState<MobileWorkspaceSection>("chat");
+
+  useEffect(() => {
+    function handleSelectContext(ev: Event) {
+      const custom = ev as CustomEvent<{
+        clientId?: string;
+        projectId?: string;
+      }>;
+      if (custom.detail?.clientId) {
+        setSelectedClientId(custom.detail.clientId);
+      }
+      if (custom.detail?.projectId) {
+        setSelectedProjectId(custom.detail.projectId);
+      }
+    }
+
+    window.addEventListener("uzina:select-context", handleSelectContext);
+    return () =>
+      window.removeEventListener("uzina:select-context", handleSelectContext);
+  }, []);
 
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -202,7 +226,10 @@ export function WorkspaceBoard() {
       setRepoPath("");
       setFormError(null);
       setProjectModalOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
     },
     onError: (err: Error) => setFormError(err.message),
   });
@@ -232,9 +259,12 @@ export function WorkspaceBoard() {
       return (await res.json()) as Deliverable;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["deliverables", activeProject?.id ?? "none"],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
       setDelivTitle("");
       setDelivDesc("");
       setFormError(null);
@@ -263,9 +293,12 @@ export function WorkspaceBoard() {
       return (await res.json()) as Deliverable;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["deliverables", activeProject?.id ?? "none"],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
     },
   });
 
@@ -327,10 +360,10 @@ export function WorkspaceBoard() {
   const bootError = clientsQuery.error || projectsQuery.error;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {/* Barra Superior Unificada & Compacta: Título + Seletores Cliente/Projeto + Ações */}
-      <section className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border-subtle pb-2.5">
-        <div className="flex flex-wrap items-center gap-2.5">
+      <section className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-base font-semibold tracking-tight text-fg-primary">
             Torre de Controle
           </h1>
@@ -342,7 +375,7 @@ export function WorkspaceBoard() {
             id="filter-client"
             value={selectedClientId}
             onChange={(e) => setSelectedClientId(e.target.value)}
-            className="h-7 rounded-md border border-border-default bg-surface px-2 py-0 text-xs text-fg-primary"
+            className="min-h-8 rounded-md border border-border-default bg-surface px-2.5 py-0 text-xs text-fg-primary"
           >
             <option value="all">Todos os clientes</option>
             {clientsList.map((c) => (
@@ -362,7 +395,7 @@ export function WorkspaceBoard() {
                 id="filter-project"
                 value={activeProject?.id ?? ""}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="h-7 rounded-md border border-border-default bg-surface px-2 py-0 text-xs text-fg-primary"
+                className="min-h-8 rounded-md border border-border-default bg-surface px-2.5 py-0 text-xs text-fg-primary"
               >
                 {visibleProjects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -377,7 +410,7 @@ export function WorkspaceBoard() {
             <Link
               href={`/app/projects/${activeProject.id}/studio`}
               data-testid="link-project-studio"
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
+              className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
             >
               <Sparkles className="size-3 text-accent" strokeWidth={1.75} />
               <span>Estúdio Visual &amp; Workflow</span>
@@ -393,7 +426,7 @@ export function WorkspaceBoard() {
               setFormError(null);
               setClientModalOpen(true);
             }}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
+            className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
           >
             <UserPlus className="size-3 text-fg-secondary" strokeWidth={1.75} />
             <span>Novo Cliente</span>
@@ -407,7 +440,7 @@ export function WorkspaceBoard() {
               setProjectClientId(clientsList[0]?.id ?? "");
               setProjectModalOpen(true);
             }}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
+            className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border-default bg-surface px-2.5 text-xs font-medium text-fg-primary transition-colors hover:border-border-strong"
           >
             <FolderPlus className="size-3 text-fg-secondary" strokeWidth={1.75} />
             <span>Novo Projeto</span>
@@ -421,7 +454,7 @@ export function WorkspaceBoard() {
               setFormError(null);
               setDeliverableModalOpen(true);
             }}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-8 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="size-3" strokeWidth={2} />
             <span>Nova Entrega</span>
@@ -437,8 +470,11 @@ export function WorkspaceBoard() {
               role="tab"
               aria-selected={viewMode === "kanban"}
               data-testid="view-kanban"
-              onClick={() => setViewMode("kanban")}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
+              onClick={() => {
+                setViewMode("kanban");
+                setMobileSection("artifacts");
+              }}
+              className={`inline-flex min-h-7 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
                 viewMode === "kanban"
                   ? "bg-surface text-fg-primary border border-border-subtle"
                   : "text-fg-secondary hover:text-fg-primary"
@@ -452,8 +488,11 @@ export function WorkspaceBoard() {
               role="tab"
               aria-selected={viewMode === "list"}
               data-testid="view-list"
-              onClick={() => setViewMode("list")}
-              className={`inline-flex h-6 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
+              onClick={() => {
+                setViewMode("list");
+                setMobileSection("artifacts");
+              }}
+              className={`inline-flex min-h-7 items-center gap-1 rounded px-2 text-xs font-medium transition-colors ${
                 viewMode === "list"
                   ? "bg-surface text-fg-primary border border-border-subtle"
                   : "text-fg-secondary hover:text-fg-primary"
@@ -471,6 +510,8 @@ export function WorkspaceBoard() {
         selectedClientId={selectedClientId}
         activeProjectId={activeProject?.id ?? ""}
         bootReady={!isBootLoading}
+        mobileSection={mobileSection}
+        onMobileSectionChange={setMobileSection}
         onSelectProject={(projectId) => setSelectedProjectId(projectId)}
       />
 
@@ -545,9 +586,13 @@ export function WorkspaceBoard() {
         </div>
       )}
 
-      {/* Conteúdo de Entregas do Projeto Ativo */}
+      {/* Conteúdo de Entregas do Projeto Ativo (No celular só aparece na aba Slices/Artifacts para eliminar scroll de 2400px) */}
       {!isBootLoading && !bootError && activeProject && (
-        <>
+        <div
+          className={
+            mobileSection === "artifacts" ? "block" : "hidden lg:block"
+          }
+        >
           {deliverablesQuery.isLoading ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {[0, 1, 2].map((i) => (
@@ -649,9 +694,22 @@ export function WorkspaceBoard() {
                               className="space-y-2 rounded-md border border-border-default bg-canvas p-3 transition-colors hover:border-border-strong"
                             >
                               <div className="flex items-start justify-between gap-2">
-                                <h3 className="text-xs font-semibold leading-snug text-fg-primary">
+                                <button
+                                  type="button"
+                                  data-testid={`inspect-deliverable-${item.id}`}
+                                  onClick={() => {
+                                    window.dispatchEvent(
+                                      new CustomEvent("uzina:inspect-slice", {
+                                        detail: { sliceId: item.id },
+                                      })
+                                    );
+                                    setMobileSection("artifacts");
+                                  }}
+                                  title="Inspecionar Dossiê e Blueprint deste Slice acima"
+                                  className="text-left text-xs font-semibold leading-snug text-fg-primary hover:text-accent hover:underline"
+                                >
                                   {item.title}
-                                </h3>
+                                </button>
                                 <span
                                   className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${RISK_STYLES[item.riskLevel]}`}
                                 >
@@ -669,7 +727,7 @@ export function WorkspaceBoard() {
                                 <span className="font-mono">
                                   {item.hasUi ? "UI + API" : "API/Core"}
                                 </span>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
                                   {primaryNext && (
                                     <button
                                       type="button"
@@ -681,11 +739,11 @@ export function WorkspaceBoard() {
                                         })
                                       }
                                       title={`Avançar para ${primaryNext}`}
-                                      className="inline-flex items-center gap-1 rounded border border-border-default bg-surface px-1.5 py-0.5 text-[10px] font-medium text-fg-primary hover:border-accent hover:text-accent"
+                                      className="inline-flex min-h-7 items-center gap-1 rounded border border-border-default bg-surface px-2 py-0.5 text-[11px] font-medium text-fg-primary hover:border-accent hover:text-accent"
                                     >
                                       <span>Avançar</span>
                                       <ArrowRight
-                                        className="size-2.5"
+                                        className="size-3"
                                         strokeWidth={1.75}
                                       />
                                     </button>
@@ -702,10 +760,10 @@ export function WorkspaceBoard() {
                                             status: "paused",
                                           })
                                         }
-                                        className="rounded border border-border-subtle p-1 text-fg-muted hover:border-border-strong hover:text-fg-primary"
+                                        className="inline-flex min-h-7 items-center rounded border border-border-subtle px-1.5 py-0.5 text-fg-muted hover:border-border-strong hover:text-fg-primary"
                                       >
                                         <Pause
-                                          className="size-2.5"
+                                          className="size-3"
                                           strokeWidth={1.75}
                                         />
                                       </button>
@@ -770,7 +828,7 @@ export function WorkspaceBoard() {
               </table>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* Modal: Novo Cliente */}

@@ -255,3 +255,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `Vitest` (9 pacotes): **`65` arquivos de teste, `495 passed | 0 skipped`**.
   * `pnpm --filter @uzina/web test:e2e`: **`2 passed (13.4s)`**.
   * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (Chat na primeira dobra `y = 225.6px`, `Equipe Enxuta (MVP · 3)` vs `Completa (6)`, `OdontoFlow IA` criado sem estratégia manual com `Frontend-First + MSW` decidida pelo Arquiteto, preview `<iframe sandbox="">` e aprovação do Portão Visual, `0` console errors, `0` HTTP `>= 500`, `0` overflow em Desktop Dark/Light e Mobile).
+
+---
+
+## 2026-11-23 — Slice 14: Polimento Visual Desktop/Mobile, Fluxo Contínuo & Eliminação de Botões Mortos (`feat/slice-14-visual-ux-polish-desktop-mobile`)
+
+* **Entregue:**
+  * `@uzina/mastra-runtime` & `/api/prototypes/[id]/preview`: HTML e CSS responsivos (`grid-template-columns: repeat(auto-fit, minmax(135px, 1fr))`, `overflow-x: hidden`) eliminando scroll horizontal duplo dentro do `<iframe sandbox="">` no mobile.
+  * `@uzina/web` (`AgencyCommandCenter`, `WorkspaceBoard`, `CockpitShell`, `ProjectCodebaseMap`, `ProjectStudio`, `/app/settings`, `/exec`):
+    * **Desktop (`1440×900`):** calibragem da primeira dobra para que o feed do chat, chips de **Quick-Prompts** em 1 linha (`28px`) e botão **`Enviar Mensagem`** (`y + height = 870.29px <= 900px`) fiquem 100% visíveis sem rolagem da página.
+    * **Mobile (`390×844`):** Switcher Segmentado no topo (`Chat IA | Estúdio | Slices`), ocultação do Kanban inferior nas abas de Chat/Estúdio (reduzindo a página de `2376px` para `1364px`), empilhamento limpo do banner de Estratégia do Arquiteto e inputs de revisão 100% largura.
+    * **Eliminação de Botões Mortos / Dessincronizações:** persistência do histórico do chat por projeto (`localStorage` + `useSyncExternalStore` com `0` erros de hidratação SSR), formatação de Markdown sem asteriscos crus, estado pós-aprovação visual com CTA `Avançar p/ Contratos & TDD`, sincronização bidirecional Kanban ↔ `Slices`, clique no título do card abrindo o inspetor do Slice, árvore `HIERARQUIA (CLIENTES)` clicável na Sidebar, correção dos breadcrumbs `/app/finops` e `/code` e redirecionamento amigável em `/app/settings` e `/exec`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
+  * `pnpm --filter @uzina/web typecheck`, `lint`, `build` e `test:e2e` (`2 passed (12.7s)`).
+  * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (`0` console errors mesmo após `page.reload()`, `0` HTTP `>= 500`, `0` overflow horizontal em Desktop Dark/Light `1440×900` e Mobile `390×844`).

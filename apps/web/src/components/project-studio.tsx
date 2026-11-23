@@ -1019,6 +1019,28 @@ export function ProjectStudio({
                       </span>
                     </button>
                   </div>
+                ) : wfState?.workflowStatus === "completed" ? (
+                  <div className="rounded-md border border-status-ok/40 bg-status-ok/10 p-3 text-xs text-status-ok">
+                    Workflow durável concluído para este entregável (fase Verifying / Pronto para entrega).
+                  </div>
+                ) : wfState?.workflowStatus === "running" ? (
+                  <div className="rounded-md border border-status-info/40 bg-status-info/10 p-3 text-xs text-status-info">
+                    Workflow em execução ativa para o entregável selecionado.
+                  </div>
+                ) : wfState?.workflowStatus === "failed" ? (
+                  <div className="space-y-2 rounded-md border border-status-danger/40 bg-status-danger/10 p-3 text-xs text-status-danger">
+                    <p>O workflow anterior foi encerrado ou rejeitado.</p>
+                    <button
+                      type="button"
+                      data-testid="btn-workflow-restart"
+                      disabled={startWorkflowMutation.isPending}
+                      onClick={() => startWorkflowMutation.mutate()}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      <RotateCcw className="size-3.5" strokeWidth={2} />
+                      <span>Reiniciar Workflow</span>
+                    </button>
+                  </div>
                 ) : null}
 
                 {!workflowQuery.isLoading &&
