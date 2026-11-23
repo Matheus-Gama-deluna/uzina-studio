@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LlmExecutionModeSchema, ObservationalMemoryStatusSchema } from "./agency.js";
 import { OrgRoleSchema } from "./enums.js";
 
 export const CopilotRoleSchema = z.enum(["user", "assistant", "system"]);
@@ -26,6 +27,7 @@ export type CopilotActionRequest = z.infer<typeof CopilotActionRequestSchema>;
 export const CopilotChatRequestSchema = z
   .object({
     messages: z.array(CopilotMessageSchema).min(1).max(30),
+    threadId: z.string().trim().min(1).max(160).optional(),
     clientId: z.uuid().optional(),
     projectId: z.uuid().optional(),
     action: CopilotActionRequestSchema.optional(),
@@ -34,30 +36,48 @@ export const CopilotChatRequestSchema = z
 export type CopilotChatRequest = z.infer<typeof CopilotChatRequestSchema>;
 
 export const CopilotStreamEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("tool_call"),
-    toolName: z.string().min(1),
-    input: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    type: z.literal("tool_result"),
-    toolName: z.string().min(1),
-    output: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    type: z.literal("token"),
-    text: z.string(),
-  }),
-  z.object({
-    type: z.literal("done"),
-    toolsUsed: z.array(z.string()),
-    finishReason: z.enum(["completed", "aborted"]),
-  }),
-  z.object({
-    type: z.literal("error"),
-    code: z.string().min(1),
-    message: z.string().min(1),
-  }),
+  z
+    .object({
+      type: z.literal("tool_call"),
+      toolName: z.string().min(1),
+      input: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_result"),
+      toolName: z.string().min(1),
+      output: z.record(z.string(), z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("token"),
+      text: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("om_status"),
+      status: ObservationalMemoryStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("done"),
+      toolsUsed: z.array(z.string()),
+      finishReason: z.enum(["completed", "aborted"]),
+      threadId: z.string().min(1).max(160).optional(),
+      executionMode: LlmExecutionModeSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("error"),
+      code: z.string().min(1),
+      message: z.string().min(1),
+    })
+    .strict(),
 ]);
 export type CopilotStreamEvent = z.infer<typeof CopilotStreamEventSchema>;
 

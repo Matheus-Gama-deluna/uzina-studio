@@ -122,3 +122,14 @@
   - [x] Escala tonal **Warm Stone (`hue 65–75`) em 4 degraus** (Dark e Light) + `.uzina-card` em `globals.css` e `.uzina/DESIGN.md`, preservando laranja âmbar cirúrgico (`1 CTA/tela`)
   - [x] Nova sidebar com `Project Switcher` no topo (`sidebar-project-switcher`), trilha de 5 etapas em `Projeto Ativo` e grupo recolhível `Fábrica & Sistema`; `Co-piloto` reposicionado como atalho discreto no header e `⌘K`
   - [x] Correção do scroll duplo no Chat em `1440×900` (Dark e Light, `y+h = 867.2px <= 900`), remoção de `<select>`/`← Chat` redundantes e unificação visual + tipográfica (`>= 12px`) das 5 páginas operacionais (`/app/memories` modal sob demanda sem UUIDs crus, `/app/providers` cards Stone, `/app/finops` medição manual recolhível, `/app/decisions`, `/app/security`) (`feat/slice-17-stone-ui-sidebar-switcher-cohesion`)
+
+---
+
+## Fase 3 — Cérebro Agêntico Real, Observational Memory & Evolução Mastra
+
+- [x] **Slice 18 — Cérebro Agêntico Real, Observational Memory & Guardrails Processors** (`docs/slices/slice-18-real-agents-observational-memory-processors.md`)
+  - [x] Ponte multi-tenant segura do Cofre AES-256-GCM para o Mastra (`model-resolver.ts`) sem mutar `process.env`, com guarda anti-SSRF pré-decriptografia (`errors.ts`, `PATCH /api/providers/[id]`, `llm-client.ts`)
+  - [x] Memória episódica/sessão (`@mastra/memory@1.41.2` + `ObservationalMemory` com isolamento `resourceId` e hooks redatores) + tools institucionais tipadas (`workspace-tools.ts`: QMD, AST e entregas com RBAC)
+  - [x] Guardrails processors (`processors.ts`: `SecretRedactionProcessor` com holdback + `onTailFlushed`, `ToolSearchProcessor`, `TokenLimiterProcessor`, `defaultStabilityErrorProcessors`)
+  - [x] Execução real via `Agent.stream()` no Co-piloto Executivo (`executive-copilot.ts`) e Central da Agência (`agency.ts`), rotas `GET /api/agency/threads` e `POST /api/agency/chat/stream`, MSW/contract-drift e UI SSE (`AgencyCommandCenter` + `CopilotDrawer` com badge `LLM Real` vs `Assistido Local` e `data-om-status`)
+  - [x] Verify Gate pós-auditoria verde: `check-no-ee` (`0`), `audit:tests` (`67` arquivos, `208` testes, `0` violações), `pnpm verify` (`34/34` tasks, `527 passed | 1 skipped` `postgres-live.test.ts`), `UZINA_STANDALONE=1` build (`0`), Playwright `test:e2e` (`2 passed`), QA visual (`browser` **PASS**) e revisores (`appsec-auditor`, `egm-codebase-details`, `test-critic` **PASS**) (`feat/slice-18-real-agents-observational-memory-processors`)

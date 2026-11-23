@@ -28,6 +28,7 @@ interface MastraStorageSingletonState {
   configKey?: string;
   initPromise?: Promise<UzinaMastraStore>;
   closingPromise?: Promise<void>;
+  memorySettleCallbacks?: Set<() => Promise<void>>;
 }
 
 const SINGLETON_KEY = Symbol.for("@uzina/mastra-runtime/singleton");
@@ -41,6 +42,32 @@ function getSingletonState(): MastraStorageSingletonState {
     holder[SINGLETON_KEY] = {};
   }
   return holder[SINGLETON_KEY];
+}
+
+export function registerMemorySettleHook(cb: () => Promise<void>): () => void {
+  const state = getSingletonState();
+  if (!state.memorySettleCallbacks) {
+    state.memorySettleCallbacks = new Set();
+  }
+  state.memorySettleCallbacks.add(cb);
+  return () => {
+    state.memorySettleCallbacks?.delete(cb);
+  };
+}
+
+export async function settleAllUzinaMemories(): Promise<void> {
+  const state = getSingletonState();
+  if (!state.memorySettleCallbacks || state.memorySettleCallbacks.size === 0) {
+    return;
+  }
+  const callbacks = Array.from(state.memorySettleCallbacks);
+  for (const cb of callbacks) {
+    try {
+      await cb();
+    } catch {
+      // Ignora erro em hook de settle durante shutdown/teste
+    }
+  }
 }
 
 export function resolveMastraStorageConfig(
@@ -60,7 +87,11 @@ export function resolveMastraStorageConfig(
     };
   }
 
-  const rawDataDir = options.dataDir ?? resolveDataDir();
+  const rawDataDir =
+    options.dataDir ??
+    (process.env.VITEST && !process.env.UZINA_DATA_DIR
+      ? ":memory:"
+      : resolveDataDir());
   if (rawDataDir === ":memory:") {
     return {
       mode: "libsql",
@@ -93,6 +124,9 @@ export function createMastraStorage(
   return new LibSQLStore({
     id: "uzina-mastra",
     url: cfg.url,
+    maxRetries: 5,
+    initialBackoffMs: 100,
+    connectionTimeoutMs: 5000,
   });
 }
 
@@ -106,38 +140,44 @@ export async function getMastraStorageSingleton(
   options: MastraStorageOptions = {}
 ): Promise<UzinaMastraStore> {
   const state = getSingletonState();
-  if (state.closingPromise) {
-    await state.closingPromise;
-  }
-
   const cfg = resolveMastraStorageConfig(options);
   const key = buildConfigKey(cfg);
 
-  if (state.store && state.configKey === key) {
-    return state.store;
+  while (state.closingPromise || state.initPromise) {
+    if (state.closingPromise) {
+      await state.closingPromise;
+    }
+    if (state.initPromise) {
+      try {
+        await state.initPromise;
+      } catch {
+        // init falhou, loop tenta novamente se necessário
+      }
+    }
   }
 
-  if (state.initPromise) {
-    const inFlight = await state.initPromise;
-    if (state.configKey === key) {
-      return inFlight;
-    }
+  if (state.store && state.configKey === key) {
+    return state.store;
   }
 
   if (state.store && state.configKey !== key) {
     await closeMastraStorage();
   }
 
-  state.configKey = key;
   state.initPromise = (async () => {
     const store = createMastraStorage(options);
     await store.init();
     state.store = store;
+    state.configKey = key;
     return store;
   })();
 
   try {
     return await state.initPromise;
+  } catch (err) {
+    state.store = undefined;
+    state.configKey = undefined;
+    throw err;
   } finally {
     state.initPromise = undefined;
   }
@@ -150,6 +190,7 @@ export async function closeMastraStorage(): Promise<void> {
   }
 
   state.closingPromise = (async () => {
+    await settleAllUzinaMemories();
     if (state.initPromise) {
       try {
         await state.initPromise;
@@ -174,4 +215,6 @@ export async function closeMastraStorage(): Promise<void> {
 
 export async function resetMastraStorageForTests(): Promise<void> {
   await closeMastraStorage();
+  const state = getSingletonState();
+  state.memorySettleCallbacks?.clear();
 }

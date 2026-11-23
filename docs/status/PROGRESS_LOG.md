@@ -315,3 +315,21 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65` arquivos, `199` testes, `0` violações).
   * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed`).
   * `browser` (`flash`) em `http://localhost:3000`: **PASS** nas 9 rotas em Desktop `1440×900` (Dark/Light Stone, `A+`, `page.reload()`) e Mobile `390×844` (`0` erros de console/hidratação, `0` HTTP `>= 500`, `0` overflow horizontal).
+
+
+---
+
+## 2026-11-23 — Slice 18: Cérebro Agêntico Real, Observational Memory & Guardrails Processors (`feat/slice-18-real-agents-observational-memory-processors`)
+
+* **Entregue:**
+  * **Ponte Multi-Tenant do Cofre & Anti-SSRF (`model-resolver.ts`, `llm-client.ts`, `errors.ts`, `PATCH /api/providers/[id]`):** resolução dinâmica de modelos por organização/papel descriptografando credenciais AES-256-GCM somente em memória (sem mutar `process.env` nem expor segredos em spans), parsing exato de URLs de provedores (`Google`, `Anthropic`, `OpenAI/OpenRouter`, `OmniRoute`, `Ollama`) e bloqueio anti-SSRF cobrindo loopback/RFC1918/IMDS/`::`/`::ffff:`/CGNAT `100.64.0.0/10` antes da descriptografia do cofre.
+  * **Memória Episódica & Institucional (`@mastra/memory@1.41.2`, `memory-runtime.ts`, `tools/workspace-tools.ts`):** `ObservationalMemory` com isolamento estrito por `resourceId`, hooks `beforeObservation` / `afterObservation` / `beforeReflection` / `afterReflection` redatores de segredos, registro FinOps `observational_memory` em `onObservationEnd` e ferramentas tipadas de workspace (`search_qmd_memories`, `read_project_deliverables`, `inspect_codebase_skeleton`, `query_codebase_symbols`, `create_qmd_memory`) com RBAC (`auditor` bloqueado para escrita).
+  * **Guardrails Processors & Agentes Reais (`processors.ts`, `redact.ts`, `engineering-agents.ts`, `executive-copilot.ts`, `agency.ts`):** `SecretRedactionProcessor` com holdback buffer em stream e drenagem de cauda via `onTailFlushed`, escape de tags de controle com atributos, `ToolSearchProcessor`, `TokenLimiterProcessor`, `defaultStabilityErrorProcessors` e execução real `Agent.stream()` com fallback determinístico `local_assisted` e prevenção de duplicação em intents transacionais.
+  * **Rotas SSE, Threads, MSW & UI (`apps/web`):** `POST /api/agency/chat/stream`, `GET /api/agency/threads` (401/400/403 + validação de ownership), hardening de `/api/copilot/chat` e `/api/providers/[id]`, handlers/fixtures MSW sincronizados em `contract-drift.test.ts` e atualização SSE + `data-om-status` + badge por turno (`LLM Real` vs `Assistido Local`) em `AgencyCommandCenter` e `CopilotDrawer`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`67` arquivos, `208` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`527 passed | 1 skipped`, apenas `postgres-live.test.ts` em `@uzina/db` sem `TEST_DATABASE_URL`).
+  * Build `UZINA_STANDALONE=1` (`exit 0`) e Playwright `pnpm test:e2e` (`2 passed (10.5s)`).
+  * QA Visual (`browser` em `http://localhost:3000/app`): **PASS** em Dark/Light Stone `1440×900` e Mobile `390×844` + `CopilotDrawer` (`0` erros de console/hidratação, `0` HTTP `>= 500`, `0` overflow horizontal).
+  * Auditores: `appsec-auditor` (**PASS**), `egm-codebase-details` (**PASS**) e `test-critic` (**PASS**).
+* **Próximo passo:** Revisão final / merge da branch `feat/slice-18-real-agents-observational-memory-processors` para `main` e início do **Slice 19** (`AgentController`, `steer()`, `BackgroundTasks`).

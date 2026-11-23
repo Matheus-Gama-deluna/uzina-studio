@@ -17,6 +17,17 @@ export function getServerMasterKey(): Buffer {
   return resolveMasterKey(process.env, resolveDataDir(process.env));
 }
 
+export function tryGetServerMasterKey(): Buffer | undefined {
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return undefined;
+  }
+  try {
+    return resolveMasterKey(process.env, resolveDataDir(process.env));
+  } catch {
+    return undefined;
+  }
+}
+
 export function toPublicProviderProfile(
   row: typeof providerProfiles.$inferSelect
 ): ProviderProfilePublic {

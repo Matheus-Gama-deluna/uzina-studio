@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 17 concluído e integrado na `main`** (Sistema Visual Warm Stone 4 degraus Dark/Light, Sidebar com `Project Switcher` e trilha de jornada, Chat sem scroll duplo e unificação das 5 páginas operacionais com `check-no-ee`, `audit-tests`, `typecheck`, `lint`, `contract-drift`, `next build`, Playwright `2 passed` e QA visual nas 9 rotas). → **Próximo passo:** Operar projetos no fluxo guiado pela sidebar em `http://localhost:3000`.
+> **Estado Atual:** ★ **Slice 18 implementado e validado na branch `feat/slice-18-real-agents-observational-memory-processors`** (Ponte multi-tenant Cofre AES-256-GCM → `@mastra/memory@1.41.2` `ObservationalMemory`, `SecretRedactionProcessor` + guardrails, `Agent.stream()` no Co-piloto Executivo e Central da Agência, SSE `POST /api/agency/chat/stream`, threads isoladas `GET /api/agency/threads` e anti-SSRF reforçado; `pnpm verify` `34/34` tasks com `527 passed | 1 skipped`, `UZINA_STANDALONE=1`, Playwright `2 passed`, QA visual e revisores `PASS`). → **Próximo passo:** Revisão/merge do Slice 18 para `main` e início do **Slice 19** (`AgentController`, `steer()`, `BackgroundTasks`).
 
 ---
 
@@ -26,6 +26,7 @@ flowchart LR
     S14 --> S15["Slice 15: Conexão Real Multi-LLM, Ping de Credenciais, Prototipação Dinâmica & Polimento 2ª Rodada (CONCLUÍDO)"]
     S15 --> S16["Slice 16: Redesign Visual Calmo (90/10), Tipografia A-|A|A+ & 4 Momentos Dedicados (CONCLUÍDO)"]
     S16 --> S17["Slice 17: Sistema Visual Warm Stone (4 Degraus), Project Switcher & Coesão Global (CONCLUÍDO)"]
+    S17 --> S18["Slice 18: Cérebro Agêntico Real, Observational Memory & Guardrails Processors (CONCLUÍDO NA BRANCH)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -59,6 +60,7 @@ flowchart LR
 | **Slice 15 — Conexão Real Multi-LLM, Ping & Polimento 2ª Rodada** | *Contract-First + Live LLM Gateway* | `llm-client.ts` (Gemini, OpenAI/OpenRouter, Anthropic, Ollama), `POST /api/providers/test` (Ping LLM real), Cofre com presets dos 7 papéis, Protótipos dinâmicos por domínio, badge `LLM Real vs Simulado`, remoção de abas duplicadas no mobile e navegação de retorno global | Seletiva (`ui-visual-qa-critic`) | [slice-15](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-15-live-llm-connection-visual-polish-r2.md) | 🟢 Concluído (`feat/slice-15-live-llm-connection-visual-polish-r2`) |
 | **Slice 16 — Redesign Visual Calmo, Tipografia `A-\|A\|A+` & 4 Momentos** | *UI/UX Craft + Multi-Viewport QA* | Paleta 90/10 (`Calm Precision Dark`), corpo `14–15px` + zoom global `A-\|A\|A+`, sidebar retrátil e separação da Torre em 4 momentos (`/app/ideas`, `/app`, `/app/studio` com `Desktop\|Tablet\|Celular`, `/app/deliverables`) | Seletiva (`ui-visual-qa-critic`) | [slice-16](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-16-calm-ui-typography-four-moments.md) | 🟢 Concluído (`feat/slice-16-calm-ui-typography-four-moments`) |
 | **Slice 17 — Sistema Visual Warm Stone, `Project Switcher` & Coesão Global** | *UI/UX Craft + Navigation Architecture* | Escala Stone 4 degraus (Dark/Light), `Project Switcher` no topo da sidebar + jornada 5 etapas + `Fábrica & Sistema` recolhível, Chat sem scroll duplo e unificação tipográfica (`>=12px`, `1 CTA`) de todas as 5 páginas operacionais | Seletiva (`ui-visual-qa-critic`) | [slice-17](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-17-stone-ui-sidebar-switcher-cohesion.md) | 🟢 Concluído (`feat/slice-17-stone-ui-sidebar-switcher-cohesion`) |
+| **Slice 18 — Cérebro Agêntico Real, Observational Memory & Guardrails Processors** | *Contract-First + Domain-First + Vertical Slice* | Ponte Cofre AES-256-GCM → `@mastra/memory@1.41.2` (`ObservationalMemory`), `SecretRedactionProcessor` + `ToolSearchProcessor` + `TokenLimiterProcessor`, `Agent.stream()` no Co-piloto & Central da Agência, SSE `/api/agency/chat/stream`, threads isoladas `/api/agency/threads` e proteção anti-SSRF | **Sim** (`readiness` + `design` + `appsec` + `details` + `test-critic`) | [slice-18](docs/slices/slice-18-real-agents-observational-memory-processors.md) | 🟢 Concluído na branch (`feat/slice-18-real-agents-observational-memory-processors`) |
 
 ---
 

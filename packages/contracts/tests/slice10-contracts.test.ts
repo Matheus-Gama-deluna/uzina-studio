@@ -68,6 +68,7 @@ describe("Slice 10 contracts — Docker Workspace & FinOps de Tokens", () => {
       "qmd",
       "ast_graph",
       "skeleton",
+      "observational_memory",
     ]);
     expect(EmbeddingEngineModeSchema.options).toEqual([
       "deterministic",

@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "@electric-sql/pglite",
     "pg",
     "@mastra/core",
+    "@mastra/memory",
     "@mastra/libsql",
     "@mastra/pg",
     "@libsql/client",

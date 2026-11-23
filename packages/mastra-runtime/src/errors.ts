@@ -8,7 +8,10 @@ export type WorkflowRuntimeErrorCode =
   | "WORKFLOW_RUN_NOT_FOUND"
   | "INVALID_WORKFLOW_INPUT"
   | "MISSING_PRECONDITION"
-  | "EXECUTION_FAILED";
+  | "EXECUTION_FAILED"
+  | "FORBIDDEN_PROJECT_SCOPE"
+  | "FORBIDDEN_THREAD_ACCESS"
+  | "AGENCY_NO_RESPONSE";
 
 export class WorkflowRuntimeError extends Error {
   readonly statusCode: number;

@@ -1,10 +1,11 @@
 import { AgencyChatRequestSchema } from "@uzina/contracts";
+import { redactSensitiveText } from "@uzina/core";
 import { getDb } from "@uzina/db";
 import { handleAgencyChatScoped } from "@uzina/mastra-runtime/agency";
 import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
-import { getServerMasterKey } from "@/lib/vault";
+import { tryGetServerMasterKey } from "@/lib/vault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
         userId: auth.actor.userId,
         role: auth.actor.role,
       },
-      masterKey: getServerMasterKey(),
+      masterKey: tryGetServerMasterKey(),
       request: parsed.data,
     });
     return NextResponse.json(res, { status: 200 });
@@ -54,15 +55,16 @@ export async function POST(request: Request) {
     ) {
       const wfErr = err as { statusCode: number; message?: string; code?: string };
       return jsonError(wfErr.statusCode, {
-        error: wfErr.message ?? "Erro de permissão.",
+        error: redactSensitiveText(wfErr.message ?? "Erro de permissão."),
         code: wfErr.code ?? "FORBIDDEN",
       });
     }
     return jsonError(500, {
-      error:
+      error: redactSensitiveText(
         err instanceof Error
           ? err.message
-          : "Erro ao processar orquestração de agentes.",
+          : "Erro ao processar orquestração de agentes."
+      ),
       code: "INTERNAL_ERROR",
     });
   }

@@ -7,7 +7,10 @@ import type {
   AgencyChatIntent,
   AgencyChatResponse,
   AgencyOverviewResponse,
+  AgencyStreamEvent,
+  AgencyThreadListResponse,
   AutonomyMode,
+  ObservationalMemoryStatus,
   TeamTopologyMode,
 } from "@uzina/contracts";
 import {
@@ -28,6 +31,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import {
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -53,6 +57,7 @@ interface ChatTurnItem {
   cycleNumber?: number;
   handedOffFrom?: AgencyAgentRole | null;
   actionsExecuted?: AgencyActionExecuted[];
+  toolsUsed?: string[];
 }
 
 const INITIAL_GREETING_TURN: ChatTurnItem = {
@@ -111,6 +116,71 @@ export function AgencyCommandCenter({
   const [turnsByKey, setTurnsByKey] = useState<Record<string, ChatTurnItem[]>>(
     {}
   );
+  const [threadIdByKey, setThreadIdByKey] = useState<
+    Record<string, string | null>
+  >({});
+  const [omStatus, setOmStatus] = useState<ObservationalMemoryStatus | null>(
+    null
+  );
+
+  const activeThreadId = threadIdByKey[storageKey] ?? null;
+
+  useEffect(() => {
+    if (!bootReady || !isHydrated) return;
+    let cancelled = false;
+    const ac = new AbortController();
+
+    const params = new URLSearchParams();
+    if (activeProjectId) {
+      params.set("projectId", activeProjectId);
+    }
+    const threadsUrl = `/api/agency/threads${
+      params.toString() ? `?${params.toString()}` : ""
+    }`;
+
+    void (async () => {
+      try {
+        const res = await fetch(threadsUrl, { signal: ac.signal });
+        if (!res.ok || cancelled) return;
+        const payload = (await res.json()) as AgencyThreadListResponse;
+        if (cancelled) return;
+
+        if (payload.activeThreadId) {
+          setThreadIdByKey((prev) => ({
+            ...prev,
+            [storageKey]: prev[storageKey] ?? payload.activeThreadId,
+          }));
+        }
+
+        if (payload.messages.length > 0) {
+          const serverTurns: ChatTurnItem[] = payload.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            agentName: m.agentName,
+            agentRole: m.agentRole,
+            executionMode: m.executionMode,
+            boundModelId: m.boundModelId,
+            toolsUsed: m.toolsUsed,
+            actionsExecuted: m.actionsExecuted,
+          }));
+          setTurnsByKey((prev) => {
+            if (prev[storageKey] && prev[storageKey]!.length > 0) {
+              return prev;
+            }
+            return { ...prev, [storageKey]: serverTurns };
+          });
+        }
+      } catch {
+        // Ignora falha silenciosa de hidratação (ex.: offline ou boot inicial)
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [bootReady, isHydrated, activeProjectId, storageKey]);
 
   const chatTurns = useMemo<ChatTurnItem[]>(() => {
     const inMemory = turnsByKey[storageKey];
@@ -175,7 +245,45 @@ export function AgencyCommandCenter({
       projectId?: string;
       targetAgentRole?: AgencyAgentRole;
     }) => {
-      const res = await fetch("/api/agency/chat", {
+      const userTurnId = crypto.randomUUID();
+      const assistantTurnId = crypto.randomUUID();
+      const baseTurns = [...chatTurns];
+      const patchAssistantTurn = (
+        updater: (prev: ChatTurnItem) => ChatTurnItem
+      ) => {
+        setTurnsByKey((prev) => {
+          const list = prev[storageKey] ?? baseTurns;
+          const exists = list.some((t) => t.id === assistantTurnId);
+          if (!exists) return prev;
+          return {
+            ...prev,
+            [storageKey]: list.map((t) =>
+              t.id === assistantTurnId ? updater(t) : t
+            ),
+          };
+        });
+      };
+
+      setTurnsByKey((prev) => ({
+        ...prev,
+        [storageKey]: [
+          ...baseTurns,
+          {
+            id: userTurnId,
+            role: "user",
+            content: payload.message,
+          },
+          {
+            id: assistantTurnId,
+            role: "assistant",
+            content: "",
+            actionsExecuted: [],
+            toolsUsed: [],
+          },
+        ],
+      }));
+
+      const res = await fetch("/api/agency/chat/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -185,43 +293,137 @@ export function AgencyCommandCenter({
           autonomyMode,
           ...(selectedClientId !== "all" ? { clientId: selectedClientId } : {}),
           ...(payload.projectId ? { projectId: payload.projectId } : {}),
+          ...(activeThreadId ? { threadId: activeThreadId } : {}),
           ...(payload.targetAgentRole
             ? { targetAgentRole: payload.targetAgentRole }
             : {}),
         }),
       });
-      if (!res.ok) {
+
+      if (!res.ok || !res.body) {
         const err = (await res.json().catch(() => null)) as {
           error?: string;
         } | null;
         throw new Error(err?.error ?? "Falha ao executar turno com agente.");
       }
-      return (await res.json()) as AgencyChatResponse;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalResponse: AgencyChatResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+
+        for (const block of blocks) {
+          const dataLine = block
+            .split("\n")
+            .find((line) => line.startsWith("data: "));
+          if (!dataLine) continue;
+          const ev = JSON.parse(dataLine.slice(6)) as AgencyStreamEvent;
+
+          if (ev.type === "thread_ready") {
+            setThreadIdByKey((prev) => ({
+              ...prev,
+              [storageKey]: ev.threadId,
+            }));
+            patchAssistantTurn((turn) => ({
+              ...turn,
+              agentName: ev.activeAgent.name,
+              agentRole: ev.activeAgent.role,
+              tierLabel: ev.activeAgent.tierLabel,
+              boundModelId: ev.activeAgent.boundModelId,
+              executionMode: ev.executionMode,
+              handedOffFrom: ev.handedOffFrom,
+            }));
+          } else if (ev.type === "action_executed") {
+            patchAssistantTurn((turn) => ({
+              ...turn,
+              actionsExecuted: [...(turn.actionsExecuted ?? []), ev.action],
+            }));
+          } else if (ev.type === "tool_call") {
+            patchAssistantTurn((turn) => {
+              const current = turn.toolsUsed ?? [];
+              return current.includes(ev.toolName)
+                ? turn
+                : { ...turn, toolsUsed: [...current, ev.toolName] };
+            });
+          } else if (ev.type === "token") {
+            patchAssistantTurn((turn) => ({
+              ...turn,
+              content: `${turn.content}${ev.text}`,
+            }));
+          } else if (ev.type === "om_status") {
+            setOmStatus(ev.status);
+          } else if (ev.type === "error") {
+            throw new Error(ev.message);
+          } else if (ev.type === "done") {
+            finalResponse = ev.response;
+          }
+        }
+      }
+
+      if (!finalResponse) {
+        throw new Error("Stream encerrado sem confirmação final da equipe.");
+      }
+
+      return { response: finalResponse, userTurnId, assistantTurnId };
     },
-    onSuccess: async (data, variables) => {
+    onSuccess: async (
+      { response: data, userTurnId, assistantTurnId },
+      variables
+    ) => {
       const resolvedProjId = data.projectState?.projectId ?? activeProjectId;
-      const updatedTurns: ChatTurnItem[] = [
-        ...chatTurns,
-        {
-          id: crypto.randomUUID(),
-          role: "user",
-          content: variables.message,
-        },
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: data.reply,
-          agentName: data.activeAgent.name,
-          agentRole: data.activeAgent.role,
-          tierLabel: data.activeAgent.tierLabel,
-          boundModelId: data.activeAgent.boundModelId,
-          executionMode: data.executionMode,
-          llmLatencyMs: data.llmLatencyMs,
-          cycleNumber: data.cycleNumber,
-          handedOffFrom: data.handedOffFrom,
-          actionsExecuted: data.actionsExecuted,
-        },
-      ];
+      if (data.threadId) {
+        setThreadIdByKey((prev) => ({
+          ...prev,
+          [storageKey]: data.threadId ?? prev[storageKey] ?? null,
+          ...(resolvedProjId
+            ? {
+                [`uzina:agency-chat-turns:${resolvedProjId}`]:
+                  data.threadId ?? null,
+              }
+            : {}),
+        }));
+      }
+      if (data.omStatus) {
+        setOmStatus(data.omStatus);
+      }
+
+      const currentList = turnsByKey[storageKey] ?? chatTurns;
+      const hasAssistant = currentList.some((t) => t.id === assistantTurnId);
+      const completedTurn: ChatTurnItem = {
+        id: assistantTurnId,
+        role: "assistant",
+        content: data.reply,
+        agentName: data.activeAgent.name,
+        agentRole: data.activeAgent.role,
+        tierLabel: data.activeAgent.tierLabel,
+        boundModelId: data.activeAgent.boundModelId,
+        executionMode: data.executionMode,
+        llmLatencyMs: data.llmLatencyMs,
+        cycleNumber: data.cycleNumber,
+        handedOffFrom: data.handedOffFrom,
+        actionsExecuted: data.actionsExecuted,
+        toolsUsed: data.toolsUsed,
+      };
+      const updatedTurns: ChatTurnItem[] = hasAssistant
+        ? currentList.map((t) =>
+            t.id === assistantTurnId ? completedTurn : t
+          )
+        : [
+            ...currentList,
+            {
+              id: userTurnId,
+              role: "user",
+              content: variables.message,
+            },
+            completedTurn,
+          ];
       persistTurns(updatedTurns, resolvedProjId);
 
       if (resolvedProjId && resolvedProjId !== activeProjectId) {
@@ -327,6 +529,24 @@ export function AgencyCommandCenter({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <span
+            data-om-status={omStatus?.bufferingStatus ?? "idle"}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary tabular-nums"
+          >
+            <span
+              className={`size-1.5 rounded-full ${
+                omStatus?.bufferingStatus === "running"
+                  ? "bg-accent"
+                  : "bg-fg-muted"
+              }`}
+            />
+            <span>
+              {omStatus
+                ? `OM · Gen ${omStatus.generationCount} (${omStatus.activeMessageTokens} tok)`
+                : "Memória OM"}
+            </span>
+          </span>
+
           <Link
             href="/app/providers"
             data-testid="llm-execution-mode-badge"
@@ -341,8 +561,8 @@ export function AgencyCommandCenter({
             />
             <span>
               {readiness?.llmProviderConfigured
-                ? `LLM Real (${readiness.activeProviderNames.join(", ")})`
-                : "Modo Simulado Local"}
+                ? `LLM Real Ativo (${readiness.activeProviderNames.join(", ")})`
+                : "Assistido Local"}
             </span>
           </Link>
 
@@ -590,8 +810,9 @@ export function AgencyCommandCenter({
                         </span>
                       )}
                       <span>·</span>
-                      {turn.executionMode === "live_llm" ||
-                      readiness?.llmProviderConfigured ? (
+                      {(turn.executionMode
+                        ? turn.executionMode === "live_llm"
+                        : Boolean(readiness?.llmProviderConfigured)) ? (
                         <span className="inline-flex items-center gap-1.5 text-fg-secondary">
                           <span className="size-1.5 rounded-full bg-status-ok" />
                           <span>{turn.boundModelId ?? "LLM Real"}</span>
@@ -667,6 +888,12 @@ export function AgencyCommandCenter({
                   </div>
                 )}
 
+                {turn.toolsUsed && turn.toolsUsed.length > 0 && (
+                  <p className="font-mono text-[11px] text-fg-muted">
+                    Ferramentas: {turn.toolsUsed.join(", ")}
+                  </p>
+                )}
+
                 {turn.actionsExecuted && turn.actionsExecuted.length > 0 && (
                   <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-fg-muted">
                     {turn.actionsExecuted.map((act, idx) => (
@@ -735,7 +962,14 @@ export function AgencyCommandCenter({
                 <button
                   type="button"
                   data-testid="btn-clear-chat-history"
-                  onClick={() => persistTurns([INITIAL_GREETING_TURN])}
+                  onClick={() => {
+                    persistTurns([INITIAL_GREETING_TURN]);
+                    setThreadIdByKey((prev) => ({
+                      ...prev,
+                      [storageKey]: null,
+                    }));
+                    setOmStatus(null);
+                  }}
                   className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-fg-muted hover:text-fg-primary"
                 >
                   <Trash2 className="size-3.5" />

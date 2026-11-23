@@ -126,7 +126,7 @@ const SENSITIVE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/g, "[REDACTED_GITHUB_TOKEN]"],
   [/\bgithub_pat_[A-Za-z0-9_]{20,255}\b/g, "[REDACTED_GITHUB_PAT]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,200}\b/g, "[REDACTED_SLACK_TOKEN]"],
-  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\bAIza[0-9A-Za-z_-]{33,45}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
   [/\bsk-(?:ant-|proj-|live-|test-)?[A-Za-z0-9_-]{20,200}\b/g, "[REDACTED_API_KEY]"],
   [
     /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
@@ -138,6 +138,10 @@ const SENSITIVE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   ],
   [
     /((?:password|passwd|secret|api_key|apikey|token|bearer|authorization)\s*[:=]\s*["']?)([A-Za-z0-9._~+/-]{8,})/gi,
+    "$1[REDACTED]",
+  ],
+  [
+    /\b(Bearer\s+)([A-Za-z0-9._~+/-]{8,})(?=$|[\s"'`,;)\]}])/gi,
     "$1[REDACTED]",
   ],
   [
@@ -171,9 +175,25 @@ export function redactSensitiveValue<T>(
       return redactSensitiveText(node, cleanSecrets);
     }
     if (node instanceof Error) {
+      if (seen.has(node)) {
+        return node;
+      }
+      seen.add(node);
       node.message = redactSensitiveText(node.message, cleanSecrets);
       if (node.stack) {
         node.stack = redactSensitiveText(node.stack, cleanSecrets);
+      }
+      const errWithExtras = node as Error & {
+        cause?: unknown;
+        errors?: unknown[];
+      };
+      if (errWithExtras.cause !== undefined) {
+        errWithExtras.cause = redactDeep(errWithExtras.cause, seen);
+      }
+      if (Array.isArray(errWithExtras.errors)) {
+        errWithExtras.errors = errWithExtras.errors.map((e) =>
+          redactDeep(e, seen)
+        );
       }
       return node;
     }

@@ -2,6 +2,8 @@ import {
   AgencyChatRequestSchema,
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  AgencyStreamEventSchema,
+  AgencyThreadListResponseSchema,
   ApiErrorSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
@@ -10,6 +12,7 @@ import {
   CodebaseReindexResponseSchema,
   CodebaseTreeResponseSchema,
   CopilotChatRequestSchema,
+  CopilotStreamEventSchema,
   CreateClientSchema,
   CreateDeliverableSchema,
   CreateDesignAssetReferenceSchema,
@@ -84,6 +87,7 @@ import {
   mockEngineConfigResponse,
   mockAgencyChatResponse,
   mockAgencyOverviewResponse,
+  mockAgencyThreadListResponse,
   mockExecutionEvents,
   mockFinopsSummary,
   mockMemories,
@@ -757,11 +761,25 @@ export const handlers = [
         { status: 400 }
       );
     }
-    const frames = [
-      `event: tool_call\ndata: ${JSON.stringify({ type: "tool_call", toolName: "read_workspace_overview", input: {} })}\n\n`,
-      `event: token\ndata: ${JSON.stringify({ type: "token", text: "Resumo Executivo: workspace saudável com decisões e memórias isoladas." })}\n\n`,
-      `event: done\ndata: ${JSON.stringify({ type: "done", toolsUsed: ["read_workspace_overview"], finishReason: "completed" })}\n\n`,
-    ].join("");
+    const copilotFrames = [
+      CopilotStreamEventSchema.parse({
+        type: "tool_call",
+        toolName: "read_workspace_overview",
+        input: {},
+      }),
+      CopilotStreamEventSchema.parse({
+        type: "token",
+        text: "Resumo Executivo: workspace saudável com decisões e memórias isoladas.",
+      }),
+      CopilotStreamEventSchema.parse({
+        type: "done",
+        toolsUsed: ["read_workspace_overview"],
+        finishReason: "completed",
+      }),
+    ];
+    const frames = copilotFrames
+      .map((ev) => `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`)
+      .join("");
     return new HttpResponse(frames, {
       status: 200,
       headers: { "content-type": "text/event-stream; charset=utf-8" },
@@ -1035,6 +1053,24 @@ export const handlers = [
     );
   }),
 
+  http.get("*/api/agency/threads", ({ request }) => {
+    const url = new URL(request.url);
+    const simulated = checkSimulatedState(url);
+    if (simulated) return simulated;
+    if (url.searchParams.get("state") === "empty") {
+      return HttpResponse.json(
+        AgencyThreadListResponseSchema.parse({
+          threads: [],
+          activeThreadId: null,
+          messages: [],
+        })
+      );
+    }
+    return HttpResponse.json(
+      AgencyThreadListResponseSchema.parse(mockAgencyThreadListResponse)
+    );
+  }),
+
   http.post("*/api/agency/chat", async ({ request }) => {
     const parsed = AgencyChatRequestSchema.safeParse(await request.json());
     if (!parsed.success) {
@@ -1052,6 +1088,57 @@ export const handlers = [
         autonomyMode: parsed.data.autonomyMode,
       })
     );
+  }),
+
+  http.post("*/api/agency/chat/stream", async ({ request }) => {
+    const parsed = AgencyChatRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+
+    const threadId =
+      parsed.data.threadId ?? mockAgencyChatResponse.threadId ?? "mock-thread";
+    const response = AgencyChatResponseSchema.parse({
+      ...mockAgencyChatResponse,
+      autonomyMode: parsed.data.autonomyMode,
+      threadId,
+    });
+
+    const events = [
+      AgencyStreamEventSchema.parse({
+        type: "thread_ready",
+        threadId,
+        executionMode: "local_assisted",
+        activeAgent: response.activeAgent,
+        handedOffFrom: response.handedOffFrom,
+      }),
+      AgencyStreamEventSchema.parse({
+        type: "token",
+        text: response.reply,
+      }),
+      AgencyStreamEventSchema.parse({
+        type: "done",
+        response,
+      }),
+    ];
+
+    const sseBody = events
+      .map((ev) => `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`)
+      .join("");
+
+    return new HttpResponse(sseBody, {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+      },
+    });
   }),
 
   http.post("*/api/providers/test", async ({ request }) => {

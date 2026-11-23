@@ -1,6 +1,7 @@
 import {
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  AgencyThreadListResponseSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
   CodebaseReindexResponseSchema,
@@ -688,6 +689,14 @@ export const mockFinopsSummary = FinopsSummarySchema.parse({
       tokensSaved: 9000,
       savingsPercent: 90,
     },
+    {
+      technique: "observational_memory",
+      eventsCount: 0,
+      tokensBaseline: 0,
+      tokensActual: 0,
+      tokensSaved: 0,
+      savingsPercent: 0,
+    },
   ],
   recentEvents: [
     {
@@ -861,4 +870,43 @@ export const mockAgencyChatResponse = AgencyChatResponseSchema.parse({
   ],
   projectState: null,
   readiness: mockAgencyOverviewResponse.readiness,
+  executionMode: "local_assisted",
+  threadId: "50000000-0000-4000-8000-000000000001",
+  toolsUsed: ["read_project_deliverables"],
+  omStatus: {
+    activeMessageTokens: 0,
+    messageTokensThreshold: 20000,
+    activeObservationTokens: 0,
+    observationTokensThreshold: 40000,
+    generationCount: 0,
+    bufferingStatus: "idle",
+  },
+});
+
+export const mockAgencyThreadListResponse = AgencyThreadListResponseSchema.parse({
+  threads: [
+    {
+      threadId: "50000000-0000-4000-8000-000000000001",
+      projectId: MOCK_PROJECT_ID,
+      title: "Alinhamento inicial de arquitetura",
+      updatedAt: NOW,
+      messageCount: 2,
+    },
+  ],
+  activeThreadId: "50000000-0000-4000-8000-000000000001",
+  messages: [
+    {
+      id: "msg-mock-1",
+      role: "user",
+      content: "Analise a arquitetura do projeto e liste os próximos passos.",
+      createdAt: NOW,
+    },
+    {
+      id: "msg-mock-2",
+      role: "assistant",
+      content:
+        "Analisei o repositório e gerei o Blueprint Arquitetural e os Slices iniciais.",
+      createdAt: NOW,
+    },
+  ],
 });
