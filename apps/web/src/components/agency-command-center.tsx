@@ -59,6 +59,8 @@ interface ChatTurnItem {
   agentRole?: AgencyAgentRole;
   tierLabel?: string;
   boundModelId?: string;
+  executionMode?: "live_llm" | "local_assisted";
+  llmLatencyMs?: number | null;
   cycleNumber?: number;
   handedOffFrom?: AgencyAgentRole | null;
   actionsExecuted?: AgencyActionExecuted[];
@@ -358,6 +360,8 @@ export function AgencyCommandCenter({
           agentRole: data.activeAgent.role,
           tierLabel: data.activeAgent.tierLabel,
           boundModelId: data.activeAgent.boundModelId,
+          executionMode: data.executionMode,
+          llmLatencyMs: data.llmLatencyMs,
           cycleNumber: data.cycleNumber,
           handedOffFrom: data.handedOffFrom,
           actionsExecuted: data.actionsExecuted,
@@ -529,11 +533,21 @@ export function AgencyCommandCenter({
               )}
             </button>
 
-            <span className="hidden text-xs text-fg-secondary xl:inline">
-              {readiness?.llmProviderConfigured
-                ? `Cofre LLM ativo · Motores ${readiness.embeddingMode} + AST ${readiness.astMode}`
-                : "Modo Assistido Local ativo · Clique em Setup para conectar chave LLM ou calibrar motores"}
-            </span>
+            <Link
+              href="/app/providers"
+              data-testid="llm-execution-mode-badge"
+              className={`inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs font-medium transition-colors ${
+                readiness?.llmProviderConfigured
+                  ? "border-status-ok/40 bg-status-ok/10 text-status-ok hover:border-status-ok"
+                  : "border-status-warn/40 bg-status-warn/10 text-status-warn hover:border-accent"
+              }`}
+            >
+              <span>
+                {readiness?.llmProviderConfigured
+                  ? `🟢 LLM Real Ativo (${readiness.activeProviderNames.join(", ")})`
+                  : "🟡 Modo Simulado Local · Conectar Chave LLM Real →"}
+              </span>
+            </Link>
           </div>
 
           {/* Direita: Alternância Equipe Enxuta (MVP) vs Equipe Completa (6) + Modo de Autonomia */}
@@ -972,7 +986,17 @@ export function AgencyCommandCenter({
                             Ciclo #{turn.cycleNumber}
                           </span>
                         )}
-                        {turn.boundModelId && <span>{turn.boundModelId}</span>}
+                        {turn.executionMode === "live_llm" ||
+                        readiness?.llmProviderConfigured ? (
+                          <span className="rounded border border-status-ok/35 bg-status-ok/10 px-1.5 py-0.5 text-status-ok">
+                            🟢 {turn.boundModelId ?? "LLM Real"}
+                            {turn.llmLatencyMs ? ` · ${turn.llmLatencyMs}ms` : ""}
+                          </span>
+                        ) : (
+                          <span className="rounded border border-border-subtle bg-inset px-1.5 py-0.5 text-fg-muted">
+                            Modo Assistido Local (Sem Chave no Cofre)
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1156,7 +1180,11 @@ export function AgencyCommandCenter({
           } flex-col justify-between rounded-lg border border-border-default bg-surface p-3 lg:col-span-5`}
         >
           <div>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2.5">
+            <div
+              className={`${
+                mobileSection === "studio" ? "hidden lg:flex" : "flex"
+              } flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2.5`}
+            >
               <div
                 role="tablist"
                 aria-label="Camada de artefatos e prototipação"
@@ -1269,7 +1297,7 @@ export function AgencyCommandCenter({
 
                 {/* Preview Sandboxed do Protótipo Visual (Sem scroll horizontal no mobile) */}
                 {visualFlow?.previewUrl ? (
-                  <div className="overflow-hidden rounded-md border border-border-default bg-canvas">
+                  <div className="w-full max-w-full min-w-0 overflow-hidden rounded-md border border-border-default bg-canvas">
                     <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border-subtle bg-inset px-2.5 py-1.5 text-[11px] text-fg-secondary">
                       <span className="inline-flex items-center gap-1.5 font-mono">
                         <Eye className="size-3.5 text-accent" />
@@ -1289,7 +1317,7 @@ export function AgencyCommandCenter({
                       data-testid="visual-prototype-iframe"
                       src={visualFlow.previewUrl}
                       sandbox=""
-                      className="h-52 w-full border-0 bg-canvas"
+                      className="block h-56 w-full max-w-full border-0 bg-canvas"
                     />
                   </div>
                 ) : null}

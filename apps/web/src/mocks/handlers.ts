@@ -54,6 +54,8 @@ import {
   SymbolGraphResponseSchema,
   SymbolSliceRequestSchema,
   SymbolSliceResponseSchema,
+  TestProviderConnectionRequestSchema,
+  TestProviderConnectionResponseSchema,
   UpdateDesignAssetSchema,
   UpdateEngineConfigSchema,
   UpdateFindingTriageSchema,
@@ -1048,6 +1050,32 @@ export const handlers = [
       AgencyChatResponseSchema.parse({
         ...mockAgencyChatResponse,
         autonomyMode: parsed.data.autonomyMode,
+      })
+    );
+  }),
+
+  http.post("*/api/providers/test", async ({ request }) => {
+    const parsed = TestProviderConnectionRequestSchema.safeParse(
+      await request.json()
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    const providerType = parsed.data.providerType ?? "google";
+    return HttpResponse.json(
+      TestProviderConnectionResponseSchema.parse({
+        ok: true,
+        providerType,
+        modelId: parsed.data.modelId ?? "gemini-2.5-flash",
+        latencyMs: 142,
+        replyPreview: "OK · Cofre AES-256-GCM conectado ao provedor LLM.",
+        error: null,
       })
     );
   }),

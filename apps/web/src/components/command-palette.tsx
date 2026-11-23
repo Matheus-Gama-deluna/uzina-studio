@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   Brain,
   ClipboardCheck,
+  Coins,
   Command,
   Kanban,
   KeyRound,
@@ -22,7 +23,14 @@ interface CommandItem {
   label: string;
   hint: string;
   action: () => void;
-  icon: "board" | "decisions" | "security" | "memories" | "providers" | "theme";
+  icon:
+    | "board"
+    | "decisions"
+    | "security"
+    | "memories"
+    | "finops"
+    | "providers"
+    | "theme";
 }
 
 export function CommandPalette({
@@ -80,7 +88,7 @@ export function CommandPalette({
       },
       {
         id: "nav-memories",
-        label: "Ir para Memórias (Org / Cliente / Projeto)",
+        label: "Ir para Memórias & Busca Híbrida QMD",
         hint: "/app/memories",
         icon: "memories",
         action: () => {
@@ -89,8 +97,18 @@ export function CommandPalette({
         },
       },
       {
+        id: "nav-finops",
+        label: "Ir para FinOps de Tokens & Motores Dinâmicos (Hot-Reload)",
+        hint: "/app/finops",
+        icon: "finops",
+        action: () => {
+          router.push("/app/finops");
+          onOpenChange(false);
+        },
+      },
+      {
         id: "nav-providers",
-        label: "Ir para Provedores & Cofre AES-256-GCM",
+        label: "Ir para Provedores & Cofre LLM AES-256-GCM",
         hint: "/app/providers",
         icon: "providers",
         action: () => {
@@ -205,6 +223,12 @@ export function CommandPalette({
                       )}
                       {item.icon === "memories" && (
                         <Brain
+                          className="size-4 text-accent"
+                          strokeWidth={1.75}
+                        />
+                      )}
+                      {item.icon === "finops" && (
+                        <Coins
                           className="size-4 text-accent"
                           strokeWidth={1.75}
                         />

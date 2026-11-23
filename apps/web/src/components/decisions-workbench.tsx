@@ -11,6 +11,7 @@ import {
 } from "@uzina/contracts";
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   ClipboardCheck,
   Clock,
@@ -21,6 +22,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type StatusFilter = "all" | DecisionStatus;
@@ -230,11 +232,19 @@ export function DecisionsWorkbench() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
+            <Link
+              href="/app"
+              data-testid="back-to-chat-link"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium normal-case tracking-normal text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
+            >
+              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+              <span>Voltar ao Chat do Projeto</span>
+            </Link>
             <ClipboardCheck className="size-3.5 text-accent" strokeWidth={1.75} />
             <span>Governança HITL</span>
           </div>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-fg-primary">
+          <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg-primary">
             Caixa de Decisões & Pacote de Evidências
           </h1>
           <p className="mt-0.5 text-sm text-fg-secondary">
@@ -257,7 +267,7 @@ export function DecisionsWorkbench() {
               key={tab.id}
               type="button"
               onClick={() => setStatusFilter(tab.id)}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`min-h-9 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                 statusFilter === tab.id
                   ? "border-accent bg-accent-subtle text-accent"
                   : "border-border-default bg-surface text-fg-secondary hover:bg-elevated hover:text-fg-primary"
@@ -269,7 +279,7 @@ export function DecisionsWorkbench() {
           <button
             type="button"
             onClick={() => decisionsQuery.refetch()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
             aria-label="Atualizar decisões"
           >
             <RefreshCw className="size-3.5" strokeWidth={1.75} />

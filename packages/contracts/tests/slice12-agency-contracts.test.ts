@@ -3,6 +3,8 @@ import {
   AgencyChatRequestSchema,
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  TestProviderConnectionRequestSchema,
+  TestProviderConnectionResponseSchema,
 } from "../src/index.js";
 
 describe("Slice 12 Contracts — Onboarding, Agency Chat, Model Tiering & Artifacts", () => {
@@ -167,5 +169,23 @@ describe("Slice 12 Contracts — Onboarding, Agency Chat, Model Tiering & Artifa
     });
     expect(chatRes.cycleNumber).toBe(2);
     expect(chatRes.handedOffFrom).toBe("tech_lead");
+    expect(chatRes.executionMode).toBe("local_assisted");
+
+    const pingReq = TestProviderConnectionRequestSchema.parse({
+      providerType: "google",
+      apiKey: "AIzaSyTestKey123456",
+      modelId: "gemini-2.5-flash",
+    });
+    expect(pingReq.providerType).toBe("google");
+
+    const pingRes = TestProviderConnectionResponseSchema.parse({
+      ok: true,
+      providerType: "google",
+      modelId: "gemini-2.5-flash",
+      latencyMs: 245,
+      replyPreview: "OK · Uzina Studio conectado ao Google Gemini.",
+      error: null,
+    });
+    expect(pingRes.ok).toBe(true);
   });
 });
