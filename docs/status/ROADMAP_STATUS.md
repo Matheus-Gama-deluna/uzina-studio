@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 16 concluído e integrado na `main`** (Redesign Visual Calmo 90/10, controle `A- | A | A+` e 4 momentos dedicados verificados com `check-no-ee`, `audit-tests`, `typecheck`, `lint`, `contract-drift`, `next build`, Playwright `2 passed` e QA visual multi-viewport). → **Próximo passo:** Operar projetos nos 4 momentos (`/app/ideas`, `/app`, `/app/studio`, `/app/deliverables`) em `http://localhost:3000`.
+> **Estado Atual:** ★ **Slice 17 concluído e integrado na `main`** (Sistema Visual Warm Stone 4 degraus Dark/Light, Sidebar com `Project Switcher` e trilha de jornada, Chat sem scroll duplo e unificação das 5 páginas operacionais com `check-no-ee`, `audit-tests`, `typecheck`, `lint`, `contract-drift`, `next build`, Playwright `2 passed` e QA visual nas 9 rotas). → **Próximo passo:** Operar projetos no fluxo guiado pela sidebar em `http://localhost:3000`.
 
 ---
 
@@ -25,6 +25,7 @@ flowchart LR
     S13 --> S14["Slice 14: Polimento Visual Desktop/Mobile, Switcher Mobile, Persistência do Chat & Sincronização (CONCLUÍDO)"]
     S14 --> S15["Slice 15: Conexão Real Multi-LLM, Ping de Credenciais, Prototipação Dinâmica & Polimento 2ª Rodada (CONCLUÍDO)"]
     S15 --> S16["Slice 16: Redesign Visual Calmo (90/10), Tipografia A-|A|A+ & 4 Momentos Dedicados (CONCLUÍDO)"]
+    S16 --> S17["Slice 17: Sistema Visual Warm Stone (4 Degraus), Project Switcher & Coesão Global (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -57,6 +58,7 @@ flowchart LR
 | **Slice 14 — Polimento Visual Desktop/Mobile & Fluxo Contínuo** | *UI/UX Craft + Multi-Viewport QA* | Chat 100% na 1ª dobra Desktop (`y+h = 870px`), Switcher Mobile 1 toque (`Chat IA \| Estúdio \| Slices`), `<iframe sandbox="">` responsivo sem scroll horizontal, Chat persistente (`localStorage`), Quick-Prompts, Markdown limpo e sincronização Kanban/Sidebar | Seletiva (`ui-visual-qa-critic`) | [slice-14](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-14-visual-ux-polish-desktop-mobile.md) | 🟢 Concluído (`feat/slice-14-visual-ux-polish-desktop-mobile`) |
 | **Slice 15 — Conexão Real Multi-LLM, Ping & Polimento 2ª Rodada** | *Contract-First + Live LLM Gateway* | `llm-client.ts` (Gemini, OpenAI/OpenRouter, Anthropic, Ollama), `POST /api/providers/test` (Ping LLM real), Cofre com presets dos 7 papéis, Protótipos dinâmicos por domínio, badge `LLM Real vs Simulado`, remoção de abas duplicadas no mobile e navegação de retorno global | Seletiva (`ui-visual-qa-critic`) | [slice-15](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-15-live-llm-connection-visual-polish-r2.md) | 🟢 Concluído (`feat/slice-15-live-llm-connection-visual-polish-r2`) |
 | **Slice 16 — Redesign Visual Calmo, Tipografia `A-\|A\|A+` & 4 Momentos** | *UI/UX Craft + Multi-Viewport QA* | Paleta 90/10 (`Calm Precision Dark`), corpo `14–15px` + zoom global `A-\|A\|A+`, sidebar retrátil e separação da Torre em 4 momentos (`/app/ideas`, `/app`, `/app/studio` com `Desktop\|Tablet\|Celular`, `/app/deliverables`) | Seletiva (`ui-visual-qa-critic`) | [slice-16](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-16-calm-ui-typography-four-moments.md) | 🟢 Concluído (`feat/slice-16-calm-ui-typography-four-moments`) |
+| **Slice 17 — Sistema Visual Warm Stone, `Project Switcher` & Coesão Global** | *UI/UX Craft + Navigation Architecture* | Escala Stone 4 degraus (Dark/Light), `Project Switcher` no topo da sidebar + jornada 5 etapas + `Fábrica & Sistema` recolhível, Chat sem scroll duplo e unificação tipográfica (`>=12px`, `1 CTA`) de todas as 5 páginas operacionais | Seletiva (`ui-visual-qa-critic`) | [slice-17](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-17-stone-ui-sidebar-switcher-cohesion.md) | 🟢 Concluído (`feat/slice-17-stone-ui-sidebar-switcher-cohesion`) |
 
 ---
 

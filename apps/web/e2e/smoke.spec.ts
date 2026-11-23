@@ -57,9 +57,9 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
       .fill(`Projeto E2E ${suffix}`);
     await page.getByTestId("submit-project").click();
     await page.waitForURL("**/app?projectId=**");
-    await expect(page.getByTestId("chat-project-select")).toContainText(
-      `Projeto E2E ${suffix}`
-    );
+    await expect(
+      page.getByTestId("sidebar-project-switcher")
+    ).toContainText(`Projeto E2E ${suffix}`);
 
     await page.goto("/app/deliverables");
     await expect(page.getByTestId("deliverables-docs-hub")).toBeVisible();

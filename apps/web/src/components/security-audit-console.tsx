@@ -11,8 +11,8 @@ import type {
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowLeft,
   CheckCircle2,
+  Code2,
   Loader2,
   Play,
   RefreshCw,
@@ -227,43 +227,47 @@ export function SecurityAuditConsole() {
   }, [activeScan, severityFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
-            <Link
-              href="/app"
-              data-testid="back-to-chat-link"
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium normal-case tracking-normal text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
-            >
-              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-              <span>Voltar ao Chat do Projeto</span>
-            </Link>
-            <ShieldAlert className="size-3.5 text-accent" strokeWidth={1.75} />
-            <span>AppSec & SARIF 2.1.0</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-fg-muted">
+            <ShieldAlert className="size-4 text-fg-secondary" strokeWidth={1.75} />
+            <span>AppSec &amp; SARIF 2.1.0</span>
           </div>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg-primary">
+          <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-fg-primary">
             Auditoria de Segurança (@uzina/security-engine)
           </h1>
-          <p className="mt-0.5 text-sm text-fg-secondary">
+          <p className="mt-1 text-sm text-fg-secondary">
             Scanners nativos TS + Gitleaks, Opengrep/Semgrep, Trivy e
             OSV-Scanner sem falso verde quando binários estão ausentes.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => scansQuery.refetch()}
-          className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
-        >
-          <RefreshCw className="size-3.5" strokeWidth={1.75} />
-          <span>Atualizar</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+          {activeProjectId && (
+            <Link
+              href={`/app/projects/${encodeURIComponent(activeProjectId)}/code`}
+              data-testid="security-code-map-link"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+            >
+              <Code2 className="size-3.5" strokeWidth={1.75} />
+              <span>Mapa do Código (AST)</span>
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => scansQuery.refetch()}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+          >
+            <RefreshCw className="size-3.5" strokeWidth={1.75} />
+            <span>Atualizar</span>
+          </button>
+        </div>
       </header>
 
       <form
         onSubmit={handleRunSubmit}
-        className="grid gap-3 rounded-lg border border-border-subtle bg-surface p-4 sm:grid-cols-12"
+        className="uzina-card grid gap-3 rounded-xl border border-border-subtle bg-surface p-5 sm:grid-cols-12"
       >
         <div className="sm:col-span-4">
           <label
@@ -331,12 +335,12 @@ export function SecurityAuditConsole() {
           <button
             type="submit"
             disabled={runScanMutation.isPending || !activeProjectId}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-base transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             {runScanMutation.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Play className="size-3.5" />
+              <Play className="size-4" />
             )}
             <span>Executar Scan</span>
           </button>
@@ -395,24 +399,24 @@ export function SecurityAuditConsole() {
                   key={scan.id}
                   type="button"
                   onClick={() => setSelectedScanId(scan.id)}
-                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                  className={`uzina-card w-full rounded-xl border p-3.5 text-left transition-colors ${
                     isSelected
-                      ? "border-accent bg-accent-subtle/40"
-                      : "border-border-subtle bg-surface hover:border-border-default hover:bg-elevated"
+                      ? "border-border-strong bg-elevated"
+                      : "border-border-subtle bg-surface hover:border-border-default hover:bg-elevated/50"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="rounded border border-border-default bg-inset px-1.5 py-0.5 font-mono text-[10px] uppercase text-fg-secondary">
+                    <span className="rounded border border-border-default bg-inset px-2 py-0.5 font-mono text-xs uppercase text-fg-secondary">
                       {scan.mode} • {scan.targetType}
                     </span>
-                    <span className="font-mono text-[11px] text-fg-muted tabular-nums">
+                    <span className="font-mono text-xs text-fg-muted tabular-nums">
                       Total: {scan.summaryCountsJson.total}
                     </span>
                   </div>
                   <p className="mt-1.5 truncate font-mono text-xs font-medium text-fg-primary">
                     {scan.targetRef}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-2 font-mono text-[11px] tabular-nums">
+                  <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs tabular-nums">
                     <span className="text-status-error">
                       C:{scan.summaryCountsJson.critical}
                     </span>
@@ -470,24 +474,24 @@ export function SecurityAuditConsole() {
                             {rec.scanner}
                           </p>
                           {rec.status === "skipped_missing_binary" && (
-                            <p className="mt-0.5 text-[11px] text-status-warn">
+                            <p className="mt-0.5 text-xs text-status-warn">
                               Binário ausente ({rec.binaryName}).{" "}
                               {rec.installHint}
                             </p>
                           )}
                           {rec.status === "failed" && (
-                            <p className="mt-0.5 text-[11px] text-status-error">
+                            <p className="mt-0.5 text-xs text-status-danger">
                               {rec.errorMessage}
                             </p>
                           )}
                         </div>
                         <span
-                          className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                          className={`shrink-0 rounded border px-2 py-0.5 font-mono text-xs ${
                             rec.status === "executed"
                               ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
                               : rec.status === "skipped_missing_binary"
                                 ? "border-status-warn/40 bg-status-warn/10 text-status-warn"
-                                : "border-status-error/40 bg-status-error/10 text-status-error"
+                                : "border-status-danger/40 bg-status-danger/10 text-status-danger"
                           }`}
                         >
                           {rec.status}
@@ -498,7 +502,7 @@ export function SecurityAuditConsole() {
                 </div>
 
                 {includeSarif && activeScan.sarifRawJson && (
-                  <pre className="max-h-56 overflow-auto rounded-md border border-border-subtle bg-base p-3 font-mono text-[11px] text-fg-secondary">
+                  <pre className="max-h-56 overflow-auto rounded-md border border-border-subtle bg-canvas p-3 font-mono text-xs text-fg-secondary">
                     {JSON.stringify(activeScan.sarifRawJson, null, 2)}
                   </pre>
                 )}
@@ -523,9 +527,9 @@ export function SecurityAuditConsole() {
                           key={sev}
                           type="button"
                           onClick={() => setSeverityFilter(sev)}
-                          className={`rounded border px-2 py-0.5 font-mono text-[11px] uppercase ${
+                          className={`rounded border px-2.5 py-0.5 font-mono text-xs uppercase ${
                             severityFilter === sev
-                              ? "border-accent bg-accent-subtle text-accent"
+                              ? "border-border-strong bg-elevated text-fg-primary"
                               : "border-border-subtle bg-inset text-fg-secondary"
                           }`}
                         >
@@ -536,7 +540,7 @@ export function SecurityAuditConsole() {
                   </div>
 
                   {filteredFindings.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border-subtle bg-inset p-6 text-center text-xs text-fg-secondary">
+                    <div className="rounded-md border border-dashed border-border-subtle bg-inset p-6 text-center text-sm text-fg-secondary">
                       <AlertTriangle className="mx-auto size-5 text-fg-muted" />
                       <p className="mt-2">
                         Nenhum achado corresponde ao filtro selecionado.
@@ -556,23 +560,23 @@ export function SecurityAuditConsole() {
                         return (
                           <article
                             key={finding.id}
-                            className="rounded-md border border-border-subtle bg-inset p-3.5"
+                            className="rounded-lg border border-border-subtle bg-inset p-4"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span
-                                  className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${sevBadge.className}`}
+                                  className={`rounded border px-2 py-0.5 font-mono text-xs font-semibold ${sevBadge.className}`}
                                 >
                                   {sevBadge.label}
                                 </span>
                                 <span className="font-mono text-xs font-medium text-fg-primary">
                                   {finding.ruleId}
                                 </span>
-                                <span className="font-mono text-[11px] text-fg-muted">
+                                <span className="font-mono text-xs text-fg-muted">
                                   [{finding.scanner}]
                                 </span>
                               </div>
-                              <span className="font-mono text-[11px] text-fg-muted tabular-nums">
+                              <span className="font-mono text-xs text-fg-muted tabular-nums">
                                 Veredito: {finding.triageVerdict}
                                 {finding.suppressedInMemory
                                   ? " • suprimido"
@@ -608,7 +612,7 @@ export function SecurityAuditConsole() {
                                 aria-label={`Justificativa para ${finding.ruleId}`}
                                 className="flex-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
                               />
-                              <label className="inline-flex items-center gap-1.5 text-[11px] text-fg-secondary">
+                              <label className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
                                 <input
                                   type="checkbox"
                                   checked={draftSuppress}
@@ -648,7 +652,7 @@ export function SecurityAuditConsole() {
                                         suppressedInMemory: draftSuppress,
                                       })
                                     }
-                                    className="rounded border border-border-default bg-surface px-2 py-1 text-[11px] font-medium text-fg-primary hover:bg-elevated disabled:opacity-50"
+                                    className="rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-primary hover:bg-elevated disabled:opacity-50"
                                   >
                                     {btn.label}
                                   </button>

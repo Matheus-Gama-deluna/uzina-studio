@@ -300,3 +300,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65` arquivos, `199` testes, `0` violações).
   * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed`).
   * `browser` (`flash`) em `http://localhost:3000`: **PASS** em Desktop `1440×900` (Dark/Light, `A+`, sidebar recolhível, hidratação pós-reload) e Mobile `390×844` nos 4 momentos (`0` erros de console, `0` HTTP `>= 500`, `0` overflow horizontal).
+
+
+---
+
+## 2026-11-23 — Slice 17: Sistema Visual Warm Stone (4 Degraus), `Project Switcher` na Sidebar & Coesão Global (`feat/slice-17-stone-ui-sidebar-switcher-cohesion`)
+
+* **Entregue:**
+  * **Paleta Warm Stone em 4 Degraus (`globals.css`, `.uzina/DESIGN.md`):** substituição da escala fria comprimida por escada tonal Stone (`hue 65–75`) no Dark (`canvas` → `sidebar` → `surface` → `elevated` + brilho interno de `1px`) e no Light (`canvas` areia suave → `sidebar` → `surface` branco puro com `.uzina-card` → `elevated`, com inputs claros `--bg-inset`).
+  * **Sidebar Contextual & `Project Switcher` (`CockpitShell`, `CommandPalette`):** seletor de projeto no topo da sidebar (`sidebar-project-switcher`), grupo `Projeto Ativo` em 5 etapas com indicadores sutis (`C#N`, `✓`/`○`, contador `tabular-nums`, pendências HITL) e grupo recolhível `Fábrica & Sistema`; `Co-piloto Executivo` reposicionado como ícone utilitário discreto no header e na paleta `⌘K`.
+  * **Chat sem Scroll Duplo & Remoção de Redundâncias (`AgencyCommandCenter`, `VisualStudioWorkspace`, `DeliverablesDocsHub`, `IdeasHub`):** altura flexível em `/app` mantendo `Enviar Mensagem` em `y + h = 867.2px <= 900` em Dark e Light Stone, remoção de `<select>` de projeto e botões `← Chat` / `← Voltar ao Chat` duplicados, e substituição da barra de chips no Chat por 1 próximo passo guiado.
+  * **Unificação das 5 Páginas Operacionais (`MemoriesManager`, `ProvidersManager`, `FinopsDashboard`, `EngineConfigPanel`, `DecisionsWorkbench`, `SecurityAuditConsole`):** container `max-w-6xl`, tipografia mínima `>= 12px`, no máximo 1 CTA âmbar por tela, criação de memórias via modal sob demanda (`+ Nova Memória`) sem UUIDs crus, medição manual recolhível no FinOps, cartões neutros em Provedores e atalho para `Mapa do Código (AST)` em AppSec.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65` arquivos, `199` testes, `0` violações).
+  * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed`).
+  * `browser` (`flash`) em `http://localhost:3000`: **PASS** nas 9 rotas em Desktop `1440×900` (Dark/Light Stone, `A+`, `page.reload()`) e Mobile `390×844` (`0` erros de console/hidratação, `0` HTTP `>= 500`, `0` overflow horizontal).

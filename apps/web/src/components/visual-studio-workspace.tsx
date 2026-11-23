@@ -8,7 +8,6 @@ import type {
   ProjectListResponse,
 } from "@uzina/contracts";
 import {
-  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Eye,
@@ -24,7 +23,6 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  setActiveContext,
   useActiveClientId,
   useActiveProjectId,
 } from "@/lib/active-project-store";
@@ -48,7 +46,6 @@ export function VisualStudioWorkspace() {
   const queryClient = useQueryClient();
   const selectedClientId = useActiveClientId();
   const storedProjectId = useActiveProjectId();
-  const [localProjectId, setLocalProjectId] = useState("");
   const [studioTab, setStudioTab] = useState<StudioTopTab>("live_preview");
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [inspectorOpen, setInspectorOpen] = useState(true);
@@ -67,9 +64,12 @@ export function VisualStudioWorkspace() {
 
   const activeProject = useMemo(() => {
     if (projectsList.length === 0) return null;
-    const id = localProjectId || storedProjectId;
-    return projectsList.find((p) => p.id === id) ?? projectsList[0] ?? null;
-  }, [projectsList, localProjectId, storedProjectId]);
+    return (
+      projectsList.find((p) => p.id === storedProjectId) ??
+      projectsList[0] ??
+      null
+    );
+  }, [projectsList, storedProjectId]);
 
   const agencyQuery = useQuery({
     queryKey: ["agency-status", selectedClientId, activeProject?.id ?? ""],
@@ -171,41 +171,12 @@ export function VisualStudioWorkspace() {
       data-testid="visual-studio-workspace"
       className="mx-auto flex w-full max-w-[1440px] flex-col gap-4"
     >
-      {/* Topo Limpo de 1 Linha: Projeto + Abas do Estúdio + Switcher Desktop/Tablet/Mobile + 1 CTA Primário */}
+      {/* Topo Limpo de 1 Linha: Projeto Ativo (trocado via Sidebar) + Abas + Switcher + 1 CTA */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href={`/app?projectId=${encodeURIComponent(activeProject.id)}`}
-            data-testid="back-to-chat-link"
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-          >
-            <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-            <span>Chat</span>
-          </Link>
-
-          <label htmlFor="studio-project-select" className="sr-only">
-            Selecionar projeto no Estúdio Visual
-          </label>
-          <select
-            id="studio-project-select"
-            value={activeProject.id}
-            onChange={(e) => {
-              const id = e.target.value;
-              const found = projectsList.find((p) => p.id === id);
-              setLocalProjectId(id);
-              setActiveContext({
-                ...(found ? { clientId: found.clientId } : {}),
-                projectId: id,
-              });
-            }}
-            className="min-h-9 rounded-md border border-border-default bg-surface px-3 text-sm font-semibold text-fg-primary"
-          >
-            {projectsList.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-base font-semibold text-fg-primary sm:text-lg">
+            {activeProject.name}
+          </h1>
 
           <div
             role="tablist"

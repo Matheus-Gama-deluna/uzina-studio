@@ -128,20 +128,20 @@ export function EngineConfigPanel() {
         </div>
 
         {data && (
-          <span className="rounded border border-border-default bg-inset px-2.5 py-1 font-mono text-[11px] text-fg-secondary">
+          <span className="rounded-md border border-border-subtle bg-inset px-2.5 py-1 font-mono text-xs text-fg-secondary">
             provider ativo: {data.activeEmbeddingProviderId}
           </span>
         )}
       </div>
 
       {saveMsg && (
-        <div className="flex items-center gap-1.5 rounded border border-status-ok/40 bg-status-ok/10 px-3 py-2 text-xs text-status-ok">
+        <div className="flex items-center gap-1.5 rounded-lg border border-status-ok/40 bg-status-ok/10 px-3 py-2 text-xs text-status-ok">
           <Check className="size-3.5 shrink-0" strokeWidth={1.75} />
           <span>{saveMsg}</span>
         </div>
       )}
       {saveErr && (
-        <div className="rounded border border-status-danger/40 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
+        <div className="rounded-lg border border-status-danger/40 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
           {saveErr}
         </div>
       )}
@@ -149,7 +149,7 @@ export function EngineConfigPanel() {
       <form onSubmit={handleSave} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Motor de Embeddings (QMD)
             </label>
             <select
@@ -161,7 +161,7 @@ export function EngineConfigPanel() {
                   embeddingMode: e.target.value as EmbeddingEngineMode,
                 }))
               }
-              className="mt-1 w-full rounded border border-border-subtle bg-inset px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
             >
               <option value="deterministic">deterministic (0 MB · Offline)</option>
               <option value="onnx_e5_small">
@@ -172,7 +172,7 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Indexador AST
             </label>
             <select
@@ -184,7 +184,7 @@ export function EngineConfigPanel() {
                   astMode: e.target.value as AstEngineMode,
                 }))
               }
-              className="mt-1 w-full rounded border border-border-subtle bg-inset px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
             >
               <option value="ts_native">ts_native (TS/TSX/JS)</option>
               <option value="polyglot">
@@ -194,7 +194,7 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Workspace de Execução
             </label>
             <select
@@ -214,7 +214,7 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Orçamento Esqueleto (tokens)
             </label>
             <input
@@ -229,14 +229,14 @@ export function EngineConfigPanel() {
                   skeletonMaxTokens: e.target.value,
                 }))
               }
-              className="mt-1 w-full rounded border border-border-subtle bg-inset px-2.5 py-1.5 font-mono text-xs text-fg-primary tabular-nums focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary tabular-nums focus:border-border-strong focus:outline-none"
             />
           </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               QMD Top-K Contexto
             </label>
             <input
@@ -247,12 +247,12 @@ export function EngineConfigPanel() {
               onChange={(e) =>
                 setDraft((prev) => ({ ...prev, qmdTopK: e.target.value }))
               }
-              className="mt-1 w-full rounded border border-border-subtle bg-inset px-2.5 py-1.5 font-mono text-xs text-fg-primary tabular-nums focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary tabular-nums focus:border-border-strong focus:outline-none"
             />
           </div>
 
           <div className="min-w-0">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Docker CPU / Memória
             </label>
             <div className="mt-1 flex gap-1.5">
@@ -266,7 +266,7 @@ export function EngineConfigPanel() {
                   }))
                 }
                 aria-label="Docker CPU"
-                className="w-1/2 rounded border border-border-subtle bg-inset px-2 py-1.5 font-mono text-xs text-fg-primary focus:border-accent focus:outline-none"
+                className="min-h-9 w-1/2 rounded-md border border-border-default bg-inset px-2 font-mono text-xs text-fg-primary focus:border-border-strong focus:outline-none"
               />
               <input
                 type="text"
@@ -278,13 +278,13 @@ export function EngineConfigPanel() {
                   }))
                 }
                 aria-label="Docker Memória"
-                className="w-1/2 rounded border border-border-subtle bg-inset px-2 py-1.5 font-mono text-xs text-fg-primary focus:border-accent focus:outline-none"
+                className="min-h-9 w-1/2 rounded-md border border-border-default bg-inset px-2 font-mono text-xs text-fg-primary focus:border-border-strong focus:outline-none"
               />
             </div>
           </div>
 
           <div className="min-w-0 sm:col-span-2">
-            <label className="block text-[11px] font-medium text-fg-secondary">
+            <label className="block text-xs font-medium text-fg-secondary">
               Ollama Endpoint &amp; Modelo (se ativo)
             </label>
             <div className="mt-1 flex gap-1.5">
@@ -337,7 +337,7 @@ export function EngineConfigPanel() {
             type="submit"
             data-testid="engine-config-save-btn"
             disabled={saveMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded border border-accent/50 bg-accent/15 px-3 py-1.5 text-xs font-medium text-fg-primary transition-colors hover:bg-accent/25 disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             <Save className="size-3.5" strokeWidth={1.75} />
             <span>
@@ -348,11 +348,11 @@ export function EngineConfigPanel() {
       </form>
 
       {catalog.length > 0 && (
-        <div className="space-y-2 border-t border-border-subtle pt-3">
+        <div className="space-y-2.5 border-t border-border-subtle pt-4">
           <h3 className="text-xs font-semibold text-fg-secondary">
             Consumo Estimado × Benefício por Motor
           </h3>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
             {catalog.map((opt) => {
               const isSelected =
                 opt.id === embeddingMode ||
@@ -362,21 +362,24 @@ export function EngineConfigPanel() {
                 <div
                   key={opt.id}
                   data-testid="engine-telemetry-card"
-                  className={`min-w-0 space-y-1.5 rounded border p-2.5 text-[11px] ${
+                  className={`min-w-0 space-y-1.5 rounded-lg border p-3 text-xs ${
                     isSelected
-                      ? "border-accent/60 bg-accent/10"
+                      ? "border-border-strong bg-elevated"
                       : "border-border-subtle bg-inset"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1.5">
-                    <span className="truncate font-semibold text-fg-primary">
-                      {opt.label}
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-semibold text-fg-primary">
+                      {isSelected && (
+                        <span className="size-1.5 shrink-0 rounded-full bg-status-ok" />
+                      )}
+                      <span className="truncate">{opt.label}</span>
                     </span>
-                    <span className="shrink-0 rounded border border-border-subtle bg-surface px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
+                    <span className="shrink-0 rounded border border-border-subtle bg-surface px-1.5 py-0.5 font-mono text-xs text-fg-muted">
                       {opt.category}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-fg-secondary tabular-nums">
+                  <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-fg-secondary tabular-nums">
                     <span className="inline-flex items-center gap-1">
                       <HardDrive className="size-3" /> {opt.diskMb} MB
                     </span>
@@ -387,7 +390,7 @@ export function EngineConfigPanel() {
                       <Zap className="size-3" /> {opt.cpuImpact}
                     </span>
                   </div>
-                  <p className="text-[11px] leading-snug text-fg-secondary">
+                  <p className="text-xs leading-relaxed text-fg-secondary">
                     {opt.benefitSummary}
                   </p>
                 </div>

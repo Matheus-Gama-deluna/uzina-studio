@@ -3,9 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ClientListResponse, Project, ProjectListResponse } from "@uzina/contracts";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
-  setActiveContext,
   useActiveClientId,
   useActiveProjectId,
 } from "@/lib/active-project-store";
@@ -25,7 +24,6 @@ async function fetchJson<T>(url: string): Promise<T> {
 export function WorkspaceBoard() {
   const selectedClientId = useActiveClientId();
   const storedProjectId = useActiveProjectId();
-  const [localProjectId, setLocalProjectId] = useState<string>("");
 
   const clientsQuery = useQuery({
     queryKey: ["clients"],
@@ -47,12 +45,11 @@ export function WorkspaceBoard() {
     return allProjects.filter((p) => p.clientId === selectedClientId);
   }, [allProjects, selectedClientId]);
 
-  const effectiveId = localProjectId || storedProjectId;
   const activeProject: Project | null = useMemo(() => {
     if (visibleProjects.length === 0) return null;
-    const found = visibleProjects.find((p) => p.id === effectiveId);
+    const found = visibleProjects.find((p) => p.id === storedProjectId);
     return found ?? visibleProjects[0] ?? null;
-  }, [visibleProjects, effectiveId]);
+  }, [visibleProjects, storedProjectId]);
 
   const isBootLoading = clientsQuery.isLoading || projectsQuery.isLoading;
   const bootError = clientsQuery.error || projectsQuery.error;
@@ -100,17 +97,9 @@ export function WorkspaceBoard() {
     <AgencyCommandCenter
       selectedClientId={selectedClientId}
       activeProjectId={activeProject?.id ?? ""}
+      activeProjectName={activeProject?.name ?? ""}
       bootReady={!isBootLoading}
       hasAnyProjects={allProjects.length > 0}
-      availableProjects={visibleProjects.map((p) => ({
-        id: p.id,
-        name: p.name,
-        clientId: p.clientId,
-      }))}
-      onSelectProject={(projectId) => {
-        setLocalProjectId(projectId);
-        setActiveContext({ projectId });
-      }}
     />
   );
 }

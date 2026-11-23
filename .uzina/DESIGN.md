@@ -5,31 +5,32 @@
 
 ---
 
-## 1. Tokens Semânticos em OKLCH (Dual-Theme · Contraste WCAG >= 4.5:1)
+## 1. Tokens Semânticos em OKLCH (Warm Stone 4 Degraus · Dual-Theme)
 
-| Token CSS | Papel Visual | Dark Industrial (Padrão) | Crisp Light (Alternância) |
+| Token CSS | Papel Visual | Warm Stone Dark (Padrão) | Warm Stone Light (Alternância) |
 | :--- | :--- | :--- | :--- |
-| `--bg-canvas` | Fundo global da aplicação | `oklch(0.13 0.006 260)` | `oklch(0.985 0.002 260)` |
-| `--bg-surface` | Painéis, tabelas, cards planos | `oklch(0.17 0.007 260)` | `oklch(1 0 0)` |
-| `--bg-elevated` | Popovers, modais, drawer, menus | `oklch(0.21 0.008 260)` | `oklch(0.97 0.003 260)` |
-| `--bg-inset` | Inputs, blocos de código, wells | `oklch(0.11 0.005 260)` | `oklch(0.95 0.004 260)` |
-| `--border-subtle` | Divisórias internas `1px` | `oklch(0.24 0.008 260)` | `oklch(0.91 0.005 260)` |
-| `--border-default` | Bordas padrão de painéis/inputs | `oklch(0.29 0.010 260)` | `oklch(0.85 0.007 260)` |
-| `--border-strong` | Hover e delimitadores ativos | `oklch(0.38 0.012 260)` | `oklch(0.74 0.010 260)` |
-| `--fg-primary` | Texto principal e títulos | `oklch(0.96 0.004 260)` | `oklch(0.16 0.010 260)` |
-| `--fg-secondary` | Rótulos e descrições | `oklch(0.76 0.010 260)` | `oklch(0.42 0.012 260)` |
-| `--fg-muted` | Metadados, placeholders, eixos | `oklch(0.58 0.012 260)` | `oklch(0.54 0.012 260)` |
-| `--fg-disabled` | Estados desabilitados | `oklch(0.42 0.008 260)` | `oklch(0.70 0.008 260)` |
-| `--accent` | Acento funcional **Âmbar/Cobre Uzina** | `oklch(0.72 0.16 55)` | `oklch(0.60 0.17 48)` |
-| `--accent-hover` | Hover de ação primária | `oklch(0.77 0.15 55)` | `oklch(0.54 0.17 48)` |
-| `--accent-subtle` | Fundo de item selecionado/ativo | `oklch(0.72 0.16 55 / 0.14)` | `oklch(0.60 0.17 48 / 0.12)` |
-| `--accent-fg` | Texto sobre `--accent` | `oklch(0.14 0.02 55)` | `oklch(0.99 0.002 55)` |
-| `--focus-ring` | Anel de foco teclado (`focus-visible`) | `oklch(0.76 0.15 55)` | `oklch(0.58 0.18 48)` |
+| `--bg-canvas` | Fundo global da aplicação (degrau 0) | `oklch(0.155 0.005 68)` | `oklch(0.955 0.006 75)` |
+| `--bg-sidebar` | Barra lateral e topo (degrau 1) | `oklch(0.18 0.006 68)` | `oklch(0.972 0.005 75)` |
+| `--bg-surface` | Painéis, cards e áreas de foco (degrau 2) | `oklch(0.205 0.006 68)` | `oklch(1 0 0)` |
+| `--bg-elevated` | Item ativo, hover, menus (degrau 3) | `oklch(0.245 0.007 68)` | `oklch(0.978 0.004 75)` |
+| `--bg-inset` | Inputs limpos, wells, blocos de código | `oklch(0.138 0.005 68)` | `oklch(0.992 0.003 75)` |
+| `--border-subtle` | Divisórias internas `1px` | `oklch(0.27 0.007 68)` | `oklch(0.89 0.007 75)` |
+| `--border-default` | Bordas padrão de painéis/inputs | `oklch(0.32 0.008 68)` | `oklch(0.83 0.009 75)` |
+| `--border-strong` | Hover e delimitadores ativos | `oklch(0.42 0.01 68)` | `oklch(0.7 0.012 75)` |
+| `--fg-primary` | Texto principal e títulos | `oklch(0.96 0.005 75)` | `oklch(0.18 0.01 68)` |
+| `--fg-secondary` | Rótulos e descrições | `oklch(0.81 0.007 72)` | `oklch(0.41 0.012 68)` |
+| `--fg-muted` | Metadados, placeholders, eixos | `oklch(0.64 0.008 70)` | `oklch(0.54 0.012 68)` |
+| `--fg-disabled` | Estados desabilitados | `oklch(0.47 0.008 68)` | `oklch(0.7 0.008 70)` |
+| `--accent` | Acento funcional **Âmbar/Cobre Uzina** | `oklch(0.71 0.16 52)` | `oklch(0.6 0.17 48)` |
+| `--accent-hover` | Hover de ação primária | `oklch(0.76 0.15 52)` | `oklch(0.54 0.17 48)` |
+| `--accent-subtle` | Fundo de item selecionado/ativo | `oklch(0.71 0.16 52 / 0.14)` | `oklch(0.6 0.17 48 / 0.12)` |
+| `--accent-fg` | Texto sobre `--accent` | `oklch(0.15 0.02 52)` | `oklch(0.99 0.002 55)` |
+| `--focus-ring` | Anel de foco teclado (`focus-visible`) | `oklch(0.75 0.15 52)` | `oklch(0.58 0.18 48)` |
 | `--status-ok` | Verde operacional / aprovado | `oklch(0.74 0.15 155)` | `oklch(0.52 0.15 155)` |
 | `--status-warn` | Atenção / aguardando decisão HITL | `oklch(0.78 0.15 80)` | `oklch(0.58 0.16 75)` |
-| `--status-danger` | Falha / bloqueio / CVE crítico | `oklch(0.66 0.20 25)` | `oklch(0.55 0.21 25)` |
-| `--status-info` | Em execução / streaming | `oklch(0.70 0.14 235)` | `oklch(0.54 0.16 240)` |
-| `--status-neutral` | Arquivado / skipped | `oklch(0.62 0.01 260)` | `oklch(0.52 0.01 260)` |
+| `--status-danger` | Falha / bloqueio / CVE crítico | `oklch(0.66 0.2 25)` | `oklch(0.55 0.21 25)` |
+| `--status-info` | Em execução / streaming | `oklch(0.7 0.14 235)` | `oklch(0.54 0.16 240)` |
+| `--status-neutral` | Arquivado / skipped | `oklch(0.64 0.008 70)` | `oklch(0.54 0.012 68)` |
 
 * **Regra de Status:** nunca comunique status apenas por cor — combine sempre **cor semântica + ícone consistente + rótulo textual**.
 
