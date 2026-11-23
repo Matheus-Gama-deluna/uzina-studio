@@ -94,3 +94,9 @@
   - [x] Central Conversacional Multi-Agente em `/app` (Fluxo Greenfield do zero + Fluxo Brownfield com URL Git remota, Brownfield Scan e AST Poliglota)
   - [x] Inspetor Duplo de Artefatos (Longo Prazo: PRD, Arquitetura/ADR, AST, `DESIGN.md` vs. Táticos de Slice: `specMarkdown`, `blueprintJson`, `evidencePackJson`) com Aprovação e Retorno Cíclico (`Ciclo #2+`)
   - [x] Motor de Ciclo Autônomo sem pular fases com parada obrigatória em `decision_pending` (`494 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-12-autonomous-agency-chat-onboarding`)
+
+- [x] **Slice 13 — Redesign Chat-First no Topo, Estratégia Decidida pelo Arquiteto, Equipe Enxuta/Completa & Portão de Prototipação Visual** (`docs/slices/slice-13-chat-first-top-architect-strategy-visual-gate.md`)
+  - [x] Chat Amplo na primeira dobra de `/app` (`7/12`) com Setup compacto expansível e composer `<textarea>` multilinha único
+  - [x] `decideOptimalAiStrategy`: Arquiteto de Software decide a estratégia ideal para execução por IA sem exigir escolha manual do usuário
+  - [x] Topologia de equipe adaptativa (`Equipe Enxuta MVP · 3` vs `Completa · 6 Especialistas`)
+  - [x] Aba `Estúdio & Protótipo` integrada ao lado do Chat com preview `<iframe sandbox="">`, geração automática de protótipo inicial e Portão Visual antes da codificação (`495 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-13-chat-first-architect-strategy-visual-gate`)

@@ -21,6 +21,9 @@ export const AgencyAgentRoleSchema = z.enum([
 ]);
 export type AgencyAgentRole = z.infer<typeof AgencyAgentRoleSchema>;
 
+export const TeamTopologyModeSchema = z.enum(["lean_mvp", "full_enterprise"]);
+export type TeamTopologyMode = z.infer<typeof TeamTopologyModeSchema>;
+
 export const ModelTierLevelSchema = z.enum([
   "tier1_context_local",
   "tier2_fast_execution",
@@ -88,8 +91,41 @@ export const AgencyAgentProfileSchema = z.object({
   tierLabel: z.string().min(1).max(120),
   boundModelId: z.string().min(1).max(160),
   artifactsOwned: z.array(z.string()).min(1),
+  includedInLeanTeam: z.boolean().default(true),
+  leanDisplayName: z.string().min(1).max(120).optional(),
 });
 export type AgencyAgentProfile = z.infer<typeof AgencyAgentProfileSchema>;
+
+export const ArchitectStrategyDecisionSchema = z.object({
+  chosenStrategy: DevelopmentStrategySchema,
+  strategyLabel: z.string().min(1).max(120),
+  rationale: z.string().min(1).max(700),
+  recommendedTeamTopology: TeamTopologyModeSchema,
+  requiresVisualPrototypeFirst: z.boolean(),
+});
+export type ArchitectStrategyDecision = z.infer<
+  typeof ArchitectStrategyDecisionSchema
+>;
+
+export const ProjectVisualFlowSummarySchema = z.object({
+  hasUiDeliverables: z.boolean(),
+  latestPrototypeId: z.uuid().nullable(),
+  latestPrototypeTitle: z.string().nullable(),
+  fidelityLevel: z.string().nullable(),
+  approvedForCodeHandoff: z.boolean(),
+  previewUrl: z.string().nullable(),
+  screensFlow: z.array(z.string()),
+  tokensPreview: z.array(
+    z.object({
+      name: z.string(),
+      value: z.string(),
+    })
+  ),
+  studioHref: z.string().min(1),
+});
+export type ProjectVisualFlowSummary = z.infer<
+  typeof ProjectVisualFlowSummarySchema
+>;
 
 export const LongTermArtifactKindSchema = z.enum([
   "prd_vision",
@@ -155,6 +191,8 @@ export const AgencyProjectStateSchema = z.object({
   repositoryUrl: z.string().nullable(),
   repositoryPath: z.string().nullable(),
   defaultStrategy: DevelopmentStrategySchema,
+  architectDecision: ArchitectStrategyDecisionSchema.optional(),
+  visualFlow: ProjectVisualFlowSummarySchema.optional(),
   currentPhase: ProjectLifecyclePhaseSchema,
   phaseLabel: z.string().min(1).max(120),
   activeAgentRole: AgencyAgentRoleSchema,
@@ -191,6 +229,8 @@ export const AgencyChatIntentSchema = z.enum([
   "revisit_architecture",
   "approve_slice_artifact",
   "request_slice_revision",
+  "approve_visual_flow",
+  "revise_visual_flow",
 ]);
 export type AgencyChatIntent = z.infer<typeof AgencyChatIntentSchema>;
 
@@ -211,6 +251,7 @@ export const AgencyChatRequestSchema = z
     projectId: z.uuid().optional(),
     deliverableId: z.uuid().optional(),
     targetAgentRole: AgencyAgentRoleSchema.optional(),
+    teamTopology: TeamTopologyModeSchema.default("lean_mvp"),
     autonomyMode: AutonomyModeSchema.default("semi_autonomous"),
     intent: AgencyChatIntentSchema.default("general_chat"),
     projectName: z.string().trim().min(2).max(120).optional(),
@@ -225,10 +266,14 @@ export type AgencyChatRequest = z.infer<typeof AgencyChatRequestSchema>;
 export const AgencyActionExecutedSchema = z.object({
   type: z.enum([
     "created_project",
+    "decided_ai_strategy",
     "linked_git_repository",
     "executed_brownfield_scan",
     "indexed_polyglot_ast",
     "saved_qmd_memory",
+    "generated_visual_prototype",
+    "approved_visual_flow",
+    "paused_at_visual_gate",
     "created_deliverables_wave",
     "advanced_deliverable_stage",
     "paused_at_mandatory_gate",
@@ -247,6 +292,7 @@ export const AgencyChatResponseSchema = z.object({
   handedOffFrom: AgencyAgentRoleSchema.nullable(),
   lifecyclePhase: ProjectLifecyclePhaseSchema,
   cycleNumber: z.number().int().min(1),
+  teamTopology: TeamTopologyModeSchema.default("lean_mvp"),
   autonomyMode: AutonomyModeSchema,
   reply: z.string().min(1),
   actionsExecuted: z.array(AgencyActionExecutedSchema),

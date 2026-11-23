@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   CreatePrototypeRequestSchema,
@@ -44,7 +45,7 @@ const StitchRpcOutputSchema = z
 function resolvePrototypesStorageDir(dataDir?: string): string {
   const base = dataDir ?? resolveDataDir();
   if (base === ":memory:") {
-    return path.resolve(process.cwd(), ".uzina-data", "uploads", "prototypes");
+    return path.resolve(os.tmpdir(), "uzina-memory-prototypes");
   }
   return path.resolve(base, "uploads", "prototypes");
 }

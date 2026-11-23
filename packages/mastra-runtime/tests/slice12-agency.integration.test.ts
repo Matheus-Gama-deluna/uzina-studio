@@ -45,7 +45,7 @@ describe("@uzina/mastra-runtime — Slice 12 (Onboarding, Central Multi-Agente, 
           ?.recommendedTier
       ).toBe("tier2_fast_execution");
 
-      // 2. Iniciar Projeto Greenfield (do zero) via Chat com Agente de Descoberta
+      // 2. Iniciar Projeto Greenfield (do zero) via Chat sem informar estratégia: o Arquiteto decide + gera Protótipo Visual
       const greenfieldRes = await handleAgencyChatScoped(ctx.db, {
         actor,
         request: {
@@ -60,11 +60,37 @@ describe("@uzina/mastra-runtime — Slice 12 (Onboarding, Central Multi-Agente, 
       expect(greenfieldRes.activeAgent.role).toBe("product_discovery");
       expect(greenfieldRes.projectState).not.toBeNull();
       expect(greenfieldRes.projectState?.originKind).toBe("greenfield");
+      expect(
+        greenfieldRes.projectState?.architectDecision?.chosenStrategy
+      ).toBe("frontend_first_msw");
+      expect(
+        greenfieldRes.projectState?.architectDecision?.rationale
+      ).toContain("Decisão do Arquiteto");
+      expect(
+        greenfieldRes.projectState?.visualFlow?.latestPrototypeId
+      ).not.toBeNull();
+      expect(
+        greenfieldRes.projectState?.visualFlow?.approvedForCodeHandoff
+      ).toBe(false);
       expect(greenfieldRes.projectState?.totalDeliverables).toBe(3);
       expect(greenfieldRes.projectState?.longTermArtifacts).toHaveLength(4);
       expect(
         greenfieldRes.projectState?.sliceArtifacts[0]?.specMarkdown
       ).toContain("# Dossiê do Slice");
+
+      // 2B. Aprovar Fluxo Visual do projeto Greenfield
+      const approveVisualRes = await handleAgencyChatScoped(ctx.db, {
+        actor,
+        request: {
+          message: "Aprovar o protótipo visual e fluxo de telas para codificação.",
+          projectId: greenfieldRes.projectState!.projectId,
+          intent: "approve_visual_flow",
+          teamTopology: "lean_mvp",
+        },
+      });
+      expect(
+        approveVisualRes.projectState?.visualFlow?.approvedForCodeHandoff
+      ).toBe(true);
 
       // 3. Importar Projeto Brownfield via URL Git remota com Agente Arquiteto
       const brownfieldRes = await handleAgencyChatScoped(ctx.db, {

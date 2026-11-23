@@ -14,11 +14,13 @@ import {
   type AgencyChatResponse,
   type AgencyOverviewResponse,
   type AgencyProjectState,
+  type ArchitectStrategyDecision,
   type DeliverableStatus,
   type DevelopmentStrategy,
   type LongTermArtifactSummary,
   type OrgRole,
   type ProjectLifecyclePhase,
+  type ProjectVisualFlowSummary,
   type RiskLevel,
   type SliceArtifactDetail,
   type SystemReadinessStatus,
@@ -33,6 +35,7 @@ import {
   codebaseSymbols,
   decisions,
   deliverables,
+  designPrototypes,
   engineConfigs,
   memories,
   projectRepositories,
@@ -44,6 +47,10 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { syncRepositoryCodebase } from "./codebase.js";
 import { WorkflowRuntimeError } from "./errors.js";
 import { createMemoryScoped } from "./memories.js";
+import {
+  approvePrototypeScoped,
+  createOrImportPrototypeScoped,
+} from "./prototypes.js";
 
 const WRITE_ROLES = new Set<OrgRole>(["owner", "admin", "developer"]);
 
@@ -139,6 +146,119 @@ function ownerAgentForStatus(status: DeliverableStatus): {
   }
 }
 
+export function decideOptimalAiStrategy(params: {
+  message: string;
+  originKind: "greenfield" | "brownfield";
+  hasGitUrl: boolean;
+  explicitStrategy?: DevelopmentStrategy;
+}): ArchitectStrategyDecision {
+  const msg = params.message.toLowerCase();
+
+  if (params.originKind === "brownfield" || params.hasGitUrl) {
+    return {
+      chosenStrategy:
+        params.explicitStrategy ?? "characterization_strangler",
+      strategyLabel:
+        "Characterization + Strangler (Evolução Segura de Código Existente)",
+      rationale:
+        "Decisão do Arquiteto de Software: Como há código existente/repositório Git, os agentes de IA devem iniciar gerando testes de caracterização e contratos Zod sobre as rotas atuais antes de evoluir módulos pelo padrão Strangler, blindando o sistema contra regressões.",
+      recommendedTeamTopology: "full_enterprise",
+      requiresVisualPrototypeFirst: true,
+    };
+  }
+
+  if (
+    /api|webhook|integra[cç][aã]o|gateway|microsservi[cç]o|pagamento|faturamento|erp|backend/i.test(
+      msg
+    )
+  ) {
+    return {
+      chosenStrategy: params.explicitStrategy ?? "api_contract_first",
+      strategyLabel: "API Contract-First (Contratos Zod Antes da Codificação)",
+      rationale:
+        "Decisão do Arquiteto de Software: O projeto possui forte dependência de contratos de API, integrações ou fluxo transacional. Travar os schemas Zod primeiro permite que os agentes executores de IA codifiquem backend e frontend sem divergência de payloads.",
+      recommendedTeamTopology: /erp|corporativo|multi-tenant|banc[aá]rio/i.test(
+        msg
+      )
+        ? "full_enterprise"
+        : "lean_mvp",
+      requiresVisualPrototypeFirst: true,
+    };
+  }
+
+  if (
+    /motor|c[aá]lculo|algoritmo|regra fiscal|cont[aá]bil|fila|orquestra[cç][aã]o/i.test(
+      msg
+    )
+  ) {
+    return {
+      chosenStrategy: params.explicitStrategy ?? "domain_first",
+      strategyLabel: "Domain-First (Núcleo de Regras com TDD Estrito)",
+      rationale:
+        "Decisão do Arquiteto de Software: A complexidade principal está nas regras de domínio. Os agentes de IA construirão primeiro o núcleo puro validado por testes determinísticos (test.each) antes de acoplar banco e telas.",
+      recommendedTeamTopology: "lean_mvp",
+      requiresVisualPrototypeFirst: true,
+    };
+  }
+
+  return {
+    chosenStrategy: params.explicitStrategy ?? "frontend_first_msw",
+    strategyLabel:
+      "Frontend-First + MSW (Fluxo Visual Aprovado Antes do Backend)",
+    rationale:
+      "Decisão do Arquiteto de Software: Para garantir que o sistema nasça codificado com o fluxo visual exato que você imaginou, validamos primeiro o Protótipo Visual e as telas com mocks MSW acoplados aos contratos Zod antes da camada final de persistência.",
+    recommendedTeamTopology: "lean_mvp",
+    requiresVisualPrototypeFirst: true,
+  };
+}
+
+function buildGeneratedVisualPrototypeHtml(params: {
+  projectName: string;
+  summaryText: string;
+  strategyLabel: string;
+  revisionFeedback?: string;
+}): string {
+  const safeName = params.projectName.replace(/[<>&"]/g, "");
+  const safeSummary = redactSensitiveText(params.summaryText)
+    .slice(0, 260)
+    .replace(/[<>&"]/g, "");
+  const safeRevision = params.revisionFeedback
+    ? redactSensitiveText(params.revisionFeedback)
+        .slice(0, 220)
+        .replace(/[<>&"]/g, "")
+    : null;
+
+  return `<main style="font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 20px; border-radius: 12px; border: 1px solid #27272a;">
+  <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; padding-bottom: 14px; margin-bottom: 16px;">
+    <div>
+      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #f97316; font-weight: 600;">Protótipo Visual · Fluxo Aprovado p/ IA</span>
+      <h1 style="margin: 4px 0 0 0; font-size: 18px; color: #fafafa;">${safeName}</h1>
+    </div>
+    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 4px 10px; border-radius: 6px; font-size: 11px;">${params.strategyLabel}</span>
+  </header>
+  <p style="font-size: 13px; color: #d4d4d8; line-height: 1.5; margin: 0 0 16px 0;">${safeSummary}</p>
+  ${
+    safeRevision
+      ? `<div style="background: #1c1917; border: 1px solid #f97316; color: #fdba74; padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 16px;"><strong>Ajuste Visual Incorporado:</strong> ${safeRevision}</div>`
+      : ""
+  }
+  <section style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px;">
+      <div style="font-size: 11px; color: #a1a1aa;">1. Entrada &amp; Autenticação</div>
+      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Acesso &amp; Onboarding Guiado</div>
+    </div>
+    <div style="background: #18181b; border: 1px solid #f97316; border-radius: 8px; padding: 12px;">
+      <div style="font-size: 11px; color: #f97316;">2. Painel Principal</div>
+      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Operação Core &amp; Indicadores</div>
+    </div>
+    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px;">
+      <div style="font-size: 11px; color: #a1a1aa;">3. Gestão &amp; Auditoria</div>
+      <div style="font-size: 13px; font-weight: 600; color: #fafafa; margin-top: 4px;">Relatórios &amp; Configurações</div>
+    </div>
+  </section>
+</main>`;
+}
+
 export async function resolveAgencyTeamWithTieringScoped(
   db: UzinaDb,
   organizationId: string
@@ -180,6 +300,8 @@ export async function resolveAgencyTeamWithTieringScoped(
       tierLabel: "Tier 3 · Raciocínio & Planejamento (Pro)",
       boundModelId: bindings.copilot?.modelId ?? tier3Default,
       artifactsOwned: ["Roadmap de Ciclos", "Portões de Decisão HITL"],
+      includedInLeanTeam: false,
+      leanDisplayName: "Supervisor",
     },
     {
       role: "product_discovery",
@@ -193,13 +315,15 @@ export async function resolveAgencyTeamWithTieringScoped(
       tierLabel: "Tier 3 · Raciocínio & Produto (Pro)",
       boundModelId: bindings.discovery?.modelId ?? tier3Default,
       artifactsOwned: ["PRD & Visão do Produto (Longo Prazo)", "Dossiê Funcional do Slice"],
+      includedInLeanTeam: true,
+      leanDisplayName: "1. Produto & Descoberta",
     },
     {
       role: "software_architect",
       name: "Agente Arquiteto & Codebase",
       title: "Staff Software Architect",
       responsibility:
-        "Importa repositórios Git, executa Brownfield Scan + AST Poliglota, desenha ADRs e quebra o sistema em Vertical Slices.",
+        "Importa repositórios Git, executa Brownfield Scan + AST Poliglota, decide a melhor estratégia para IA e quebra em Vertical Slices.",
       primaryPhases: ["architecture_brownfield", "evolution_cycle"],
       canBeReinvokedInCycle: true,
       recommendedTier: "tier3_deep_reasoning",
@@ -207,22 +331,26 @@ export async function resolveAgencyTeamWithTieringScoped(
       boundModelId: bindings.architect?.modelId ?? tier3Default,
       artifactsOwned: [
         "Blueprint Arquitetural & ADRs (Longo Prazo)",
-        "Mapa AST do Código",
+        "Decisão de Estratégia p/ IA",
         "Blueprint Técnico do Slice (blueprintJson)",
       ],
+      includedInLeanTeam: true,
+      leanDisplayName: "2. Arquiteto & Estratégia IA",
     },
     {
       role: "ux_designer",
       name: "Agente de Design & UX",
       title: "Lead Product Designer",
       responsibility:
-        "Define .uzina/DESIGN.md, tokens W3C OKLCH e protótipos de 3 níveis (Wireframe, Stitch MCP e HTML seguro).",
+        "Define .uzina/DESIGN.md, tokens W3C OKLCH e protótipos visuais para garantir fluxo visual aprovado antes do código.",
       primaryPhases: ["visual_design"],
       canBeReinvokedInCycle: true,
       recommendedTier: "tier2_fast_execution",
       tierLabel: "Tier 2 · Execução Rápida & UI (Flash)",
       boundModelId: bindings.visual?.modelId ?? tier2Default,
-      artifactsOwned: ["Contrato Visual (.uzina/DESIGN.md)", "Protótipos 3 Níveis"],
+      artifactsOwned: ["Contrato Visual (.uzina/DESIGN.md)", "Protótipo Visual & Fluxo de Telas"],
+      includedInLeanTeam: false,
+      leanDisplayName: "Design & Protótipo",
     },
     {
       role: "tech_lead",
@@ -236,6 +364,8 @@ export async function resolveAgencyTeamWithTieringScoped(
       tierLabel: "Tier 2 · Codificação & TDD (Flash)",
       boundModelId: bindings.builder?.modelId ?? tier2Default,
       artifactsOwned: ["Contratos Zod & Testes TDD", "Implementação em Worktree"],
+      includedInLeanTeam: true,
+      leanDisplayName: "3. Engenharia & Verificação",
     },
     {
       role: "qa_appsec",
@@ -250,6 +380,8 @@ export async function resolveAgencyTeamWithTieringScoped(
       boundModelId:
         bindings.verifier?.modelId ?? bindings.security?.modelId ?? tier3Default,
       artifactsOwned: ["Evidence Pack (Verify Gate)", "Relatório SARIF AppSec"],
+      includedInLeanTeam: false,
+      leanDisplayName: "Auditor QA & AppSec",
     },
   ];
 }
@@ -488,6 +620,11 @@ export async function resolveProjectAgencyStateScoped(
       )
     )
     .orderBy(desc(memories.updatedAt));
+  const projectPrototypes = await db
+    .select()
+    .from(designPrototypes)
+    .where(eq(designPrototypes.projectId, projRow.project.id))
+    .orderBy(desc(designPrototypes.createdAt));
 
   const primaryRepo = repos[0] ?? null;
   let astFilesCount = 0;
@@ -791,14 +928,51 @@ export async function resolveProjectAgencyStateScoped(
     count: delivs.filter((d) => d.status === st).length,
   }));
 
+  const architectDecision = decideOptimalAiStrategy({
+    message: projRow.project.description ?? projRow.project.name,
+    originKind,
+    hasGitUrl: Boolean(primaryRepo?.remoteUrl),
+    explicitStrategy:
+      projRow.project.defaultDevelopmentStrategy as DevelopmentStrategy,
+  });
+
+  const latestProto = projectPrototypes[0] ?? null;
+  const approvedProto =
+    projectPrototypes.find((p) => p.approved) ??
+    (latestProto?.approved ? latestProto : null);
+  const hasUiDeliverables = delivs.some((d) => d.hasUi);
+
+  const visualFlow: ProjectVisualFlowSummary = {
+    hasUiDeliverables,
+    latestPrototypeId: latestProto?.id ?? null,
+    latestPrototypeTitle: latestProto?.title ?? null,
+    fidelityLevel: latestProto ? `Nível ${latestProto.level} (${latestProto.source})` : null,
+    approvedForCodeHandoff: Boolean(approvedProto),
+    previewUrl: latestProto ? `/api/prototypes/${latestProto.id}/preview` : null,
+    screensFlow: [
+      "1. Acesso & Onboarding Guiado",
+      `2. Painel Principal — ${projRow.project.name}`,
+      "3. Operação, Indicadores & Configurações",
+    ],
+    tokensPreview: [
+      { name: "surface.canvas", value: "#09090b" },
+      { name: "brand.accent", value: "#f97316" },
+      { name: "text.primary", value: "#fafafa" },
+      { name: "status.ok", value: "#22c55e" },
+    ],
+    studioHref: `/app/projects/${projRow.project.id}/studio`,
+  };
+
   const recommendedPrompt =
-    pendingDecs.length > 0
-      ? "Revise o Dossiê do Slice pendente no painel ao lado para Aprovar ou Devolver em Ciclo com feedback para o Arquiteto."
-      : canAutoAdvance
-        ? "Clique em 'Executar Ciclo Autônomo' para a equipe avançar os slices até o próximo portão obrigatório, ou converse para refinar requisitos."
-        : "Todos os slices da onda atual avançaram! Peça uma nova funcionalidade no chat ou clique em 'Novo Ciclo com Arquiteto' para iniciar o Ciclo #" +
-          String(maxCycleNumber + 1) +
-          ".";
+    hasUiDeliverables && !visualFlow.approvedForCodeHandoff
+      ? "Revise o Fluxo Visual na aba 'Estúdio & Protótipo' ao lado e clique em 'Aprovar Fluxo Visual' (ou peça ajustes no chat) antes da codificação da UI."
+      : pendingDecs.length > 0
+        ? "Revise o Dossiê do Slice pendente no painel ao lado para Aprovar ou Devolver em Ciclo com feedback para o Arquiteto."
+        : canAutoAdvance
+          ? "Clique em 'Executar Ciclo Autônomo' para a equipe avançar os slices até o próximo portão obrigatório, ou converse para refinar requisitos."
+          : "Todos os slices da onda atual avançaram! Peça uma nova funcionalidade no chat ou clique em 'Novo Ciclo com Arquiteto' para iniciar o Ciclo #" +
+            String(maxCycleNumber + 1) +
+            ".";
 
   return AgencyProjectStateSchema.parse({
     projectId: projRow.project.id,
@@ -810,6 +984,8 @@ export async function resolveProjectAgencyStateScoped(
     repositoryPath: primaryRepo?.localPath ?? null,
     defaultStrategy:
       projRow.project.defaultDevelopmentStrategy as DevelopmentStrategy,
+    architectDecision,
+    visualFlow,
     currentPhase,
     phaseLabel: PHASE_LABELS[currentPhase],
     activeAgentRole: activeAgent.role,
@@ -1111,6 +1287,10 @@ export async function handleAgencyChatScoped(
       }
     } else if (!parsed.projectId) {
       effectiveIntent = "start_greenfield";
+    } else if (/aprovar prot[oó]tipo|aprovar visual|aprovar layout|aprovar fluxo visual/i.test(parsed.message)) {
+      effectiveIntent = "approve_visual_flow";
+    } else if (/ajustar prot[oó]tipo|mudar layout|ajustar visual|tela|prot[oó]tipo visual/i.test(parsed.message)) {
+      effectiveIntent = "revise_visual_flow";
     } else if (/avan[cç]ar ciclo|rodar ciclo|executar esteira|avan[cç]ar entregas/i.test(parsed.message)) {
       effectiveIntent = "advance_cycle";
     } else if (/arquitetura|novo ciclo|reavaliar|refatorar|nova fase/i.test(parsed.message)) {
@@ -1146,7 +1326,13 @@ export async function handleAgencyChatScoped(
       parsed.projectName
     );
     const projectSlug = `${slugify(projectName)}-${Date.now().toString(36).slice(-4)}`;
-    const strategy = parsed.preferredStrategy ?? "characterization_strangler";
+    const archDecision = decideOptimalAiStrategy({
+      message: parsed.message,
+      originKind: "brownfield",
+      hasGitUrl: Boolean(detectedGitUrl),
+      explicitStrategy: parsed.preferredStrategy,
+    });
+    const strategy = archDecision.chosenStrategy;
 
     const [createdProj] = await db
       .insert(projects)
@@ -1162,11 +1348,17 @@ export async function handleAgencyChatScoped(
       .returning();
 
     targetProjectId = createdProj!.id;
-    actionsExecuted.push({
-      type: "created_project",
-      label: `Projeto Brownfield '${projectName}' criado no cliente '${client.name}'`,
-      targetId: targetProjectId,
-    });
+    actionsExecuted.push(
+      {
+        type: "created_project",
+        label: `Projeto Brownfield '${projectName}' criado no cliente '${client.name}'`,
+        targetId: targetProjectId,
+      },
+      {
+        type: "decided_ai_strategy",
+        label: `Arquiteto definiu estratégia '${archDecision.strategyLabel}'`,
+      }
+    );
 
     const resolvedLocalPath = provisionSafeRepositoryMirror({
       projectId: targetProjectId,
@@ -1280,15 +1472,41 @@ export async function handleAgencyChatScoped(
       label: `${wave.length} Slices criados automaticamente em 'Spec & Arquitetura' com Dossiê e Blueprint`,
     });
 
+    const createdProto = await createOrImportPrototypeScoped(db, {
+      organizationId: params.actor.organizationId,
+      projectId: targetProjectId,
+      input: {
+        level: 3,
+        source: "native",
+        title: `Fluxo Visual Inicial — ${projectName}`,
+        specSummary: parsed.message.slice(0, 400),
+        html: buildGeneratedVisualPrototypeHtml({
+          projectName,
+          summaryText: parsed.message,
+          strategyLabel: archDecision.strategyLabel,
+        }),
+      },
+    });
+
+    actionsExecuted.push({
+      type: "generated_visual_prototype",
+      label: `Protótipo visual inicial gerado no Estúdio Visual (${createdProto.title})`,
+      targetId: createdProto.id,
+    });
+
     replyLines = [
       `Assumi o projeto como **${activeAgent.name}** (${activeAgent.tierLabel} · \`${activeAgent.boundModelId}\`).`,
       ``,
+      `### Decisão Arquitetural & Estratégia para IA:`,
+      `- **Estratégia escolhida pelo Arquiteto:** \`${archDecision.strategyLabel}\``,
+      `- **Por que escolhi esta estratégia:** ${archDecision.rationale}`,
+      ``,
       `### O que executei automaticamente:`,
       `1. **Projeto & Repositório Git:** Criei o projeto **${projectName}** e vinculei ${detectedGitUrl ? `o repositório remoto \`${detectedGitUrl}\`` : `o diretório \`${resolvedLocalPath}\``}.`,
-      `2. **Brownfield Scan & AST Poliglota:** Indexei **${astResult.indexedFiles} arquivo(s)** e **${astResult.totalSymbols} símbolo(s)** no grafo de código e registrei o **Blueprint Arquitetural de Longo Prazo** na Memória QMD.`,
-      `3. **Planejamento de Slices (Ciclo #1):** Estruturei **${wave.length} entregas (Vertical Slices)** já com **Dossiê Markdown (\`specMarkdown\`)** e **Plano Técnico (\`blueprintJson\`)** disponíveis no Inspetor de Artefatos ao lado.`,
+      `2. **Brownfield Scan & AST Poliglota:** Indexei **${astResult.indexedFiles} arquivo(s)** e **${astResult.totalSymbols} símbolo(s)** no grafo de código e salvei o Blueprint na Memória QMD.`,
+      `3. **Protótipo Visual & Slices (Ciclo #1):** Gerei o **Protótipo Visual Inicial** na aba **Estúdio & Protótipo** e estruturei **${wave.length} entregas (Vertical Slices)** ao lado.`,
       ``,
-      `Você pode revisar os artefatos de cada slice no painel, pedir qualquer ajuste ou clicar em **Executar Ciclo Autônomo** para a equipe avançar a implementação até o próximo portão de decisão.`,
+      `Revise o **Protótipo Visual** na aba ao lado para aprovar o fluxo de telas antes da codificação da interface, ou clique em **Executar Ciclo Autônomo**.`,
     ];
   }
   // 2. Fluxo Greenfield: Criar Sistema do Zero via Agente de Descoberta -> Arquiteto
@@ -1306,7 +1524,13 @@ export async function handleAgencyChatScoped(
       parsed.projectName
     );
     const projectSlug = `${slugify(projectName)}-${Date.now().toString(36).slice(-4)}`;
-    const strategy = parsed.preferredStrategy ?? "frontend_first_msw";
+    const archDecision = decideOptimalAiStrategy({
+      message: parsed.message,
+      originKind: "greenfield",
+      hasGitUrl: false,
+      explicitStrategy: parsed.preferredStrategy,
+    });
+    const strategy = archDecision.chosenStrategy;
 
     const [createdProj] = await db
       .insert(projects)
@@ -1322,11 +1546,17 @@ export async function handleAgencyChatScoped(
       .returning();
 
     targetProjectId = createdProj!.id;
-    actionsExecuted.push({
-      type: "created_project",
-      label: `Projeto Greenfield '${projectName}' criado no cliente '${client.name}'`,
-      targetId: targetProjectId,
-    });
+    actionsExecuted.push(
+      {
+        type: "created_project",
+        label: `Projeto Greenfield '${projectName}' criado no cliente '${client.name}'`,
+        targetId: targetProjectId,
+      },
+      {
+        type: "decided_ai_strategy",
+        label: `Arquiteto definiu estratégia '${archDecision.strategyLabel}'`,
+      }
+    );
 
     await createMemoryScoped(db, {
       organizationId: params.actor.organizationId,
@@ -1388,23 +1618,54 @@ export async function handleAgencyChatScoped(
       label: `${wave.length} Slices gerados com Dossiê (specMarkdown) e Blueprint Técnico`,
     });
 
+    const createdProto = await createOrImportPrototypeScoped(db, {
+      organizationId: params.actor.organizationId,
+      projectId: targetProjectId,
+      input: {
+        level: 3,
+        source: "native",
+        title: `Fluxo Visual Inicial — ${projectName}`,
+        specSummary: parsed.message.slice(0, 400),
+        html: buildGeneratedVisualPrototypeHtml({
+          projectName,
+          summaryText: parsed.message,
+          strategyLabel: archDecision.strategyLabel,
+        }),
+      },
+    });
+
+    actionsExecuted.push({
+      type: "generated_visual_prototype",
+      label: `Protótipo visual inicial gerado no Estúdio Visual (${createdProto.title})`,
+      targetId: createdProto.id,
+    });
+
     replyLines = [
-      `Captei sua visão como **${activeAgent.name}** (${activeAgent.tierLabel} · \`${activeAgent.boundModelId}\`) e coordenei a estruturação inicial com o **Agente Arquiteto**:`,
+      `Captei sua visão como **${activeAgent.name}** (${activeAgent.tierLabel} · \`${activeAgent.boundModelId}\`) e o **Agente Arquiteto** definiu a estratégia ideal para execução por IA:`,
       ``,
-      `### Artefatos de Longo Prazo & Slices Criados:`,
-      `1. **PRD Vivo (Memória QMD):** Registrei os objetivos, regras de domínio e estratégia de **${projectName}** nos Artefatos de Longo Prazo do projeto.`,
-      `2. **Decomposição em Vertical Slices (Ciclo #1):** Criei automaticamente **${wave.length} entregas** no quadro, cada uma com seu **Dossiê de Especificação (\`specMarkdown\`)** e **Plano Técnico (\`blueprintJson\`)**.`,
+      `### Estratégia Decidida pelo Arquiteto de Software:`,
+      `- **Estratégia escolhida:** \`${archDecision.strategyLabel}\``,
+      `- **Justificativa para IA:** ${archDecision.rationale}`,
       ``,
-      `No modo **${parsed.autonomyMode}**, você pode inspecionar qualquer artefato na aba **Artefatos & Slices**, pedir ajustes pelo chat ou clicar em **Executar Ciclo Autônomo** para avançarmos pelas fases técnicas até o portão de validação.`,
+      `### Artefatos de Longo Prazo, Protótipo Visual & Slices Criados:`,
+      `1. **PRD Vivo (Memória QMD):** Registrei os objetivos e regras de domínio de **${projectName}**.`,
+      `2. **Estúdio & Protótipo Visual:** Gerei o protótipo visual inicial (\`${createdProto.title}\`) na aba **Estúdio & Protótipo** ao lado para validarmos o fluxo visual antes da codificação das telas.`,
+      `3. **Vertical Slices (Ciclo #1):** Criei automaticamente **${wave.length} entregas** com Dossiê e Blueprint Técnico.`,
     ];
   }
-  // 3. Fluxo de Ciclo Autônomo: Avançar entregas pelas fases obrigatórias sem pular etapas e pausar no Portão HITL
+  // 3. Fluxo de Ciclo Autônomo: Avançar entregas pelas fases obrigatórias sem pular etapas e pausar no Portão Visual ou Portão HITL
   else if (effectiveIntent === "advance_cycle" && targetProjectId) {
     const projectDelivs = await db
       .select()
       .from(deliverables)
       .where(eq(deliverables.projectId, targetProjectId))
       .orderBy(deliverables.createdAt);
+
+    const projectProtos = await db
+      .select()
+      .from(designPrototypes)
+      .where(eq(designPrototypes.projectId, targetProjectId));
+    const visualFlowApproved = projectProtos.some((p) => p.approved);
 
     const maxStepsPerDeliverable =
       parsed.autonomyMode === "guided"
@@ -1415,6 +1676,7 @@ export async function handleAgencyChatScoped(
 
     let transitionsCount = 0;
     let pausedAtGateCount = 0;
+    let pausedAtVisualCount = 0;
 
     for (const deliv of projectDelivs) {
       let currentStatus = deliv.status as DeliverableStatus;
@@ -1428,6 +1690,21 @@ export async function handleAgencyChatScoped(
           currentStatus === "failed" ||
           currentStatus === "paused"
         ) {
+          break;
+        }
+
+        // Guardrail do Portão Visual: se a entrega tem UI e já está em visual_studio sem fluxo visual aprovado, não codifica às cegas
+        if (
+          currentStatus === "visual_studio" &&
+          deliv.hasUi &&
+          !visualFlowApproved
+        ) {
+          pausedAtVisualCount += 1;
+          actionsExecuted.push({
+            type: "paused_at_visual_gate",
+            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual na aba 'Estúdio & Protótipo' antes da codificação`,
+            targetId: deliv.id,
+          });
           break;
         }
 
@@ -1471,6 +1748,21 @@ export async function handleAgencyChatScoped(
           targetId: deliv.id,
         });
 
+        // Se acabou de entrar em visual_studio e o fluxo visual ainda não foi aprovado, pausa aqui para aprovação visual antes de codificar
+        if (
+          currentStatus === "visual_studio" &&
+          deliv.hasUi &&
+          !visualFlowApproved
+        ) {
+          pausedAtVisualCount += 1;
+          actionsExecuted.push({
+            type: "paused_at_visual_gate",
+            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual na aba 'Estúdio & Protótipo' antes da codificação`,
+            targetId: deliv.id,
+          });
+          break;
+        }
+
         if (currentStatus === "decision_pending") {
           pausedAtGateCount += 1;
           const existingPending = await db
@@ -1509,17 +1801,141 @@ export async function handleAgencyChatScoped(
     }
 
     activeAgent =
-      pausedAtGateCount > 0 ? getAgent("qa_appsec") : getAgent("tech_lead");
+      pausedAtVisualCount > 0
+        ? getAgent("ux_designer")
+        : pausedAtGateCount > 0
+          ? getAgent("qa_appsec")
+          : getAgent("tech_lead");
     handedOffFrom = "orchestrator";
 
     replyLines = [
       `Ciclo autônomo executado no modo **${parsed.autonomyMode}** sob coordenação de **${activeAgent.name}** (${activeAgent.tierLabel}):`,
       `- **Transições executadas sem pular fases:** ${transitionsCount}`,
-      `- **Slices pausados automaticamente em Portão Obrigatório (\`Decisão HITL\`):** ${pausedAtGateCount}`,
+      `- **Slices pausados no Portão de Prototipação Visual (\`Estúdio Visual\`):** ${pausedAtVisualCount}`,
+      `- **Slices pausados em Portão Obrigatório (\`Decisão HITL\`):** ${pausedAtGateCount}`,
       ``,
-      pausedAtGateCount > 0
-        ? `O motor pausou nos portões obrigatórios para sua inspeção. Abra o **Inspetor de Artefatos & Slices** para ler o Dossiê/Evidências e clicar em **Aprovar & Avançar** ou **Pedir Correção em Ciclo**.`
-        : `As entregas avançaram na esteira técnica. Você pode rodar mais um passo do ciclo ou inspecionar os artefatos atualizados.`,
+      pausedAtVisualCount > 0
+        ? `O motor pausou na fase de **Prototipação Visual** para garantir que a interface não seja codificada às cegas. Abra a aba **Estúdio & Protótipo** ao lado para aprovar o fluxo visual ou pedir ajustes.`
+        : pausedAtGateCount > 0
+          ? `O motor pausou nos portões obrigatórios para sua inspeção. Abra a aba **Slices & Entregas** ao lado para aprovar ou pedir correção em ciclo.`
+          : `As entregas avançaram na esteira técnica.`,
+    ];
+  }
+  // 3B. Aprovar Fluxo de Prototipação Visual para liberar codificação da UI
+  else if (effectiveIntent === "approve_visual_flow" && targetProjectId) {
+    activeAgent = getAgent("ux_designer");
+    const [latestProto] = await db
+      .select()
+      .from(designPrototypes)
+      .where(eq(designPrototypes.projectId, targetProjectId))
+      .orderBy(desc(designPrototypes.createdAt))
+      .limit(1);
+
+    if (latestProto) {
+      await approvePrototypeScoped(db, {
+        organizationId: params.actor.organizationId,
+        projectId: targetProjectId,
+        prototypeId: latestProto.id,
+        input: { approved: true, syncDesignMd: true },
+      });
+    } else {
+      const createdProto = await createOrImportPrototypeScoped(db, {
+        organizationId: params.actor.organizationId,
+        projectId: targetProjectId,
+        input: {
+          level: 3,
+          source: "native",
+          title: "Fluxo Visual Aprovado",
+          html: buildGeneratedVisualPrototypeHtml({
+            projectName: "Sistema Uzina",
+            summaryText: parsed.message,
+            strategyLabel: "Frontend-First + MSW",
+          }),
+        },
+      });
+      await approvePrototypeScoped(db, {
+        organizationId: params.actor.organizationId,
+        projectId: targetProjectId,
+        prototypeId: createdProto.id,
+        input: { approved: true, syncDesignMd: true },
+      });
+    }
+
+    actionsExecuted.push({
+      type: "approved_visual_flow",
+      label: "Fluxo visual e protótipo aprovados para handoff e codificação",
+    });
+
+    const uiDelivsInVisual = await db
+      .select()
+      .from(deliverables)
+      .where(
+        and(
+          eq(deliverables.projectId, targetProjectId),
+          eq(deliverables.status, "visual_studio")
+        )
+      );
+
+    for (const deliv of uiDelivsInVisual) {
+      await db
+        .update(deliverables)
+        .set({
+          status: "contract_tests",
+          updatedAt: new Date(),
+        })
+        .where(eq(deliverables.id, deliv.id));
+      actionsExecuted.push({
+        type: "advanced_deliverable_stage",
+        label: `'${deliv.title}' liberado do Estúdio Visual → 'Contratos & TDD'`,
+        targetId: deliv.id,
+      });
+    }
+
+    replyLines = [
+      `Fluxo visual aprovado como **${activeAgent.name}**!`,
+      `- **Contrato Visual & Handoff:** O protótipo foi marcado como aprovado para codificação.`,
+      uiDelivsInVisual.length > 0
+        ? `- **Slices de UI liberados:** ${uiDelivsInVisual.length} slice(s) avançaram de \`Estúdio Visual\` para \`Contratos & TDD\` com a referência visual travada.`
+        : `- Os próximos slices com interface já poderão avançar pelo Estúdio Visual com o fluxo aprovado.`,
+    ];
+  }
+  // 3C. Revisar / Ajustar Protótipo Visual via Chat
+  else if (effectiveIntent === "revise_visual_flow" && targetProjectId) {
+    activeAgent = getAgent("ux_designer");
+    const [proj] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, targetProjectId))
+      .limit(1);
+
+    const projName = proj?.name ?? "Sistema Uzina";
+    const updatedProto = await createOrImportPrototypeScoped(db, {
+      organizationId: params.actor.organizationId,
+      projectId: targetProjectId,
+      input: {
+        level: 3,
+        source: "native",
+        title: `Fluxo Visual Revisado — ${projName}`,
+        specSummary: parsed.message.slice(0, 400),
+        html: buildGeneratedVisualPrototypeHtml({
+          projectName: projName,
+          summaryText: proj?.description ?? projName,
+          strategyLabel: proj?.defaultDevelopmentStrategy ?? "frontend_first_msw",
+          revisionFeedback: parsed.message,
+        }),
+      },
+    });
+
+    actionsExecuted.push({
+      type: "generated_visual_prototype",
+      label: `Nova revisão de protótipo visual gerada (${updatedProto.title})`,
+      targetId: updatedProto.id,
+    });
+
+    replyLines = [
+      `Atualizei o protótipo visual como **${activeAgent.name}** incorporando seu direcionamento:`,
+      `- **Ajuste aplicado:** ${redactSensitiveText(parsed.message)}`,
+      `- Confira o preview atualizado na aba **Estúdio & Protótipo** ao lado e clique em **Aprovar Fluxo Visual** quando estiver de acordo.`,
     ];
   }
   // 4. Aprovar Artefato / Slice no Portão e Avançar
@@ -1769,6 +2185,7 @@ export async function handleAgencyChatScoped(
     handedOffFrom,
     lifecyclePhase: projectState?.currentPhase ?? "onboarding",
     cycleNumber: projectState?.cycleNumber ?? 1,
+    teamTopology: parsed.teamTopology,
     autonomyMode: parsed.autonomyMode,
     reply: replyLines.join("\n"),
     actionsExecuted,

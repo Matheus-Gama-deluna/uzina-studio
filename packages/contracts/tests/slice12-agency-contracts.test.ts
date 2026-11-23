@@ -43,6 +43,16 @@ describe("Slice 12 Contracts — Onboarding, Agency Chat, Model Tiering & Artifa
       shouldPass: true,
     },
     {
+      label: "aprovação de fluxo de prototipação visual com teamTopology lean_mvp",
+      payload: {
+        message: "O fluxo visual e as cores estão aprovados para codificação.",
+        intent: "approve_visual_flow",
+        projectId: "00000000-0000-4000-8000-000000000001",
+        teamTopology: "lean_mvp",
+      },
+      shouldPass: true,
+    },
+    {
       label: "bloqueia URL Git apontando para IMDS 169.254.169.254 (SSRF)",
       payload: {
         message: "Importar repo interno",
