@@ -42,8 +42,11 @@ export async function GET(
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${preview.title.replace(/[<>&"]/g, "")}</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 16px; }
+    *, *::before, *::after { box-sizing: border-box; max-width: 100%; }
+    html, body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 8px; overflow-x: hidden; }
+    main { padding: 12px !important; max-width: 100% !important; overflow-x: hidden !important; }
+    header { flex-wrap: wrap !important; gap: 8px !important; }
+    section { grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)) !important; gap: 8px !important; }
   </style>
 </head>
 <body>

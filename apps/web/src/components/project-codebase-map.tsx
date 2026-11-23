@@ -412,15 +412,17 @@ export function ProjectCodebaseMap({
               {(tree?.adapters ?? []).map((ad) => (
                 <div
                   key={ad.adapter}
-                  className="flex items-center justify-between rounded border border-border-subtle bg-inset px-2.5 py-1.5 text-[11px]"
+                  className="flex items-center justify-between gap-2 rounded border border-border-subtle bg-inset px-2.5 py-1.5 text-[11px]"
                 >
-                  <span className="font-mono text-fg-primary">{ad.adapter}</span>
+                  <span className="truncate font-mono text-fg-primary">
+                    {ad.adapter}
+                  </span>
                   <span
-                    className={
+                    className={`shrink-0 rounded border border-border-subtle bg-surface px-1.5 py-0.5 font-mono text-[10px] ${
                       ad.status === "ok"
-                        ? "font-mono text-status-ok"
-                        : "font-mono text-fg-muted"
-                    }
+                        ? "text-status-ok"
+                        : "text-fg-muted"
+                    }`}
                   >
                     {ad.status}
                   </span>
