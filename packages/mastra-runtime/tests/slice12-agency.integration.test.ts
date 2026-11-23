@@ -1,13 +1,16 @@
+import { encryptSecret, maskApiKey, parseMasterKeyBuffer } from "@uzina/core";
 import {
   closeDb,
   ensureDefaultOrgAndInternalClient,
   getDb,
+  providerProfiles,
   users,
 } from "@uzina/db";
 import { describe, expect, it } from "vitest";
 import {
   getAgencyOverviewScoped,
   handleAgencyChatScoped,
+  testProviderLlmConnectionScoped,
 } from "../src/index.js";
 
 describe("@uzina/mastra-runtime — Slice 12 (Onboarding, Central Multi-Agente, Model Tiering & Ciclos)", () => {
@@ -187,6 +190,87 @@ describe("@uzina/mastra-runtime — Slice 12 (Onboarding, Central Multi-Agente, 
         (s) => s.deliverableId === secondSliceId
       );
       expect(approvedSlice?.status).toBe("approved");
+
+      // 7. Slice 15 — Conectar Provedor LLM Real no Cofre AES-256-GCM, Testar Ping e Executar Chat com LLM Real
+      const masterKey = parseMasterKeyBuffer(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      );
+      const rawKey = "AIzaSyLiveGeminiTestKey987654321";
+      const encryptedApiKey = encryptSecret({
+        plaintext: rawKey,
+        masterKey,
+        organizationId: seeded.organizationId,
+        providerType: "google",
+      });
+
+      const [savedProvider] = await ctx.db
+        .insert(providerProfiles)
+        .values({
+          organizationId: seeded.organizationId,
+          name: "Google Gemini Produção",
+          providerType: "google",
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          encryptedApiKey,
+          keyPreview: maskApiKey(rawKey),
+          roleBindingsJson: {
+            discovery: { modelId: "gemini-2.5-pro" },
+            architect: { modelId: "gemini-2.5-pro" },
+            visual: { modelId: "gemini-2.5-flash" },
+            builder: { modelId: "gemini-2.5-flash" },
+          },
+          isDefault: true,
+        })
+        .returning();
+
+      const mockGeminiFetch: typeof fetch = async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: "Resposta real do Google Gemini: Arquitetura multi-tenant validada com contratos Zod e RLS no PostgreSQL.",
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+
+      const pingRes = await testProviderLlmConnectionScoped(ctx.db, {
+        organizationId: seeded.organizationId,
+        masterKey,
+        request: {
+          providerId: savedProvider!.id,
+        },
+        fetchImpl: mockGeminiFetch,
+      });
+      expect(pingRes.ok).toBe(true);
+      expect(pingRes.providerType).toBe("google");
+      expect(pingRes.replyPreview).toContain("Resposta real do Google Gemini");
+
+      const liveChatRes = await handleAgencyChatScoped(ctx.db, {
+        actor,
+        masterKey,
+        fetchImpl: mockGeminiFetch,
+        request: {
+          message:
+            "Arquiteto, detalhe o isolamento multi-tenant para este projeto.",
+          projectId: brownfieldProjectId,
+          targetAgentRole: "software_architect",
+          intent: "general_chat",
+          teamTopology: "lean_mvp",
+          autonomyMode: "semi_autonomous",
+        },
+      });
+      expect(liveChatRes.executionMode).toBe("live_llm");
+      expect(liveChatRes.reply).toContain("Resposta real do Google Gemini");
+      expect(
+        liveChatRes.actionsExecuted.some((a) => a.type === "invoked_live_llm")
+      ).toBe(true);
     } finally {
       await closeDb();
     }

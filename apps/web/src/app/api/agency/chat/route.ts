@@ -4,6 +4,7 @@ import { handleAgencyChatScoped } from "@uzina/mastra-runtime/agency";
 import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
+import { getServerMasterKey } from "@/lib/vault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
         userId: auth.actor.userId,
         role: auth.actor.role,
       },
+      masterKey: getServerMasterKey(),
       request: parsed.data,
     });
     return NextResponse.json(res, { status: 200 });

@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 14 concluído e integrado na `main`** (`495 passed | 0 skipped` em PostgreSQL + `pgvector` live, Playwright `2 passed`). → **Próximo passo:** Uso operacional em `http://localhost:3000/app` ou planejamento da **Fase 3**.
+> **Estado Atual:** ★ **Slice 15 concluído e integrado na `main`** (`495 passed | 0 skipped` em PostgreSQL + `pgvector` live, Playwright `2 passed`). → **Próximo passo:** Conectar API Key real em `http://localhost:3000/app/providers` e operar projetos em `http://localhost:3000/app`.
 
 ---
 
@@ -23,6 +23,7 @@ flowchart LR
     S11 --> S12["Slice 12: Guia de Prontidão, Central Multi-Agente, Model Tiering & Artefatos Cíclicos (CONCLUÍDO)"]
     S12 --> S13["Slice 13: Chat-First no Topo, Estratégia pelo Arquiteto, Equipe Enxuta/Completa & Portão Visual (CONCLUÍDO)"]
     S13 --> S14["Slice 14: Polimento Visual Desktop/Mobile, Switcher Mobile, Persistência do Chat & Sincronização (CONCLUÍDO)"]
+    S14 --> S15["Slice 15: Conexão Real Multi-LLM, Ping de Credenciais, Prototipação Dinâmica & Polimento 2ª Rodada (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -53,6 +54,7 @@ flowchart LR
 | **Slice 12 — Guia, Central Multi-Agente, Tiering & Artefatos** | *Contract-First + Vertical Slice* | Guia de Prontidão, Supervisor Multi-Agente com Model Tiering (Tier 3 Pro vs Tier 2 Flash), Greenfield + URL Git Brownfield, Inspetor de Artefatos (Longo Prazo + Slices) e Ciclo Autônomo em `/app` | Seletiva (`readiness`) | [slice-12](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-12-onboarding-conversational-agency-cyclic-workflows.md) | 🟢 Concluído (`feat/slice-12-autonomous-agency-chat-onboarding`) |
 | **Slice 13 — Chat-First no Topo, Estratégia IA & Portão Visual** | *Contract-First + Frontend-First* | Chat amplo no topo (`7/12`), Setup integrado, `decideOptimalAiStrategy` pelo Arquiteto, Topologia `Equipe Enxuta (MVP · 3)` vs `Completa (6)` e Aba `Estúdio & Protótipo` com preview `<iframe sandbox="">` e Portão Visual | Seletiva (`readiness`) | [slice-13](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-13-chat-first-top-architect-strategy-visual-gate.md) | 🟢 Concluído (`feat/slice-13-chat-first-architect-strategy-visual-gate`) |
 | **Slice 14 — Polimento Visual Desktop/Mobile & Fluxo Contínuo** | *UI/UX Craft + Multi-Viewport QA* | Chat 100% na 1ª dobra Desktop (`y+h = 870px`), Switcher Mobile 1 toque (`Chat IA \| Estúdio \| Slices`), `<iframe sandbox="">` responsivo sem scroll horizontal, Chat persistente (`localStorage`), Quick-Prompts, Markdown limpo e sincronização Kanban/Sidebar | Seletiva (`ui-visual-qa-critic`) | [slice-14](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-14-visual-ux-polish-desktop-mobile.md) | 🟢 Concluído (`feat/slice-14-visual-ux-polish-desktop-mobile`) |
+| **Slice 15 — Conexão Real Multi-LLM, Ping & Polimento 2ª Rodada** | *Contract-First + Live LLM Gateway* | `llm-client.ts` (Gemini, OpenAI/OpenRouter, Anthropic, Ollama), `POST /api/providers/test` (Ping LLM real), Cofre com presets dos 7 papéis, Protótipos dinâmicos por domínio, badge `LLM Real vs Simulado`, remoção de abas duplicadas no mobile e navegação de retorno global | Seletiva (`ui-visual-qa-critic`) | [slice-15](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/slices/slice-15-live-llm-connection-visual-polish-r2.md) | 🟢 Concluído (`feat/slice-15-live-llm-connection-visual-polish-r2`) |
 
 ---
 

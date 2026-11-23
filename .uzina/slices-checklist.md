@@ -106,3 +106,9 @@
   - [x] Mobile `390×844` com Switcher Segmentado (`Chat IA` | `Estúdio` | `Slices`), alvos de toque `>= 40px` e preview `<iframe sandbox="">` responsivo sem scroll horizontal
   - [x] Persistência do histórico do Chat por projeto (`localStorage` + `useSyncExternalStore` sem erro de hidratação SSR), formatação Markdown limpa e estado pós-aprovação visual com avanço direto para `Contratos & TDD`
   - [x] Sincronização bidirecional Kanban ↔ `Slices`, Sidebar `HIERARQUIA (CLIENTES)` clicável, breadcrumbs de `/app/finops` e `/code` corrigidos e redirecionamento em `/app/settings` e `/exec` (`495 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-14-visual-ux-polish-desktop-mobile`)
+
+- [x] **Slice 15 — Conexão Real Multi-LLM, Ping de Credenciais, Prototipação Dinâmica & Polimento Visual Global (2ª Rodada)** (`docs/slices/slice-15-live-llm-connection-visual-polish-r2.md`)
+  - [x] Conector Multi-LLM real (`packages/mastra-runtime/src/llm-client.ts`) com descriptografia AES-256-GCM em memória (`Google Gemini`, `OpenAI / OpenRouter`, `Anthropic Direct`, `Ollama Local`) e endpoint `POST /api/providers/test`
+  - [x] Redesign de `/app/providers` com 4 cards rápidos em 1 clique, auto-preenchimento de `Base URL` e dos 7 papéis de agentes, presets (`Tiering Pro + Flash` vs `100% Rápido / Free Tier`) e botão `Testar Conexão Real (Ping LLM)`
+  - [x] Protótipos visuais adaptados ao domínio (`inferDomainVisualBlueprint` com abas, KPIs e tabelas do domínio) + badge transparente `🟢 LLM Real Ativo` vs `🟡 Modo Simulado Local` no Chat
+  - [x] Eliminação da barra de abas duplicada no Mobile `Estúdio`, botão `← Voltar ao Chat do Projeto` (`min-h-9`) em todas as páginas operacionais, `FinOps` no `⌘K` e pré-seleção do projeto ativo no `Co-piloto Executivo` (`495 passed | 0 skipped`, Playwright `2 passed`) (`feat/slice-15-live-llm-connection-visual-polish-r2`)

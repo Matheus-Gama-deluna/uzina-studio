@@ -270,3 +270,16 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
   * `pnpm --filter @uzina/web typecheck`, `lint`, `build` e `test:e2e` (`2 passed (12.7s)`).
   * `browser` (`flash`) em `http://localhost:3000/app`: **PASS** (`0` console errors mesmo após `page.reload()`, `0` HTTP `>= 500`, `0` overflow horizontal em Desktop Dark/Light `1440×900` e Mobile `390×844`).
+
+---
+
+## 2026-11-23 — Slice 15: Conexão Real Multi-LLM, Ping de Credenciais, Prototipação Dinâmica & Polimento Visual Global (`feat/slice-15-live-llm-connection-visual-polish-r2`)
+
+* **Entregue:**
+  * `@uzina/contracts`: `TestProviderConnectionRequestSchema`, `TestProviderConnectionResponseSchema`, `LlmExecutionModeSchema` (`live_llm | local_assisted`) e ação `invoked_live_llm` (`159/159` testes).
+  * `@uzina/mastra-runtime`: novo módulo `src/llm-client.ts` (`callProviderLlmApi`, `testProviderLlmConnectionScoped`, `invokeOrganizationLlmForAgentScoped`) descriptografando chaves AES-256-GCM em memória e conectando via HTTP nativo a **Google Gemini**, **OpenAI / OpenRouter**, **Anthropic Direct** e **Ollama Local**; `inferDomainVisualBlueprint` em `src/agency.ts` gerando protótipos visuais adaptados ao domínio do projeto (`23/23` testes).
+  * `@uzina/web`: rota `POST /api/providers/test`, redesign de `/app/providers` (4 cards de configuração em 1 clique, auto-preenchimento de `Base URL` e dos 7 papéis de agentes, presets `Tiering Pro + Flash` vs `100% Rápido / Free Tier` e botão `Testar Conexão Real (Ping LLM)`), badge transparente `🟢 LLM Real Ativo` vs `🟡 Modo Simulado Local` no Chat, eliminação da barra de abas duplicada no Mobile `Estúdio`, botão `← Voltar ao Chat do Projeto` (`min-h-9`) em todas as páginas operacionais, `FinOps` no `⌘K` e pré-seleção do projeto ativo no `Co-piloto Executivo`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (exit `0`), `node scripts/audit-tests.mjs` (`65 arquivos, 199 testes, 0 violações`).
+  * `pnpm --filter @uzina/web typecheck`, `lint`, `test -- tests/contract-drift.test.ts` (`1 passed`), `build` e `test:e2e` (`2 passed (13.2s)`).
+  * `browser` (`flash`) em `http://localhost:3000`: **PASS** (Ping HTTP real validado em `/app/providers`, protótipo visual de domínio renderizado em Desktop e Mobile sem abas duplicadas e sem overflow horizontal).

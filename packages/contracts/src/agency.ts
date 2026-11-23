@@ -265,6 +265,7 @@ export type AgencyChatRequest = z.infer<typeof AgencyChatRequestSchema>;
 
 export const AgencyActionExecutedSchema = z.object({
   type: z.enum([
+    "invoked_live_llm",
     "created_project",
     "decided_ai_strategy",
     "linked_git_repository",
@@ -287,6 +288,9 @@ export const AgencyActionExecutedSchema = z.object({
 });
 export type AgencyActionExecuted = z.infer<typeof AgencyActionExecutedSchema>;
 
+export const LlmExecutionModeSchema = z.enum(["live_llm", "local_assisted"]);
+export type LlmExecutionMode = z.infer<typeof LlmExecutionModeSchema>;
+
 export const AgencyChatResponseSchema = z.object({
   activeAgent: AgencyAgentProfileSchema,
   handedOffFrom: AgencyAgentRoleSchema.nullable(),
@@ -294,6 +298,8 @@ export const AgencyChatResponseSchema = z.object({
   cycleNumber: z.number().int().min(1),
   teamTopology: TeamTopologyModeSchema.default("lean_mvp"),
   autonomyMode: AutonomyModeSchema,
+  executionMode: LlmExecutionModeSchema.default("local_assisted"),
+  llmLatencyMs: z.number().int().min(0).nullable().optional(),
   reply: z.string().min(1),
   actionsExecuted: z.array(AgencyActionExecutedSchema),
   projectState: AgencyProjectStateSchema.nullable(),

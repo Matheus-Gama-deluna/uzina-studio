@@ -83,3 +83,40 @@ export const ProviderProfileListResponseSchema = z.object({
 export type ProviderProfileListResponse = z.infer<
   typeof ProviderProfileListResponseSchema
 >;
+
+export const TestProviderConnectionRequestSchema = z
+  .object({
+    providerId: z.uuid().optional(),
+    providerType: ProviderTypeSchema.optional(),
+    baseUrl: HttpUrlSchema.nullable().optional(),
+    apiKey: z.string().trim().min(4).max(512).optional(),
+    modelId: z.string().trim().min(1).max(160).optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (!val.providerId && !val.providerType) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["providerType"],
+        message:
+          "Informe providerId de um perfil salvo ou providerType para teste direto.",
+      });
+    }
+  });
+export type TestProviderConnectionRequest = z.infer<
+  typeof TestProviderConnectionRequestSchema
+>;
+
+export const TestProviderConnectionResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    providerType: ProviderTypeSchema,
+    modelId: z.string().min(1).max(160),
+    latencyMs: z.number().int().min(0),
+    replyPreview: z.string().max(400).nullable(),
+    error: z.string().max(400).nullable(),
+  })
+  .strict();
+export type TestProviderConnectionResponse = z.infer<
+  typeof TestProviderConnectionResponseSchema
+>;

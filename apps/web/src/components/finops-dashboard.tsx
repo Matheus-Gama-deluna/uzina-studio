@@ -5,7 +5,15 @@ import {
   FinopsSummarySchema,
   type TokenSavingsTechnique,
 } from "@uzina/contracts";
-import { Coins, Cpu, Gauge, RefreshCw, TrendingDown } from "lucide-react";
+import {
+  ArrowLeft,
+  Coins,
+  Cpu,
+  Gauge,
+  RefreshCw,
+  TrendingDown,
+} from "lucide-react";
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { EngineConfigPanel } from "./engine-config-panel";
 
@@ -77,7 +85,17 @@ export function FinopsDashboard() {
   return (
     <div className="min-w-0 max-w-full space-y-5" data-testid="finops-root">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-4">
-        <div>
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/app"
+              data-testid="back-to-chat-link"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
+            >
+              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+              <span>Voltar ao Chat do Projeto</span>
+            </Link>
+          </div>
           <h1 className="text-lg font-semibold tracking-tight text-fg-primary">
             FinOps de Tokens &amp; Isolamento
           </h1>
@@ -89,7 +107,7 @@ export function FinopsDashboard() {
         <div className="flex items-center gap-2">
           <span
             data-testid="finops-workspace-badge"
-            className="rounded border border-border-default bg-surface px-2.5 py-1 font-mono text-[11px] text-fg-secondary"
+            className="inline-flex min-h-9 items-center rounded border border-border-default bg-surface px-2.5 py-1 font-mono text-[11px] text-fg-secondary"
           >
             workspace: {summary?.workspaceKind ?? "worktree"}
           </span>
@@ -98,7 +116,7 @@ export function FinopsDashboard() {
             onClick={() =>
               void queryClient.invalidateQueries({ queryKey: ["finops-summary"] })
             }
-            className="inline-flex items-center gap-1.5 rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-secondary hover:border-accent hover:text-fg-primary"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded border border-border-default bg-surface px-3 py-1 text-xs font-medium text-fg-secondary hover:border-accent hover:text-fg-primary"
           >
             <RefreshCw className="size-3.5" strokeWidth={1.75} />
             <span>Atualizar</span>

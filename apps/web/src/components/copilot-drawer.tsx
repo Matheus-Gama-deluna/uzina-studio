@@ -60,6 +60,10 @@ export function CopilotDrawer({
   });
 
   const projects = projectsQuery.data?.items ?? [];
+  const effectiveProjectId =
+    selectedProjectId === "__org__"
+      ? ""
+      : selectedProjectId || projects[0]?.id || "";
 
   async function runCopilotTurn(
     promptText: string,
@@ -87,7 +91,7 @@ export function CopilotDrawer({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "user", content: promptText.trim() }],
-          ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+          ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
           ...(action ? { action } : {}),
         }),
       });
@@ -192,11 +196,11 @@ export function CopilotDrawer({
             </label>
             <select
               id="copilot-project-scope"
-              value={selectedProjectId}
+              value={effectiveProjectId || "__org__"}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="mt-1 w-full rounded border border-border-default bg-surface px-2 py-1 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded border border-border-default bg-surface px-2.5 py-1 text-xs text-fg-primary focus:border-accent focus:outline-none"
             >
-              <option value="">Organização inteira</option>
+              <option value="__org__">Organização inteira</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -211,12 +215,12 @@ export function CopilotDrawer({
                 onClick={() =>
                   void runCopilotTurn("Gerar resumo executivo do workspace", {
                     type: "overview",
-                    ...(selectedProjectId
-                      ? { projectId: selectedProjectId }
+                    ...(effectiveProjectId
+                      ? { projectId: effectiveProjectId }
                       : {}),
                   })
                 }
-                className="inline-flex items-center gap-1 rounded border border-border-default bg-surface px-2 py-1 text-[11px] font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
               >
                 <Sparkles className="size-3 text-accent" />
                 <span>Resumo Executivo</span>
@@ -224,28 +228,28 @@ export function CopilotDrawer({
 
               <button
                 type="button"
-                disabled={streaming || !selectedProjectId}
+                disabled={streaming || !effectiveProjectId}
                 onClick={() =>
                   void runCopilotTurn("Disparar auditoria AppSec no projeto", {
                     type: "trigger_security_scan",
-                    projectId: selectedProjectId,
+                    projectId: effectiveProjectId,
                   })
                 }
-                className="inline-flex items-center gap-1 rounded border border-border-default bg-surface px-2 py-1 text-[11px] font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
               >
                 <ShieldAlert className="size-3 text-status-warn" />
                 <span>Scan AppSec</span>
               </button>
             </div>
 
-            {selectedProjectId && (
+            {effectiveProjectId && (
               <div className="mt-2 flex gap-1.5">
                 <input
                   type="text"
                   value={draftTitle}
                   onChange={(e) => setDraftTitle(e.target.value)}
                   placeholder="Título de rascunho discovery..."
-                  className="flex-1 rounded border border-border-default bg-surface px-2 py-1 text-xs text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
+                  className="min-h-8 flex-1 rounded border border-border-default bg-surface px-2.5 py-1 text-xs text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
                 />
                 <button
                   type="button"
@@ -255,11 +259,11 @@ export function CopilotDrawer({
                     setDraftTitle("");
                     void runCopilotTurn(`Criar rascunho "${title}"`, {
                       type: "draft_deliverable",
-                      projectId: selectedProjectId,
+                      projectId: effectiveProjectId,
                       title,
                     });
                   }}
-                  className="inline-flex items-center gap-1 rounded border border-accent/40 bg-accent-subtle px-2 py-1 text-[11px] font-medium text-accent disabled:opacity-50"
+                  className="inline-flex min-h-8 items-center gap-1 rounded border border-accent/40 bg-accent-subtle px-2.5 py-1 text-xs font-medium text-accent disabled:opacity-50"
                 >
                   <FilePlus2 className="size-3" />
                   <span>Rascunho</span>

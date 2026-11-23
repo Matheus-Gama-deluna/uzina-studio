@@ -444,17 +444,18 @@ export function ProjectStudio({
       {/* Cabeçalho compacto de contexto */}
       <section className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs text-fg-secondary">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
             <Link
-              href="/app"
-              className="inline-flex items-center gap-1 rounded border border-border-subtle bg-surface px-2 py-1 text-xs font-medium text-fg-secondary transition-colors hover:border-border-default hover:text-fg-primary"
+              href={`/app?projectId=${encodeURIComponent(projectId)}`}
+              data-testid="back-to-chat-link"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
             >
               <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-              <span>Painel Técnico</span>
+              <span>Voltar ao Chat do Projeto</span>
             </Link>
             <span>/</span>
             <span className="font-mono text-[11px] uppercase tracking-wider text-fg-muted">
-              Estúdio Visual & Orquestrador
+              Estúdio Visual &amp; Orquestrador
             </span>
           </div>
           <h1 className="text-lg font-semibold tracking-tight text-fg-primary">

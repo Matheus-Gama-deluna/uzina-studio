@@ -48,9 +48,24 @@ import { syncRepositoryCodebase } from "./codebase.js";
 import { WorkflowRuntimeError } from "./errors.js";
 import { createMemoryScoped } from "./memories.js";
 import {
+  DEFAULT_PROVIDER_BASE_URLS,
+  DEFAULT_PROVIDER_MODELS,
+  callProviderLlmApi,
+  invokeOrganizationLlmForAgentScoped,
+  testProviderLlmConnectionScoped,
+} from "./llm-client.js";
+import {
   approvePrototypeScoped,
   createOrImportPrototypeScoped,
 } from "./prototypes.js";
+
+export {
+  DEFAULT_PROVIDER_BASE_URLS,
+  DEFAULT_PROVIDER_MODELS,
+  callProviderLlmApi,
+  invokeOrganizationLlmForAgentScoped,
+  testProviderLlmConnectionScoped,
+};
 
 const WRITE_ROLES = new Set<OrgRole>(["owner", "admin", "developer"]);
 
@@ -212,6 +227,179 @@ export function decideOptimalAiStrategy(params: {
   };
 }
 
+function inferDomainVisualBlueprint(text: string, projectName: string) {
+  const lower = `${projectName} ${text}`.toLowerCase();
+
+  if (
+    /odonto|cl[ií]nic|m[eé]dic|pacient|prontu[aá]rio|consulta|agenda|sa[uú]de|hospital/i.test(
+      lower
+    )
+  ) {
+    return {
+      domainBadge: "HealthTech · Clínica & Prontuário",
+      navTabs: ["Agenda IA", "Prontuário Digital", "Orçamentos", "Retornos"],
+      kpis: [
+        { label: "Consultas Hoje", value: "34", delta: "94% ocupação" },
+        { label: "Orçamentos Aprovados", value: "R$ 64,2k", delta: "+21% mês" },
+        { label: "Triagem WhatsApp IA", value: "100%", delta: "0 fila espera" },
+      ],
+      screens: [
+        {
+          step: "1. Agendamento & Triagem IA",
+          title: "Recepção Digital & Confirmação",
+        },
+        {
+          step: "2. Painel Clínico Principal",
+          title: "Prontuário & Odontograma Visual",
+        },
+        {
+          step: "3. Faturamento & Retorno",
+          title: "Planos, Guias TISS & Pós-Consulta",
+        },
+      ],
+      tableTitle: "Fila de Atendimento & Procedimentos do Dia",
+      tableRows: [
+        { col1: "09:00 · Mariana Costa", col2: "Avaliação + Raio-X", status: "Confirmado" },
+        { col1: "10:30 · Carlos Eduardo", col2: "Implante Fase 2", status: "Em Sala" },
+      ],
+    };
+  }
+
+  if (
+    /finan|fatura|erp|pagament|caixa|contab|receita|cobran[cç]|banco|fintech|billing/i.test(
+      lower
+    )
+  ) {
+    return {
+      domainBadge: "FinTech · Gestão Financeira & Billing",
+      navTabs: ["Visão DRE", "Faturamento & Pix", "Conciliação IA", "Alertas"],
+      kpis: [
+        { label: "MRR Recorrente", value: "R$ 148,9k", delta: "+14,2% MoM" },
+        { label: "Inadimplência Líquida", value: "1,8%", delta: "Meta < 3,0%" },
+        { label: "Conciliação Automática", value: "98,4%", delta: "1.420 faturas" },
+      ],
+      screens: [
+        {
+          step: "1. Onboarding & Contas",
+          title: "Conexão Open Finance & Multi-Tenant",
+        },
+        {
+          step: "2. Cockpit de Caixa & DRE",
+          title: "Previsibilidade, Receitas & Despesas",
+        },
+        {
+          step: "3. Motor de Cobrança",
+          title: "Régua Inteligente, NF-e & Auditoria",
+        },
+      ],
+      tableTitle: "Últimas Transações & Faturas Conciliadas por IA",
+      tableRows: [
+        { col1: "FAT-4092 · Enterprise Plan", col2: "R$ 4.800,00 (Pix)", status: "Conciliado" },
+        { col1: "FAT-4093 · Licenciamento", col2: "R$ 2.450,00 (Boleto)", status: "Agendado" },
+      ],
+    };
+  }
+
+  if (
+    /atendiment|crm|suporte|ticket|fila|whatsapp|lead|venda|comercial|omnicanal/i.test(
+      lower
+    )
+  ) {
+    return {
+      domainBadge: "CRM & Atendimento Inteligente",
+      navTabs: ["Fila Omnichannel", "Triagem IA", "Funil CRM", "SLA & CSAT"],
+      kpis: [
+        { label: "1ª Resposta IA", value: "14s", delta: "-82% tempo" },
+        { label: "Resolução Nível 1", value: "76,5%", delta: "Autônomo" },
+        { label: "CSAT Clientes", value: "4,9/5", delta: "+380 avaliações" },
+      ],
+      screens: [
+        {
+          step: "1. Inbox Omnichannel",
+          title: "Triagem & Classificação por Intenção",
+        },
+        {
+          step: "2. Co-piloto do Operador",
+          title: "Respostas Sugeridas via Base RAG",
+        },
+        {
+          step: "3. Analytics & Retenção",
+          title: "Monitoramento de SLA & Conversão",
+        },
+      ],
+      tableTitle: "Chamados Prioritários na Fila Inteligente",
+      tableRows: [
+        { col1: "#8821 · Integração Webhook", col2: "Prioridade Alta · IA Assistida", status: "Ativo" },
+        { col1: "#8822 · Upgrade de Conta", col2: "Comercial · Auto-Resolvido", status: "Concluído" },
+      ],
+    };
+  }
+
+  if (
+    /auditor|compliance|seguran|appsec|risco|governan|sast|lgpd|jur[ií]dic/i.test(
+      lower
+    )
+  ) {
+    return {
+      domainBadge: "Governance · Auditoria & Compliance",
+      navTabs: ["Mapa de Risco", "Portões HITL", "Trilha SARIF", "Laudos"],
+      kpis: [
+        { label: "Score Conformidade", value: "96/100", delta: "Auditado" },
+        { label: "Portões Homologados", value: "18/18", delta: "0 bloqueios" },
+        { label: "Evidências Cifradas", value: "100%", delta: "SHA-256 OK" },
+      ],
+      screens: [
+        {
+          step: "1. Coleta & Escaneamento",
+          title: "Ingestão Automatizada de Evidências",
+        },
+        {
+          step: "2. Mesa de Decisão & Risco",
+          title: "Triagem de Achados & Aprovação HITL",
+        },
+        {
+          step: "3. Dossiê & Certificação",
+          title: "Trilha Imutável & Exportação Executiva",
+        },
+      ],
+      tableTitle: "Controles & Portões de Conformidade Verificados",
+      tableRows: [
+        { col1: "CTRL-01 · Criptografia & Cofre", col2: "AES-256-GCM Validado", status: "Aprovado" },
+        { col1: "CTRL-02 · Isolamento Multi-Tenant", col2: "RBAC + Zero Trust", status: "Aprovado" },
+      ],
+    };
+  }
+
+  return {
+    domainBadge: "SaaS Modular · Operação & Inteligência",
+    navTabs: ["Visão Executiva", "Fluxo Operacional", "Automação IA", "Configurações"],
+    kpis: [
+      { label: "Operações Ativas", value: "1.280", delta: "+18% semana" },
+      { label: "Automação por IA", value: "84%", delta: "Latência 120ms" },
+      { label: "Disponibilidade SLA", value: "99,98%", delta: "Contratos Zod" },
+    ],
+    screens: [
+      {
+        step: "1. Acesso & Onboarding Guiado",
+        title: "Configuração Rápida de Workspace",
+      },
+      {
+        step: "2. Painel Principal — " + projectName,
+        title: "Operação Core & Indicadores em Tempo Real",
+      },
+      {
+        step: "3. Gestão & Auditoria",
+        title: "Relatórios, Regras & Integrações",
+      },
+    ],
+    tableTitle: `Módulos Ativos em ${projectName}`,
+    tableRows: [
+      { col1: "Módulo Core · Fluxo Principal", col2: "Contratos & UI Validados", status: "Online" },
+      { col1: "Motor de Automação & Regras", col2: "Monitoramento em Tempo Real", status: "Ativo" },
+    ],
+  };
+}
+
 function buildGeneratedVisualPrototypeHtml(params: {
   projectName: string;
   summaryText: string;
@@ -220,42 +408,82 @@ function buildGeneratedVisualPrototypeHtml(params: {
 }): string {
   const safeName = params.projectName.replace(/[<>&"]/g, "");
   const safeSummary = redactSensitiveText(params.summaryText)
-    .slice(0, 260)
+    .slice(0, 220)
     .replace(/[<>&"]/g, "");
   const safeRevision = params.revisionFeedback
     ? redactSensitiveText(params.revisionFeedback)
-        .slice(0, 220)
+        .slice(0, 200)
         .replace(/[<>&"]/g, "")
     : null;
 
-  return `<main style="font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 14px; border-radius: 10px; border: 1px solid #27272a; box-sizing: border-box; max-width: 100%; overflow-x: hidden;">
-  <header style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #27272a; padding-bottom: 10px; margin-bottom: 12px;">
-    <div style="min-width: 160px; flex: 1;">
-      <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #f97316; font-weight: 600; display: block;">Protótipo Visual · Fluxo Aprovado p/ IA</span>
-      <h1 style="margin: 3px 0 0 0; font-size: 16px; color: #fafafa; line-height: 1.25;">${safeName}</h1>
+  const blueprint = inferDomainVisualBlueprint(
+    `${params.summaryText} ${params.revisionFeedback ?? ""}`,
+    safeName
+  );
+
+  return `<main style="font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 12px; border-radius: 10px; border: 1px solid #27272a; box-sizing: border-box; max-width: 100%; overflow-x: hidden;">
+  <header style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #27272a; padding-bottom: 8px; margin-bottom: 10px;">
+    <div style="min-width: 140px; flex: 1;">
+      <span style="font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #f97316; font-weight: 700; display: block;">${blueprint.domainBadge}</span>
+      <h1 style="margin: 2px 0 0 0; font-size: 15px; color: #fafafa; line-height: 1.2;">${safeName}</h1>
     </div>
-    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap;">${params.strategyLabel}</span>
+    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 7px; border-radius: 5px; font-size: 9px; font-family: monospace;">${params.strategyLabel.slice(0, 28)}</span>
   </header>
-  <p style="font-size: 12px; color: #d4d4d8; line-height: 1.45; margin: 0 0 12px 0;">${safeSummary}</p>
+  <nav style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
+    ${blueprint.navTabs
+      .map(
+        (tab, idx) =>
+          `<span style="font-size: 10px; padding: 3px 8px; border-radius: 5px; background: ${
+            idx === 0 ? "#f97316" : "#18181b"
+          }; color: ${idx === 0 ? "#09090b" : "#a1a1aa"}; font-weight: ${
+            idx === 0 ? "600" : "500"
+          }; border: 1px solid ${idx === 0 ? "#f97316" : "#27272a"};">${tab}</span>`
+      )
+      .join("")}
+  </nav>
   ${
     safeRevision
-      ? `<div style="background: #1c1917; border: 1px solid #f97316; color: #fdba74; padding: 8px 10px; border-radius: 8px; font-size: 11px; margin-bottom: 12px;"><strong>Ajuste Visual Incorporado:</strong> ${safeRevision}</div>`
-      : ""
+      ? `<div style="background: #1c1917; border: 1px solid #f97316; color: #fdba74; padding: 7px 9px; border-radius: 7px; font-size: 10px; margin-bottom: 10px;"><strong>Diretriz Visual Aplicada:</strong> ${safeRevision}</div>`
+      : `<p style="font-size: 11px; color: #d4d4d8; line-height: 1.4; margin: 0 0 10px 0;">${safeSummary}</p>`
   }
-  <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; margin-bottom: 4px;">
-    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 10px;">
-      <div style="font-size: 10px; color: #a1a1aa;">1. Entrada &amp; Autenticação</div>
-      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Acesso &amp; Onboarding Guiado</div>
-    </div>
-    <div style="background: #18181b; border: 1px solid #f97316; border-radius: 8px; padding: 10px;">
-      <div style="font-size: 10px; color: #f97316;">2. Painel Principal</div>
-      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Operação Core &amp; Indicadores</div>
-    </div>
-    <div style="background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 10px;">
-      <div style="font-size: 10px; color: #a1a1aa;">3. Gestão &amp; Auditoria</div>
-      <div style="font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 3px;">Relatórios &amp; Configurações</div>
-    </div>
+  <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 7px; margin-bottom: 10px;">
+    ${blueprint.kpis
+      .map(
+        (kpi) =>
+          `<div style="background: #141417; border: 1px solid #27272a; border-radius: 7px; padding: 7px 9px;">
+      <div style="font-size: 9px; color: #a1a1aa; text-transform: uppercase;">${kpi.label}</div>
+      <div style="font-size: 13px; font-weight: 700; color: #fafafa; margin-top: 2px; font-variant-numeric: tabular-nums;">${kpi.value}</div>
+      <div style="font-size: 9px; color: #22c55e; margin-top: 1px;">${kpi.delta}</div>
+    </div>`
+      )
+      .join("")}
   </section>
+  <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 7px; margin-bottom: 10px;">
+    ${blueprint.screens
+      .map(
+        (scr, idx) =>
+          `<div style="background: #18181b; border: 1px solid ${
+            idx === 1 ? "#f97316" : "#27272a"
+          }; border-radius: 7px; padding: 8px;">
+      <div style="font-size: 9px; color: ${idx === 1 ? "#f97316" : "#a1a1aa"};">${scr.step}</div>
+      <div style="font-size: 11px; font-weight: 600; color: #fafafa; margin-top: 2px;">${scr.title}</div>
+    </div>`
+      )
+      .join("")}
+  </section>
+  <div style="background: #141417; border: 1px solid #27272a; border-radius: 7px; padding: 8px;">
+    <div style="font-size: 9px; text-transform: uppercase; color: #a1a1aa; margin-bottom: 5px; font-weight: 600;">${blueprint.tableTitle}</div>
+    ${blueprint.tableRows
+      .map(
+        (r) =>
+          `<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid #27272a; font-size: 10px;">
+        <span style="color: #fafafa; font-weight: 500;">${r.col1}</span>
+        <span style="color: #a1a1aa;">${r.col2}</span>
+        <span style="background: #052e16; color: #4ade80; border: 1px solid #14532d; padding: 1px 6px; border-radius: 4px; font-size: 9px;">${r.status}</span>
+      </div>`
+      )
+      .join("")}
+  </div>
 </main>`;
 }
 
@@ -942,6 +1170,11 @@ export async function resolveProjectAgencyStateScoped(
     (latestProto?.approved ? latestProto : null);
   const hasUiDeliverables = delivs.some((d) => d.hasUi);
 
+  const domainVisual = inferDomainVisualBlueprint(
+    projRow.project.description ?? projRow.project.name,
+    projRow.project.name
+  );
+
   const visualFlow: ProjectVisualFlowSummary = {
     hasUiDeliverables,
     latestPrototypeId: latestProto?.id ?? null,
@@ -949,11 +1182,7 @@ export async function resolveProjectAgencyStateScoped(
     fidelityLevel: latestProto ? `Nível ${latestProto.level} (${latestProto.source})` : null,
     approvedForCodeHandoff: Boolean(approvedProto),
     previewUrl: latestProto ? `/api/prototypes/${latestProto.id}/preview` : null,
-    screensFlow: [
-      "1. Acesso & Onboarding Guiado",
-      `2. Painel Principal — ${projRow.project.name}`,
-      "3. Operação, Indicadores & Configurações",
-    ],
+    screensFlow: domainVisual.screens.map((s) => `${s.step}: ${s.title}`),
     tokensPreview: [
       { name: "surface.canvas", value: "#09090b" },
       { name: "brand.accent", value: "#f97316" },
@@ -1263,6 +1492,8 @@ export async function handleAgencyChatScoped(
       role: OrgRole;
     };
     request: AgencyChatRequest;
+    masterKey?: Buffer | string | null;
+    fetchImpl?: typeof fetch;
   }
 ): Promise<AgencyChatResponse> {
   const parsed = AgencyChatRequestSchema.parse(params.request);
@@ -2180,6 +2411,44 @@ export async function handleAgencyChatScoped(
       })
     : null;
 
+  let executionMode: "live_llm" | "local_assisted" = "local_assisted";
+  let llmLatencyMs: number | null = null;
+
+  if (readiness.llmProviderConfigured && (params.masterKey || readiness.activeProviderNames.includes("ollama"))) {
+    const llmTurn = await invokeOrganizationLlmForAgentScoped(db, {
+      organizationId: params.actor.organizationId,
+      masterKey: params.masterKey,
+      agentRole: activeAgent.role,
+      agentName: activeAgent.name,
+      agentTitle: activeAgent.title,
+      projectName: projectState?.projectName ?? null,
+      strategyLabel:
+        projectState?.architectDecision?.strategyLabel ??
+        projectState?.defaultStrategy ??
+        null,
+      phaseLabel: projectState?.phaseLabel ?? null,
+      userMessage: parsed.message,
+      contextSummary: replyLines.join("\n"),
+      fetchImpl: params.fetchImpl,
+    });
+
+    if (llmTurn.ok && llmTurn.text) {
+      executionMode = "live_llm";
+      llmLatencyMs = llmTurn.latencyMs;
+      actionsExecuted.unshift({
+        type: "invoked_live_llm",
+        label: `Resposta gerada via LLM Real (${llmTurn.providerType}/${llmTurn.modelId} · ${llmTurn.latencyMs}ms)`,
+      });
+      replyLines = [
+        llmTurn.text,
+        ``,
+        `---`,
+        `*Orquestração executada no workspace (${activeAgent.name} · \`${llmTurn.providerType}/${llmTurn.modelId}\` · ${llmTurn.latencyMs}ms):*`,
+        ...replyLines,
+      ];
+    }
+  }
+
   return AgencyChatResponseSchema.parse({
     activeAgent,
     handedOffFrom,
@@ -2187,6 +2456,8 @@ export async function handleAgencyChatScoped(
     cycleNumber: projectState?.cycleNumber ?? 1,
     teamTopology: parsed.teamTopology,
     autonomyMode: parsed.autonomyMode,
+    executionMode,
+    llmLatencyMs,
     reply: replyLines.join("\n"),
     actionsExecuted,
     projectState,

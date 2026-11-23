@@ -11,6 +11,7 @@ import type {
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   Loader2,
   Play,
@@ -18,6 +19,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 
 const SEVERITY_BADGE: Record<
@@ -228,11 +230,19 @@ export function SecurityAuditConsole() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wider text-fg-muted">
+            <Link
+              href="/app"
+              data-testid="back-to-chat-link"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium normal-case tracking-normal text-fg-secondary transition-colors hover:border-accent hover:text-fg-primary"
+            >
+              <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+              <span>Voltar ao Chat do Projeto</span>
+            </Link>
             <ShieldAlert className="size-3.5 text-accent" strokeWidth={1.75} />
             <span>AppSec & SARIF 2.1.0</span>
           </div>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-fg-primary">
+          <h1 className="mt-2 text-xl font-semibold tracking-tight text-fg-primary">
             Auditoria de Segurança (@uzina/security-engine)
           </h1>
           <p className="mt-0.5 text-sm text-fg-secondary">
@@ -244,7 +254,7 @@ export function SecurityAuditConsole() {
         <button
           type="button"
           onClick={() => scansQuery.refetch()}
-          className="inline-flex items-center gap-1.5 self-start rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
+          className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary hover:bg-elevated hover:text-fg-primary"
         >
           <RefreshCw className="size-3.5" strokeWidth={1.75} />
           <span>Atualizar</span>
