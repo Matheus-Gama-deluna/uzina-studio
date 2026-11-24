@@ -72,3 +72,10 @@ Leia este arquivo integralmente antes de criar ou editar qualquer arquivo neste 
 ### B. Portões Elephant-Goldfish Model (`egm`) — Modo Seletivo
 - **Antes de codificar todo Slice (Plan Gate):** rodar `egm-implementation-readiness` sobre `docs/slices/slice-0X-*.md`.
 - **Nos Slices de Arquitetura Crítica (Slices 0, 2, 3 e 4):** incluir `egm-design` (e opcionalmente `egm-zoom-out`) no Plan Gate e `egm-codebase-details` / `egm-drift-report` no encerramento.
+
+### C. Protocolo de Velocidade e Economia de Cota
+1. **Loop Cirúrgico antes do `pnpm verify`:** durante o ciclo Red-Green-Refactor, execute apenas `pnpm --filter <pacote> typecheck` e o arquivo de teste alvo (ex.: `npx vitest run <arquivo>`). Deixe `pnpm verify` (build completo + todos os pacotes) e `pnpm test:e2e` para a reta final.
+2. **Leitura Fatiada (>500 linhas):** delegue ao `fast-scout` (`Model: "flash_lite"`) o mapeamento de símbolos e leia apenas trechos cirúrgicos (`StartLine`/`EndLine`) de arquivos densos (`agency.ts`, `deliverable-lifecycle.ts`, `deliverables-docs-hub.tsx`, `contract-drift.test.ts`).
+3. **Testes Dedicados por Slice:** crie `apps/web/tests/sliceXX-*.test.ts` (ou equivalente no pacote) em vez de continuar crescendo `apps/web/tests/contract-drift.test.ts`.
+4. **Ordem Econômica de Revisores:** rode `test-critic` (`flash`) e `appsec-auditor` (`flash`, apenas quando o slice alterar auth, cripto, rotas, uploads ou inputs externos) → aplique correções → rode `pnpm verify` → acione `factory-verifier` (`inherit`) **uma única vez** no fechamento. Mantenha o QA de `browser` (`flash`) focado nas telas modificadas.
+5. **Reset de Contexto entre Slices:** após merge e atualização de `docs/status/ROADMAP_STATUS.md` e `docs/status/PROGRESS_LOG.md`, recomende `/compact` ou nova sessão para iniciar o Slice seguinte sem carregar histórico acumulado.
