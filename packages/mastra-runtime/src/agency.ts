@@ -19,6 +19,7 @@ import {
   type AgencyProjectState,
   type AgencyStreamEvent,
   type ArchitectStrategyDecision,
+  type BackgroundTaskSummary,
   type DeliverableStatus,
   type DevelopmentStrategy,
   type LongTermArtifactSummary,
@@ -82,6 +83,14 @@ import {
   approvePrototypeScoped,
   createOrImportPrototypeScoped,
 } from "./prototypes.js";
+import {
+  AGENCY_ROLE_TO_CONTROLLER_MODE,
+  attachSessionExecutionControl,
+  consumeSteeredMessages,
+  createControlledAgencySession,
+  type ManagedControllerSession,
+} from "./controller.js";
+import type { MastraWorkflowService } from "./service.js";
 import type { UzinaMastraStore } from "./storage.js";
 
 export {
@@ -1528,7 +1537,14 @@ export interface AgencyChatExecutionParams {
   databaseUrl?: string;
   storage?: UzinaMastraStore;
   modelOverride?: MastraModelConfig;
+  workflowService?: MastraWorkflowService;
   signal?: AbortSignal;
+}
+
+export interface WorkflowDispatchInfo {
+  deliverableId: string;
+  runId: string | null;
+  backgroundTask: BackgroundTaskSummary;
 }
 
 async function executeDeterministicAgencyMutations(
@@ -1541,10 +1557,12 @@ async function executeDeterministicAgencyMutations(
   targetProjectId: string | undefined;
   replyLines: string[];
   actionsExecuted: AgencyActionExecuted[];
+  workflowDispatches: WorkflowDispatchInfo[];
   isTransactionalIntent: boolean;
 }> {
   const canMutate = WRITE_ROLES.has(params.actor.role);
   const actionsExecuted: AgencyActionExecuted[] = [];
+  const workflowDispatches: WorkflowDispatchInfo[] = [];
   const agents = await resolveAgencyTeamWithTieringScoped(
     db,
     params.actor.organizationId
@@ -1938,7 +1956,7 @@ async function executeDeterministicAgencyMutations(
       `3. **Vertical Slices (Ciclo #1):** Criei automaticamente **${wave.length} entregas** com Dossiê e Blueprint Técnico.`,
     ];
   }
-  // 3. Fluxo de Ciclo Autônomo: Avançar entregas pelas fases obrigatórias sem pular etapas e pausar no Portão Visual ou Portão HITL
+  // 3. Fluxo de Ciclo Autônomo: Ponte Real Workflow Durável (se workflowService + repo + builder) ou Fallback Assistido
   else if (effectiveIntent === "advance_cycle" && targetProjectId) {
     const projectDelivs = await db
       .select()
@@ -1946,7 +1964,137 @@ async function executeDeterministicAgencyMutations(
       .where(eq(deliverables.projectId, targetProjectId))
       .orderBy(deliverables.createdAt);
 
-    const projectProtos = await db
+    let bridgedWorkflowExecuted = false;
+    if (params.workflowService) {
+      const [defaultRepo] = await db
+        .select({ id: projectRepositories.id, localPath: projectRepositories.localPath })
+        .from(projectRepositories)
+        .where(eq(projectRepositories.projectId, targetProjectId))
+        .orderBy(desc(projectRepositories.createdAt))
+        .limit(1);
+
+      const orgProviders = defaultRepo
+        ? await db
+            .select({ roleBindingsJson: providerProfiles.roleBindingsJson })
+            .from(providerProfiles)
+            .where(eq(providerProfiles.organizationId, params.actor.organizationId))
+        : [];
+      const hasBuilderProvider = orgProviders.some(
+        (p) =>
+          p.roleBindingsJson?.builder?.modelId &&
+          p.roleBindingsJson.builder.modelId.trim().length > 0
+      );
+
+      if (defaultRepo && hasBuilderProvider) {
+        bridgedWorkflowExecuted = true;
+        const workflowSvc = params.workflowService;
+        const eligible = projectDelivs.find(
+          (d) =>
+            d.status !== "merged" &&
+            d.status !== "failed" &&
+            d.status !== "approved" &&
+            d.status !== "decision_pending"
+        );
+
+        activeAgent = getAgent("tech_lead");
+        handedOffFrom = "orchestrator";
+
+        if (!eligible) {
+          replyLines = [
+            `Nenhum slice pendente elegível para disparo automático neste momento no projeto.`,
+            `Verifique entregáveis aguardando HITL (\`Decisão HITL\`) ou já concluídos.`,
+          ];
+        } else {
+          let existingSuspended = false;
+          let existingRunning = false;
+          if (eligible.mastraRunId) {
+            const st = await workflowSvc
+              .getWorkflowState({
+                deliverableId: eligible.id,
+                organizationId: params.actor.organizationId,
+              })
+              .catch(() => null);
+            if (st?.workflowStatus === "suspended") {
+              existingSuspended = true;
+            } else if (st?.workflowStatus === "running") {
+              existingRunning = true;
+            }
+          }
+
+          if (existingSuspended || existingRunning) {
+            if (existingSuspended) {
+              actionsExecuted.push({
+                type: "paused_at_mandatory_gate",
+                label: `'${eligible.title}' já possui execução suspensa aguardando decisão humana`,
+                targetId: eligible.id,
+              });
+            }
+            replyLines = [
+              `O slice **${eligible.title}** já possui execução durável ativa ou suspensa em portão humano (\`runId: ${eligible.mastraRunId}\`). Resolva a pendência na Caixa de Decisões antes de iniciar um novo ciclo.`,
+            ];
+          } else {
+            if (!eligible.repositoryId) {
+              await db
+                .update(deliverables)
+                .set({
+                  repositoryId: defaultRepo.id,
+                  updatedAt: new Date(),
+                })
+                .where(eq(deliverables.id, eligible.id));
+            }
+
+            const orgId = params.actor.organizationId;
+            const projId = targetProjectId;
+            const task = workflowSvc.backgroundTasks.enqueue({
+              organizationId: orgId,
+              projectId: projId,
+              deliverableId: eligible.id,
+              kind: "workflow_cycle",
+              summary: `Executando workflow durável para '${eligible.title}'`,
+              mastraRunId: eligible.mastraRunId ?? null,
+              work: async ({ signal, updateTask }) => {
+                const state = await workflowSvc.startDeliverableWorkflow({
+                  deliverableId: eligible.id,
+                  organizationId: orgId,
+                  input: {},
+                  signal,
+                });
+                updateTask({
+                  mastraRunId: state.runId,
+                  status:
+                    state.workflowStatus === "suspended"
+                      ? "suspended"
+                      : state.workflowStatus === "failed"
+                        ? "failed"
+                        : "completed",
+                  summary: `${eligible.title}: ${state.deliverableStatus} (${state.workflowStatus})`,
+                });
+              },
+            });
+
+            actionsExecuted.push({
+              type: "started_workflow",
+              label: `Workflow durável iniciado em background para '${eligible.title}' (${task.id})`,
+              targetId: eligible.id,
+            });
+            workflowDispatches.push({
+              deliverableId: eligible.id,
+              runId: eligible.mastraRunId ?? null,
+              backgroundTask: task,
+            });
+
+            replyLines = [
+              `Workflow durável (\`deliverableLifecycleWorkflow\`) despachado em background para o slice **${eligible.title}** (Task \`${task.id}\`):`,
+              `- **Repositório vinculado:** \`${defaultRepo.localPath}\``,
+              `- **Governança:** respeitando os modos \`Manual | Auto\` das colunas do Kanban e trava HITL.`,
+            ];
+          }
+        }
+      }
+    }
+
+    if (!bridgedWorkflowExecuted) {
+      const projectProtos = await db
       .select()
       .from(designPrototypes)
       .where(eq(designPrototypes.projectId, targetProjectId));
@@ -2105,6 +2253,7 @@ async function executeDeterministicAgencyMutations(
           ? `O motor pausou nos portões obrigatórios para sua inspeção. Abra a aba **Slices & Entregas** ao lado para aprovar ou pedir correção em ciclo.`
           : `As entregas avançaram na esteira técnica.`,
     ];
+    }
   }
   // 3B. Aprovar Fluxo de Prototipação Visual para liberar codificação da UI
   else if (effectiveIntent === "approve_visual_flow" && targetProjectId) {
@@ -2460,6 +2609,7 @@ async function executeDeterministicAgencyMutations(
     targetProjectId,
     replyLines,
     actionsExecuted,
+    workflowDispatches,
     isTransactionalIntent: effectiveIntent !== "general_chat",
   };
 }
@@ -2471,6 +2621,9 @@ export async function* streamAgencyChatScoped(
   const parsed = AgencyChatRequestSchema.parse(params.request);
   let settleFn: (() => Promise<void>) | undefined;
   let knownSecrets: string[] = [];
+  let controlledSession: ManagedControllerSession | null = null;
+  let turnAbort: AbortController | null = null;
+  let removeSignalListener: (() => void) | undefined;
 
   try {
     if (parsed.projectId) {
@@ -2510,6 +2663,7 @@ export async function* streamAgencyChatScoped(
       handedOffFrom,
       targetProjectId,
       actionsExecuted,
+      workflowDispatches,
       isTransactionalIntent,
     } = mutationResult;
     let replyLines = [...mutationResult.replyLines];
@@ -2574,6 +2728,38 @@ export async function* streamAgencyChatScoped(
     const toolsUsed: string[] = [];
     let latestOmStatus: ObservationalMemoryStatus | null = null;
 
+    controlledSession = await createControlledAgencySession({
+      db,
+      organizationId: params.actor.organizationId,
+      projectId: targetProjectId ?? null,
+      createdByUserId: params.actor.userId,
+      actorRole: params.actor.role,
+      resourceId,
+      threadId,
+      initialMode: AGENCY_ROLE_TO_CONTROLLER_MODE[activeAgent.role],
+      masterKey: params.masterKey,
+      dataDir: params.dataDir,
+      databaseUrl: params.databaseUrl,
+      storage: params.storage,
+      modelOverride: params.modelOverride,
+    }).catch(() => null);
+
+    if (controlledSession) {
+      turnAbort = new AbortController();
+      const parentSig = params.signal;
+      if (parentSig) {
+        if (parentSig.aborted) {
+          turnAbort.abort(parentSig.reason);
+        } else {
+          const onParentAbort = () => turnAbort?.abort(parentSig.reason);
+          parentSig.addEventListener("abort", onParentAbort, { once: true });
+          removeSignalListener = () =>
+            parentSig.removeEventListener("abort", onParentAbort);
+        }
+      }
+      attachSessionExecutionControl(controlledSession.sessionId, turnAbort);
+    }
+
     yield {
       type: "thread_ready",
       threadId,
@@ -2586,8 +2772,29 @@ export async function* streamAgencyChatScoped(
       handedOffFrom,
     };
 
+    if (controlledSession) {
+      yield {
+        type: "controller_mode",
+        mode: controlledSession.currentMode,
+        sessionId: controlledSession.sessionId,
+      };
+    }
+
     for (const action of actionsExecuted) {
       yield { type: "action_executed", action };
+    }
+
+    for (const dispatch of workflowDispatches) {
+      yield {
+        type: "workflow_started",
+        deliverableId: dispatch.deliverableId,
+        runId: dispatch.runId,
+        backgroundTaskId: dispatch.backgroundTask.id,
+      };
+      yield {
+        type: "background_task",
+        task: dispatch.backgroundTask,
+      };
     }
 
     if (params.fetchImpl && readiness.llmProviderConfigured && (params.masterKey || readiness.activeProviderNames.includes("ollama"))) {
@@ -2744,18 +2951,19 @@ export async function* streamAgencyChatScoped(
         if (targetProjectId) rc.set("projectId", targetProjectId);
         rc.set("availableProviders", availableProviders);
 
+        const effectiveStreamSignal = turnAbort?.signal ?? params.signal;
         const streamResult = await agent.stream(
           redactSensitiveText(parsed.message, knownSecrets),
           {
             memory: { thread: threadId, resource: resourceId },
             requestContext: rc,
-            abortSignal: params.signal,
+            abortSignal: effectiveStreamSignal,
             maxSteps: 4,
           }
         );
 
         for await (const chunk of streamResult.fullStream) {
-          if (params.signal?.aborted) {
+          if (effectiveStreamSignal?.aborted) {
             liveAborted = true;
             break;
           }
@@ -2826,6 +3034,42 @@ export async function* streamAgencyChatScoped(
         }
 
         if (liveAborted) {
+          const steeredMessages = controlledSession
+            ? consumeSteeredMessages(controlledSession.sessionId)
+            : [];
+          if (
+            turnAbort?.signal.reason === "STEERED" ||
+            steeredMessages.length > 0
+          ) {
+            const steerNote =
+              steeredMessages.length > 0
+                ? `\n[Direcionamento humano aplicado (steer): ${steeredMessages.join(" | ")}]`
+                : "\n[Direcionamento humano aplicado (steer)]";
+            yield { type: "token", text: steerNote };
+            const combined = redactSensitiveText(
+              `${streamedText}${steerNote}`,
+              knownSecrets
+            );
+            const response = AgencyChatResponseSchema.parse({
+              activeAgent,
+              handedOffFrom,
+              lifecyclePhase: projectState?.currentPhase ?? "onboarding",
+              cycleNumber: projectState?.cycleNumber ?? 1,
+              teamTopology: parsed.teamTopology,
+              autonomyMode: parsed.autonomyMode,
+              executionMode: "live_llm",
+              llmLatencyMs: Date.now() - startedAt,
+              threadId,
+              toolsUsed,
+              omStatus: latestOmStatus,
+              reply: combined || steerNote,
+              actionsExecuted,
+              projectState,
+              readiness,
+            });
+            yield { type: "done", response };
+            return;
+          }
           yield {
             type: "error",
             code: "ABORTED",
@@ -3041,6 +3285,10 @@ export async function* streamAgencyChatScoped(
       message: redactSensitiveText(msg, knownSecrets),
     };
   } finally {
+    removeSignalListener?.();
+    if (controlledSession) {
+      attachSessionExecutionControl(controlledSession.sessionId, null);
+    }
     if (settleFn) {
       void settleFn().catch(() => undefined);
     }

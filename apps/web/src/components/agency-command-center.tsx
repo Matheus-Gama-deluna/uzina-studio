@@ -6,10 +6,12 @@ import type {
   AgencyAgentRole,
   AgencyChatIntent,
   AgencyChatResponse,
+  AgencyControllerModeId,
   AgencyOverviewResponse,
   AgencyStreamEvent,
   AgencyThreadListResponse,
   AutonomyMode,
+  BackgroundTaskSummary,
   ObservationalMemoryStatus,
   TeamTopologyMode,
 } from "@uzina/contracts";
@@ -17,6 +19,7 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
+  Compass,
   Layers,
   Loader2,
   Palette,
@@ -25,6 +28,7 @@ import {
   Send,
   Settings2,
   Sparkles,
+  Square,
   Trash2,
   Users,
   X,
@@ -122,8 +126,24 @@ export function AgencyCommandCenter({
   const [omStatus, setOmStatus] = useState<ObservationalMemoryStatus | null>(
     null
   );
+  const [controllerMode, setControllerMode] =
+    useState<AgencyControllerModeId | null>(null);
+  const [controllerSessionId, setControllerSessionId] = useState<string | null>(
+    null
+  );
+  const [backgroundTaskEvents, setBackgroundTaskEvents] = useState<
+    BackgroundTaskSummary[]
+  >([]);
+  const [planApproval, setPlanApproval] = useState<{
+    sessionId: string;
+    toolCallId: string;
+    planSummary: string;
+    transitionModeId: AgencyControllerModeId | null;
+  } | null>(null);
+  const [controllerNotice, setControllerNotice] = useState<string | null>(null);
 
   const activeThreadId = threadIdByKey[storageKey] ?? null;
+  const effectiveSessionId = controllerSessionId ?? activeThreadId;
 
   useEffect(() => {
     if (!bootReady || !isHydrated) return;
@@ -359,6 +379,30 @@ export function AgencyCommandCenter({
             }));
           } else if (ev.type === "om_status") {
             setOmStatus(ev.status);
+          } else if (ev.type === "controller_mode") {
+            setControllerMode(ev.mode);
+            setControllerSessionId(ev.sessionId);
+          } else if (ev.type === "background_task") {
+            setBackgroundTaskEvents((prev) =>
+              [ev.task, ...prev.filter((t) => t.id !== ev.task.id)].slice(0, 6)
+            );
+          } else if (ev.type === "workflow_started") {
+            setControllerNotice(
+              `Workflow em 2º plano iniciado (entrega ${ev.deliverableId.slice(0, 8)}).`
+            );
+            void queryClient.invalidateQueries({
+              queryKey: ["deliverables", activeProjectId],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["background-tasks", activeProjectId],
+            });
+          } else if (ev.type === "plan_approval_required") {
+            setPlanApproval({
+              sessionId: ev.sessionId,
+              toolCallId: ev.toolCallId,
+              planSummary: ev.planSummary,
+              transitionModeId: ev.transitionModeId,
+            });
           } else if (ev.type === "error") {
             throw new Error(ev.message);
           } else if (ev.type === "done") {
@@ -471,6 +515,112 @@ export function AgencyCommandCenter({
     []
   );
 
+  const steerMutation = useMutation({
+    mutationFn: async (message: string) => {
+      if (!effectiveSessionId) {
+        throw new Error("Nenhuma sessão ativa para redirecionar.");
+      }
+      const res = await fetch(
+        `/api/agency/sessions/${encodeURIComponent(effectiveSessionId)}/steer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message,
+            ...(activeProjectId ? { projectId: activeProjectId } : {}),
+          }),
+        }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          body?.error ?? "Falha ao enviar redirecionamento (Steer)."
+        );
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setChatInput("");
+      setControllerNotice("Orientação enviada ao AgentController (Steer).");
+    },
+    onError: (err: Error) => {
+      setControllerNotice(err.message);
+    },
+  });
+
+  const abortSessionMutation = useMutation({
+    mutationFn: async () => {
+      if (!effectiveSessionId) {
+        throw new Error("Nenhuma sessão ativa para abortar.");
+      }
+      const res = await fetch(
+        `/api/agency/sessions/${encodeURIComponent(effectiveSessionId)}/abort`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            reason: "Interrompido manualmente pelo operador no Chat.",
+            ...(activeProjectId ? { projectId: activeProjectId } : {}),
+          }),
+        }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao abortar sessão.");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setPlanApproval(null);
+      setControllerNotice("Sessão interrompida com segurança pelo kill switch.");
+    },
+    onError: (err: Error) => {
+      setControllerNotice(err.message);
+    },
+  });
+
+  const planDecisionMutation = useMutation({
+    mutationFn: async (params: {
+      sessionId: string;
+      toolCallId: string;
+      approved: boolean;
+    }) => {
+      const res = await fetch(
+        `/api/agency/sessions/${encodeURIComponent(params.sessionId)}/plan`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            toolCallId: params.toolCallId,
+            approved: params.approved,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao decidir aprovação de plano.");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      setPlanApproval(null);
+      setControllerNotice(
+        vars.approved
+          ? "Plano aprovado e transição de modo liberada."
+          : "Revisão do plano solicitada ao arquiteto."
+      );
+    },
+    onError: (err: Error) => {
+      setControllerNotice(err.message);
+    },
+  });
+
   // Se o boot terminou e não há nenhum projeto cadastrado ainda, exibe diretamente a tela ampla de Ideias & Novo Projeto (Decisão A2)
   if (bootReady && !hasAnyProjects && !projectState) {
     return <IdeasHub embedded />;
@@ -529,6 +679,14 @@ export function AgencyCommandCenter({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <span
+            data-testid="controller-mode-badge"
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs font-medium text-fg-secondary"
+          >
+            <Compass className="size-3.5 text-fg-muted" strokeWidth={1.75} />
+            <span>Modo: {controllerMode ?? "architect"}</span>
+          </span>
+
           <span
             data-om-status={omStatus?.bufferingStatus ?? "idle"}
             className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary tabular-nums"
@@ -918,6 +1076,86 @@ export function AgencyCommandCenter({
           onSubmit={handleSendChat}
           className="shrink-0 space-y-2.5 border-t border-border-subtle bg-inset/60 p-3.5 sm:px-6 sm:py-4"
         >
+          {controllerNotice && (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-2 rounded-md border border-border-default bg-surface px-3 py-1.5 text-xs text-fg-secondary"
+            >
+              <span>{controllerNotice}</span>
+              <button
+                type="button"
+                onClick={() => setControllerNotice(null)}
+                className="text-fg-muted hover:text-fg-primary"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {backgroundTaskEvents.length > 0 && (
+            <div
+              data-testid="chat-background-tasks-strip"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-xs text-fg-secondary"
+            >
+              <span className="font-medium text-fg-primary">Segundo plano:</span>
+              {backgroundTaskEvents.slice(0, 3).map((t) => (
+                <span
+                  key={t.id}
+                  className="inline-flex items-center gap-1 rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-xs tabular-nums"
+                >
+                  <span>{t.summary}</span>
+                  <span className="text-fg-muted">({t.status})</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {planApproval && (
+            <div
+              data-testid="plan-approval-card"
+              className="flex flex-col gap-2.5 rounded-lg border border-status-warn/40 bg-status-warn/10 p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="space-y-0.5 text-xs">
+                <p className="font-semibold text-fg-primary">
+                  Aprovação de Plano Solicitada (
+                  {planApproval.transitionModeId ?? "build"})
+                </p>
+                <p className="text-fg-secondary">{planApproval.planSummary}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="btn-approve-plan"
+                  disabled={planDecisionMutation.isPending}
+                  onClick={() =>
+                    planDecisionMutation.mutate({
+                      sessionId: planApproval.sessionId,
+                      toolCallId: planApproval.toolCallId,
+                      approved: true,
+                    })
+                  }
+                  className="inline-flex min-h-8 items-center rounded-md bg-accent px-3 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                >
+                  Aprovar Plano
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-reject-plan"
+                  disabled={planDecisionMutation.isPending}
+                  onClick={() =>
+                    planDecisionMutation.mutate({
+                      sessionId: planApproval.sessionId,
+                      toolCallId: planApproval.toolCallId,
+                      approved: false,
+                    })
+                  }
+                  className="inline-flex min-h-8 items-center rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                >
+                  Solicitar Revisão
+                </button>
+              </div>
+            </div>
+          )}
           {/* 1 Próximo Passo Guiado (sem duplicar os links da sidebar) */}
           {(projectState || chatTurns.length > 1) && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-secondary">
@@ -1042,20 +1280,51 @@ export function AgencyCommandCenter({
                 </div>
               </div>
 
-              {/* Direita: Único CTA Primário da Tela */}
-              <button
-                type="submit"
-                data-testid="agency-chat-submit"
-                disabled={chatMutation.isPending}
-                className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
-              >
-                {chatMutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
+              {/* Direita: Controles de Intervenção + Único CTA Primário da Tela */}
+              <div className="flex flex-wrap items-center gap-2">
+                {effectiveSessionId && (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="btn-session-steer"
+                      disabled={
+                        steerMutation.isPending || chatInput.trim().length === 0
+                      }
+                      onClick={() => steerMutation.mutate(chatInput.trim())}
+                      title="Envia a mensagem digitada como redirecionamento imediato sem aguardar o fim da fila"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+                    >
+                      <Compass className="size-3.5" />
+                      <span>Intervir (Steer)</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="btn-session-abort"
+                      disabled={abortSessionMutation.isPending}
+                      onClick={() => abortSessionMutation.mutate()}
+                      title="Interrompe imediatamente a sessão ativa do controlador"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-status-danger/35 bg-status-danger/10 px-3 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:opacity-50"
+                    >
+                      <Square className="size-3.5" />
+                      <span>Abortar</span>
+                    </button>
+                  </>
                 )}
-                <span>Enviar Mensagem</span>
-              </button>
+
+                <button
+                  type="submit"
+                  data-testid="agency-chat-submit"
+                  disabled={chatMutation.isPending}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {chatMutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  <span>Enviar Mensagem</span>
+                </button>
+              </div>
             </div>
           </div>
 

@@ -29,6 +29,8 @@ const GATE_LABELS: Record<string, string> = {
   discovery_confirm: "Discovery",
   blueprint_approve: "Blueprint",
   visual_approve: "Estúdio Visual",
+  stage_gate_approve: "Aprovação de Fase",
+  budget_cap_pause: "Teto de Orçamento",
   pr_evidence_approve: "PR & Evidências",
   stuck_intervention: "Intervenção Stuck",
 };
@@ -167,6 +169,7 @@ export function DecisionsWorkbench() {
       decisionId: string;
       status: "approved" | "changes_requested" | "rejected";
       humanFeedback?: string;
+      newBudgetCapUsd?: number;
     }) => {
       const res = await fetch(
         `/api/decisions/${params.decisionId}/resolve`,
@@ -177,6 +180,11 @@ export function DecisionsWorkbench() {
             status: params.status,
             ...(params.humanFeedback?.trim()
               ? { humanFeedback: params.humanFeedback.trim() }
+              : {}),
+            ...(typeof params.newBudgetCapUsd === "number" &&
+            Number.isFinite(params.newBudgetCapUsd) &&
+            params.newBudgetCapUsd > 0
+              ? { newBudgetCapUsd: params.newBudgetCapUsd }
               : {}),
           }),
         }
@@ -199,6 +207,7 @@ export function DecisionsWorkbench() {
             : "Entrega rejeitada e worktree encerrado."
       );
       setFeedbackText("");
+      setNewBudgetCapUsd("");
       await queryClient.invalidateQueries({ queryKey: ["decisions"] });
     },
     onError: (err: Error) => {
@@ -206,6 +215,8 @@ export function DecisionsWorkbench() {
       setActionError(err.message);
     },
   });
+
+  const [newBudgetCapUsd, setNewBudgetCapUsd] = useState("");
 
   function handleResolve(status: "approved" | "changes_requested" | "rejected") {
     if (!selectedDecision) return;
@@ -219,10 +230,25 @@ export function DecisionsWorkbench() {
       return;
     }
 
+    let parsedBudgetCap: number | undefined;
+    if (
+      status === "approved" &&
+      selectedDecision.decisionType === "budget_cap_pause" &&
+      newBudgetCapUsd.trim().length > 0
+    ) {
+      const num = Number(newBudgetCapUsd);
+      if (!Number.isFinite(num) || num <= 0) {
+        setActionError("Informe um novo teto de orçamento válido maior que zero.");
+        return;
+      }
+      parsedBudgetCap = num;
+    }
+
     resolveMutation.mutate({
       decisionId: selectedDecision.id,
       status,
       humanFeedback: feedbackText.trim() || undefined,
+      newBudgetCapUsd: parsedBudgetCap,
     });
   }
 
@@ -550,6 +576,31 @@ export function DecisionsWorkbench() {
                     placeholder="Ex.: Cobrir cenário de timeout no endpoint ou aprovar merge na main..."
                     className="w-full rounded-md border border-border-default bg-inset px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
                   />
+
+                  {selectedDecision.decisionType === "budget_cap_pause" && (
+                    <div className="space-y-1.5 rounded-lg border border-status-warn/35 bg-status-warn/10 p-3">
+                      <p className="text-xs font-medium text-fg-primary">
+                        Execução pausada por teto de orçamento do projeto.
+                      </p>
+                      <label
+                        htmlFor="decision-new-budget-cap-input"
+                        className="block text-xs font-medium text-fg-secondary"
+                      >
+                        Novo teto de orçamento (USD) — opcional ao retomar
+                      </label>
+                      <input
+                        id="decision-new-budget-cap-input"
+                        data-testid="decision-new-budget-cap-input"
+                        type="number"
+                        min={1}
+                        step="0.5"
+                        value={newBudgetCapUsd}
+                        onChange={(e) => setNewBudgetCapUsd(e.target.value)}
+                        placeholder="Ex.: 25.00"
+                        className="min-h-9 w-full max-w-xs rounded-md border border-border-default bg-inset px-3 font-mono text-xs text-fg-primary tabular-nums placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+                      />
+                    </div>
+                  )}
 
                   {selectedDecision.decisionType === "pr_evidence_approve" && (
                     <p className="text-xs text-fg-muted">

@@ -11,6 +11,11 @@ export type WorkflowRuntimeErrorCode =
   | "EXECUTION_FAILED"
   | "FORBIDDEN_PROJECT_SCOPE"
   | "FORBIDDEN_THREAD_ACCESS"
+  | "FORBIDDEN_SESSION_ACCESS"
+  | "SESSION_NOT_ACTIVE"
+  | "SESSION_NOT_FOUND"
+  | "BUDGET_CAP_EXCEEDED"
+  | "INVALID_MODE_TRANSITION"
   | "AGENCY_NO_RESPONSE";
 
 export class WorkflowRuntimeError extends Error {

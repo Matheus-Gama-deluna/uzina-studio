@@ -26,6 +26,7 @@ import {
   clients,
   deliverables,
   engineConfigs,
+  executionEvents,
   organizations,
   projects,
   tokenSavingsEvents,
@@ -36,7 +37,7 @@ import {
   LocalGitWorktreeWorkspace,
   type ExecutionWorkspace,
 } from "@uzina/opencode-bridge";
-import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getProjectCodebaseTreeScoped } from "./codebase.js";
 import { searchQmdScoped } from "./qmd.js";
 
@@ -261,6 +262,7 @@ function toEngineConfigDto(
     ollamaEmbeddingModel: row.ollamaEmbeddingModel,
     astMode: row.astMode,
     workspaceKind: row.workspaceKind,
+    codingExecutorMode: row.codingExecutorMode,
     skeletonMaxTokens: row.skeletonMaxTokens,
     qmdTopK: row.qmdTopK,
     autoInjectInRunner: row.autoInjectInRunner,
@@ -324,6 +326,7 @@ export async function getEngineConfigScoped(
         ollamaEmbeddingModel: "bge-m3",
         astMode: defaultAst,
         workspaceKind: defaultWorkspace,
+        codingExecutorMode: "opencode",
         skeletonMaxTokens: 2000,
         qmdTopK: 5,
         autoInjectInRunner: true,
@@ -392,6 +395,9 @@ export async function updateEngineConfigScoped(
       ...(parsed.astMode !== undefined ? { astMode: parsed.astMode } : {}),
       ...(parsed.workspaceKind !== undefined
         ? { workspaceKind: parsed.workspaceKind }
+        : {}),
+      ...(parsed.codingExecutorMode !== undefined
+        ? { codingExecutorMode: parsed.codingExecutorMode }
         : {}),
       ...(parsed.skeletonMaxTokens !== undefined
         ? { skeletonMaxTokens: parsed.skeletonMaxTokens }
@@ -532,4 +538,55 @@ export async function buildAutoInjectedCodebaseContext(
     tokensActual,
     tokensSaved,
   };
+}
+
+const CONTROLLER_PROJECT_COST_KEY = Symbol.for(
+  "@uzina/mastra/controller-project-costs"
+);
+
+function getControllerProjectCostMap(): Map<string, number> {
+  const g = globalThis as Record<symbol, unknown>;
+  const existing = g[CONTROLLER_PROJECT_COST_KEY];
+  if (existing instanceof Map) {
+    return existing as Map<string, number>;
+  }
+  const created = new Map<string, number>();
+  g[CONTROLLER_PROJECT_COST_KEY] = created;
+  return created;
+}
+
+export function addControllerProjectCostUsd(
+  projectId: string,
+  deltaUsd: number
+): number {
+  if (!Number.isFinite(deltaUsd) || deltaUsd <= 0) {
+    return getControllerProjectCostMap().get(projectId) ?? 0;
+  }
+  const map = getControllerProjectCostMap();
+  const next = Number(((map.get(projectId) ?? 0) + deltaUsd).toFixed(6));
+  map.set(projectId, next);
+  return next;
+}
+
+export function resetControllerProjectCostsForTests(): void {
+  getControllerProjectCostMap().clear();
+}
+
+export async function getProjectAccumulatedCostUsd(
+  db: UzinaDb,
+  projectId: string,
+  extraInMemoryUsd = 0
+): Promise<number> {
+  const [agg] = await db
+    .select({
+      totalUsd: sql<string>`COALESCE(SUM(${executionEvents.estimatedCostUsd}), 0)`,
+    })
+    .from(executionEvents)
+    .innerJoin(deliverables, eq(executionEvents.deliverableId, deliverables.id))
+    .where(eq(deliverables.projectId, projectId));
+
+  const persistedUsd = Number(agg?.totalUsd ?? 0);
+  const controllerUsd = getControllerProjectCostMap().get(projectId) ?? 0;
+  const extra = Number.isFinite(extraInMemoryUsd) && extraInMemoryUsd > 0 ? extraInMemoryUsd : 0;
+  return Number((persistedUsd + controllerUsd + extra).toFixed(6));
 }

@@ -1,4 +1,8 @@
-import { UpdateProjectSchema } from "@uzina/contracts";
+import {
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
+  ProjectStageAutomationSchema,
+  UpdateProjectSchema,
+} from "@uzina/contracts";
 import {
   clients,
   getDb,
@@ -8,7 +12,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
-import { WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
+import {
+  VAULT_WRITE_ROLES,
+  WORKSPACE_WRITE_ROLES,
+  requireOrgRole,
+} from "@/lib/rbac";
 import { mapProject } from "../route";
 
 export const runtime = "nodejs";
@@ -29,6 +37,16 @@ export async function PATCH(
   const body = await parseJsonBody(request, UpdateProjectSchema);
   if (!body.ok) return body.response;
 
+  if (
+    body.data.budgetCapUsd !== undefined &&
+    !VAULT_WRITE_ROLES.includes(guard.actor.role)
+  ) {
+    return jsonError(403, {
+      error: "Apenas owner ou admin podem alterar o teto de orçamento (budgetCapUsd).",
+      code: "FORBIDDEN",
+    });
+  }
+
   const { db } = await getDb();
   const [existing] = await db
     .select({ project: projects })
@@ -46,6 +64,16 @@ export async function PATCH(
     return jsonError(404, { error: "Projeto não encontrado", code: "NOT_FOUND" });
   }
 
+  const nextStageAutomation =
+    body.data.stageAutomation !== undefined
+      ? ProjectStageAutomationSchema.parse({
+          ...DEFAULT_PROJECT_STAGE_AUTOMATION,
+          ...(existing.project.stageAutomationJson ?? {}),
+          ...body.data.stageAutomation,
+          decision_pending: "manual" as const,
+        })
+      : undefined;
+
   const [updated] = await db
     .update(projects)
     .set({
@@ -60,6 +88,17 @@ export async function PATCH(
         ? { maturityScore: body.data.maturityScore }
         : {}),
       ...(body.data.status !== undefined ? { status: body.data.status } : {}),
+      ...(nextStageAutomation !== undefined
+        ? { stageAutomationJson: nextStageAutomation }
+        : {}),
+      ...(body.data.budgetCapUsd !== undefined
+        ? {
+            budgetCapUsd:
+              body.data.budgetCapUsd === null
+                ? null
+                : body.data.budgetCapUsd.toFixed(6),
+          }
+        : {}),
       updatedAt: new Date(),
     })
     .where(

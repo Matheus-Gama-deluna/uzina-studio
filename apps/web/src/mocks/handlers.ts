@@ -2,9 +2,14 @@ import {
   AgencyChatRequestSchema,
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  AgencySessionAbortRequestSchema,
+  AgencySessionControlResponseSchema,
+  AgencySessionPlanDecisionRequestSchema,
+  AgencySessionSteerRequestSchema,
   AgencyStreamEventSchema,
   AgencyThreadListResponseSchema,
   ApiErrorSchema,
+  BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
   ClientSchema,
@@ -20,6 +25,7 @@ import {
   CreateProjectSchema,
   CreatePrototypeRequestSchema,
   CreateProviderProfileSchema,
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
   DecisionListResponseSchema,
   DeliverableListResponseSchema,
   DeliverableSchema,
@@ -37,6 +43,7 @@ import {
   MemorySchema,
   ProjectListResponseSchema,
   ProjectSchema,
+  ProjectStageAutomationSchema,
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
   ProvenanceListResponseSchema,
@@ -63,7 +70,10 @@ import {
   UpdateEngineConfigSchema,
   UpdateFindingTriageSchema,
   UpdateMemorySchema,
+  UpdateProjectSchema,
   UpdatePrototypeApprovalSchema,
+  WorkflowAbortInputSchema,
+  WorkflowAbortResponseSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
 } from "@uzina/contracts";
@@ -76,6 +86,10 @@ import {
   MOCK_ORG_ID,
   MOCK_PROJECT_ID,
   MOCK_SCAN_ID,
+  mockAgencyChatResponse,
+  mockAgencyOverviewResponse,
+  mockAgencyThreadListResponse,
+  mockBackgroundTasksResponse,
   mockBrownfieldMap,
   mockClients,
   mockCodebaseReindexResponse,
@@ -85,9 +99,6 @@ import {
   mockDesignAssets,
   mockDesignPrototypes,
   mockEngineConfigResponse,
-  mockAgencyChatResponse,
-  mockAgencyOverviewResponse,
-  mockAgencyThreadListResponse,
   mockExecutionEvents,
   mockFinopsSummary,
   mockMemories,
@@ -192,6 +203,8 @@ export const handlers = [
         defaultDevelopmentStrategy: parsed.data.defaultDevelopmentStrategy,
         maturityScore: null,
         designMdPath: null,
+        stageAutomation: { ...DEFAULT_PROJECT_STAGE_AUTOMATION },
+        budgetCapUsd: null,
         status: "active",
         repositories: parsed.data.repository
           ? [
@@ -212,6 +225,62 @@ export const handlers = [
         updatedAt: now,
       }),
       { status: 201 }
+    );
+  }),
+
+  http.patch("*/api/projects/:id", async ({ params, request }) => {
+    const id = String(params.id ?? "");
+    const project = mockProjects.items.find((p) => p.id === id);
+    if (!project) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Projeto não encontrado", code: "NOT_FOUND" }),
+        { status: 404 }
+      );
+    }
+    const parsed = UpdateProjectSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    const nextStageAutomation = parsed.data.stageAutomation
+      ? ProjectStageAutomationSchema.parse({
+          ...project.stageAutomation,
+          ...parsed.data.stageAutomation,
+          decision_pending: "manual",
+        })
+      : project.stageAutomation;
+    project.stageAutomation = nextStageAutomation;
+    if (parsed.data.budgetCapUsd !== undefined) {
+      project.budgetCapUsd = parsed.data.budgetCapUsd;
+    }
+    if (parsed.data.name !== undefined) project.name = parsed.data.name;
+    if (parsed.data.description !== undefined) project.description = parsed.data.description;
+    if (parsed.data.defaultDevelopmentStrategy !== undefined) {
+      project.defaultDevelopmentStrategy = parsed.data.defaultDevelopmentStrategy;
+    }
+    if (parsed.data.maturityScore !== undefined) project.maturityScore = parsed.data.maturityScore;
+    if (parsed.data.status !== undefined) project.status = parsed.data.status;
+    project.updatedAt = new Date().toISOString();
+    return HttpResponse.json(ProjectSchema.parse(project));
+  }),
+
+  http.get("*/api/projects/:id/background-tasks", ({ params, request }) => {
+    const err = checkSimulatedState(new URL(request.url));
+    if (err) return err;
+    const id = String(params.id ?? "");
+    if (!mockProjects.items.some((p) => p.id === id)) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Projeto não encontrado", code: "NOT_FOUND" }),
+        { status: 404 }
+      );
+    }
+    return HttpResponse.json(
+      BackgroundTaskListResponseSchema.parse({
+        projectId: id,
+        items: mockBackgroundTasksResponse.items,
+      })
     );
   }),
 
@@ -1119,6 +1188,11 @@ export const handlers = [
         handedOffFrom: response.handedOffFrom,
       }),
       AgencyStreamEventSchema.parse({
+        type: "controller_mode",
+        mode: "architect",
+        sessionId: threadId,
+      }),
+      AgencyStreamEventSchema.parse({
         type: "token",
         text: response.reply,
       }),
@@ -1139,6 +1213,91 @@ export const handlers = [
         "cache-control": "no-cache, no-transform",
       },
     });
+  }),
+
+  http.post("*/api/agency/sessions/:id/steer", async ({ params, request }) => {
+    const parsed = AgencySessionSteerRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload de steer inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      AgencySessionControlResponseSchema.parse({
+        ok: true,
+        sessionId: String(params.id ?? "mock-session"),
+        action: "steered",
+        status: "accepted",
+        mode: parsed.data.targetMode ?? "architect",
+      })
+    );
+  }),
+
+  http.post("*/api/agency/sessions/:id/abort", async ({ params, request }) => {
+    const parsed = AgencySessionAbortRequestSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload de abort inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      AgencySessionControlResponseSchema.parse({
+        ok: true,
+        sessionId: String(params.id ?? "mock-session"),
+        action: "aborted",
+        status: "aborted",
+        mode: null,
+      })
+    );
+  }),
+
+  http.post("*/api/agency/sessions/:id/plan", async ({ params, request }) => {
+    const parsed = AgencySessionPlanDecisionRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload de decisão de plano inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      AgencySessionControlResponseSchema.parse({
+        ok: true,
+        sessionId: String(params.id ?? "mock-session"),
+        action: "plan_resolved",
+        status: "resumed",
+        mode: parsed.data.approved ? "build" : "architect",
+      })
+    );
+  }),
+
+  http.post("*/api/deliverables/:id/workflow/abort", async ({ params, request }) => {
+    const deliverableId = String(params.id ?? "");
+    const parsed = WorkflowAbortInputSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload de abort inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    if (!mockDeliverables.items.some((d) => d.id === deliverableId)) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Entrega não encontrada", code: "NOT_FOUND" }),
+        { status: 404 }
+      );
+    }
+    return HttpResponse.json(
+      WorkflowAbortResponseSchema.parse({
+        aborted: true,
+        deliverableId,
+        mastraRunId: "mock-run-id",
+      })
+    );
   }),
 
   http.post("*/api/providers/test", async ({ request }) => {

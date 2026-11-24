@@ -4,6 +4,12 @@ import { HttpUrlSchema } from "./errors.js";
 export const WorkspaceKindSchema = z.enum(["worktree", "docker"]);
 export type WorkspaceKind = z.infer<typeof WorkspaceKindSchema>;
 
+export const CodingExecutorModeSchema = z.enum([
+  "opencode",
+  "mastra_coding_agent",
+]);
+export type CodingExecutorMode = z.infer<typeof CodingExecutorModeSchema>;
+
 export const TokenSavingsTechniqueSchema = z.enum([
   "prompt_cache",
   "qmd",
@@ -93,7 +99,7 @@ export type AstEngineMode = z.infer<typeof AstEngineModeSchema>;
 export const EngineOptionTelemetrySchema = z
   .object({
     id: z.string().min(1),
-    category: z.enum(["embedding", "ast", "workspace"]),
+    category: z.enum(["embedding", "ast", "workspace", "executor"]),
     label: z.string().min(1),
     diskMb: z.number().nonnegative(),
     ramMb: z.number().nonnegative(),
@@ -112,6 +118,7 @@ export const EngineConfigSchema = z
     ollamaEmbeddingModel: z.string().trim().min(1).max(120),
     astMode: AstEngineModeSchema,
     workspaceKind: WorkspaceKindSchema,
+    codingExecutorMode: CodingExecutorModeSchema.default("opencode"),
     skeletonMaxTokens: z.number().int().min(200).max(8000),
     qmdTopK: z.number().int().min(1).max(10),
     autoInjectInRunner: z.boolean(),
@@ -129,6 +136,7 @@ export const UpdateEngineConfigSchema = z
     ollamaEmbeddingModel: z.string().trim().min(1).max(120).optional(),
     astMode: AstEngineModeSchema.optional(),
     workspaceKind: WorkspaceKindSchema.optional(),
+    codingExecutorMode: CodingExecutorModeSchema.optional(),
     skeletonMaxTokens: z.number().int().min(200).max(8000).optional(),
     qmdTopK: z.number().int().min(1).max(10).optional(),
     autoInjectInRunner: z.boolean().optional(),

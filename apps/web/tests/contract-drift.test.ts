@@ -4,13 +4,16 @@ import path from "node:path";
 import {
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
+  AgencySessionControlResponseSchema,
   AgencyStreamEventSchema,
   AgencyThreadListResponseSchema,
   ApiErrorSchema,
+  BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
   CodebaseReindexResponseSchema,
   CodebaseTreeResponseSchema,
+  CodingExecutorModeSchema,
   CopilotStreamEventSchema,
   DecisionListResponseSchema,
   ProvenanceListResponseSchema,
@@ -27,6 +30,7 @@ import {
   MemoryListResponseSchema,
   MemorySchema,
   ProjectListResponseSchema,
+  ProjectSchema,
   ProviderProfileListResponseSchema,
   QmdReindexResponseSchema,
   QmdSearchResponseSchema,
@@ -35,21 +39,35 @@ import {
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
   StitchMcpSyncResponseSchema,
+  WorkflowAbortResponseSchema,
 } from "@uzina/contracts";
-import { closeDb } from "@uzina/db";
+import { closeDb, getDb, users } from "@uzina/db";
+import {
+  attachSessionExecutionControl,
+  createControlledAgencySession,
+  destroyAgentController,
+} from "@uzina/mastra-runtime";
+import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { POST as authPost } from "../src/app/api/auth/[...all]/route";
 import { GET as getClients } from "../src/app/api/clients/route";
 import { POST as postCopilotChat } from "../src/app/api/copilot/chat/route";
 import { POST as postAgencyChatRoute } from "../src/app/api/agency/chat/route";
 import { POST as postAgencyChatStreamRoute } from "../src/app/api/agency/chat/stream/route";
+import { POST as postSessionAbortRoute } from "../src/app/api/agency/sessions/[id]/abort/route";
+import { POST as postSessionPlanRoute } from "../src/app/api/agency/sessions/[id]/plan/route";
+import { POST as postSessionSteerRoute } from "../src/app/api/agency/sessions/[id]/steer/route";
 import { GET as getAgencyStatusRoute } from "../src/app/api/agency/status/route";
 import { GET as getAgencyThreadsRoute } from "../src/app/api/agency/threads/route";
-import { GET as getEngineConfigRoute } from "../src/app/api/finops/config/route";
+import {
+  GET as getEngineConfigRoute,
+  PUT as putEngineConfigRoute,
+} from "../src/app/api/finops/config/route";
 import { GET as getFinopsSummaryRoute } from "../src/app/api/finops/summary/route";
 import { GET as getDecisions } from "../src/app/api/decisions/route";
 import { POST as resolveDecisionRoute } from "../src/app/api/decisions/[id]/resolve/route";
 import { GET as getDeliverableEvents } from "../src/app/api/deliverables/[id]/events/route";
+import { POST as postWorkflowAbortRoute } from "../src/app/api/deliverables/[id]/workflow/abort/route";
 import { GET as getWorkflow } from "../src/app/api/deliverables/[id]/workflow/route";
 import { POST as resumeWorkflow } from "../src/app/api/deliverables/[id]/workflow/resume/route";
 import { POST as startWorkflow } from "../src/app/api/deliverables/[id]/workflow/start/route";
@@ -78,6 +96,8 @@ import {
 } from "../src/app/api/projects/[id]/design-assets/[assetId]/route";
 import { POST as generateDesignMd } from "../src/app/api/projects/[id]/design-assets/generate-design-md/route";
 import { GET as getDesignAssets, POST as createDesignAsset } from "../src/app/api/projects/[id]/design-assets/route";
+import { GET as getBackgroundTasksRoute } from "../src/app/api/projects/[id]/background-tasks/route";
+import { PATCH as patchProjectRoute } from "../src/app/api/projects/[id]/route";
 import { GET as getProjects, POST as createProject } from "../src/app/api/projects/route";
 import { PATCH as patchProviderRoute } from "../src/app/api/providers/[id]/route";
 import { GET as getProviders, POST as createProvider } from "../src/app/api/providers/route";
@@ -1058,7 +1078,8 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         (ev): ev is Extract<typeof ev, { type: "thread_ready" }> =>
           ev.type === "thread_ready"
       );
-      expect(threadReadyEv?.threadId).toBeTruthy();
+      expect(typeof threadReadyEv?.threadId).toBe("string");
+      expect(threadReadyEv!.threadId.length).toBeGreaterThan(0);
       expect(realAgencyEvents.some((ev) => ev.type === "token")).toBe(true);
       expect(realAgencyEvents.some((ev) => ev.type === "done")).toBe(true);
 
@@ -1134,6 +1155,388 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         { params: Promise.resolve({ id: createdGoogleProv.id }) }
       );
       expect(ssrfPatchRes.status).toBe(400);
+
+      // Slice 19 — Contract Drift + RBAC (AgentController, Stage Automation, Budget Cap, Background Tasks, Session Control)
+      const mswPatchProjRes = await fetch(`http://msw.local/api/projects/${mswProjectId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          stageAutomation: { discovery: "auto" },
+          budgetCapUsd: 25,
+        }),
+      });
+      expect(mswPatchProjRes.status).toBe(200);
+      const mswPatchedProj = ProjectSchema.parse(await mswPatchProjRes.json());
+      expect(mswPatchedProj.stageAutomation.discovery).toBe("auto");
+      expect(mswPatchedProj.stageAutomation.decision_pending).toBe("manual");
+      expect(mswPatchedProj.budgetCapUsd).toBe(25);
+
+      const unauthPatchProjRes = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ stageAutomation: { discovery: "auto" } }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(unauthPatchProjRes.status).toBe(401);
+
+      const realPatchProjRes = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            stageAutomation: { discovery: "auto", building: "auto" },
+            budgetCapUsd: 30,
+          }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realPatchProjRes.status).toBe(200);
+      const realPatchedProj = ProjectSchema.parse(await realPatchProjRes.json());
+      expect(realPatchedProj.stageAutomation.discovery).toBe("auto");
+      expect(realPatchedProj.stageAutomation.decision_pending).toBe("manual");
+      expect(realPatchedProj.budgetCapUsd).toBe(30);
+
+      const invalidLockProjRes = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            stageAutomation: { decision_pending: "auto" },
+          }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(invalidLockProjRes.status).toBe(400);
+
+      // Segundo usuário (outra org -> 404 anti-IDOR; como developer na mesma org -> 403 em budgetCapUsd)
+      const otherSignUp = await authPost(
+        new Request("http://localhost:3000/api/auth/sign-up/email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "Operador Externo",
+            email: "externo-drift@uzina.studio",
+            password: "StrongPassword!123",
+          }),
+        })
+      );
+      expect(otherSignUp.status).toBe(200);
+      const otherCookie = getCookie(otherSignUp);
+      const crossOrgPatchProjRes = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie: otherCookie },
+          body: JSON.stringify({ budgetCapUsd: 999 }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(crossOrgPatchProjRes.status).toBe(404);
+
+      const { db: driftDb } = await getDb();
+      const [ownerDriftRow] = await driftDb
+        .select()
+        .from(users)
+        .where(eq(users.email, "drift@uzina.studio"));
+      await driftDb
+        .update(users)
+        .set({ organizationId: ownerDriftRow!.organizationId, role: "developer" })
+        .where(eq(users.email, "externo-drift@uzina.studio"));
+
+      const devBudgetForbiddenRes = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie: otherCookie },
+          body: JSON.stringify({ budgetCapUsd: 999 }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(devBudgetForbiddenRes.status).toBe(403);
+
+      const mswPutCfgRes = await fetch("http://msw.local/api/finops/config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          codingExecutorMode: CodingExecutorModeSchema.parse("mastra_coding_agent"),
+        }),
+      });
+      expect(mswPutCfgRes.status).toBe(200);
+      expect(
+        EngineConfigResponseSchema.parse(await mswPutCfgRes.json()).config
+          .codingExecutorMode
+      ).toBe("mastra_coding_agent");
+
+      const realPutCfgRes = await putEngineConfigRoute(
+        new Request("http://localhost:3000/api/finops/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ codingExecutorMode: "mastra_coding_agent" }),
+        })
+      );
+      expect(realPutCfgRes.status).toBe(200);
+      expect(
+        EngineConfigResponseSchema.parse(await realPutCfgRes.json()).config
+          .codingExecutorMode
+      ).toBe("mastra_coding_agent");
+
+      const realResetCfgRes = await putEngineConfigRoute(
+        new Request("http://localhost:3000/api/finops/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ codingExecutorMode: "opencode" }),
+        })
+      );
+      expect(realResetCfgRes.status).toBe(200);
+
+      const mswBgRes = await fetch(
+        `http://msw.local/api/projects/${mswProjectId}/background-tasks`
+      );
+      expect(mswBgRes.status).toBe(200);
+      BackgroundTaskListResponseSchema.parse(await mswBgRes.json());
+
+      const unauthBgRes = await getBackgroundTasksRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/background-tasks`),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(unauthBgRes.status).toBe(401);
+
+      const realBgRes = await getBackgroundTasksRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/background-tasks`, {
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realBgRes.status).toBe(200);
+      const realBgParsed = BackgroundTaskListResponseSchema.parse(
+        await realBgRes.json()
+      );
+      expect(realBgParsed.projectId).toBe(projectId);
+
+      const mswAbortWfRes = await fetch(
+        `http://msw.local/api/deliverables/${mswDeliverableId}/workflow/abort`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "Kill switch MSW" }),
+        }
+      );
+      expect(mswAbortWfRes.status).toBe(200);
+      const mswAbortParsed = WorkflowAbortResponseSchema.parse(
+        await mswAbortWfRes.json()
+      );
+      expect(mswAbortParsed).toEqual({
+        aborted: true,
+        deliverableId: mswDeliverableId,
+        mastraRunId: "mock-run-id",
+      });
+
+      const realAbortDelivCreate = await createDeliverable(
+        new Request(`http://localhost:3000/api/projects/${projectId}/deliverables`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ title: "Entrega Abort Drift", hasUi: false }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realAbortDelivCreate.status).toBe(201);
+      const realAbortDeliv = (await realAbortDelivCreate.json()) as { id: string };
+
+      const startAbortWfRes = await startWorkflow(
+        new Request(
+          `http://localhost:3000/api/deliverables/${realAbortDeliv.id}/workflow/start`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({}),
+          }
+        ),
+        { params: Promise.resolve({ id: realAbortDeliv.id }) }
+      );
+      expect(startAbortWfRes.status).toBe(200);
+      const startedAbortWf = DeliverableWorkflowStateSchema.parse(
+        await startAbortWfRes.json()
+      );
+
+      const realAbortWfRes = await postWorkflowAbortRoute(
+        new Request(
+          `http://localhost:3000/api/deliverables/${realAbortDeliv.id}/workflow/abort`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ reason: "Kill switch Drift 200" }),
+          }
+        ),
+        { params: Promise.resolve({ id: realAbortDeliv.id }) }
+      );
+      expect(realAbortWfRes.status).toBe(200);
+      const realAbortParsed = WorkflowAbortResponseSchema.parse(
+        await realAbortWfRes.json()
+      );
+      expect(realAbortParsed.deliverableId).toBe(realAbortDeliv.id);
+      expect(typeof realAbortParsed.aborted).toBe("boolean");
+      expect(realAbortParsed.mastraRunId).toBe(startedAbortWf.runId);
+
+      const missingAbortWfRes = await postWorkflowAbortRoute(
+        new Request(
+          "http://localhost:3000/api/deliverables/99999999-9999-4999-8999-999999999999/workflow/abort",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ reason: "Inexistente" }),
+          }
+        ),
+        {
+          params: Promise.resolve({
+            id: "99999999-9999-4999-8999-999999999999",
+          }),
+        }
+      );
+      expect(missingAbortWfRes.status).toBe(404);
+
+      const mswSteerRes = await fetch("http://msw.local/api/agency/sessions/sess-1/steer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Focar na validação Zod", targetMode: "build" }),
+      });
+      expect(mswSteerRes.status).toBe(200);
+      AgencySessionControlResponseSchema.parse(await mswSteerRes.json());
+
+      const mswAbortSessRes = await fetch("http://msw.local/api/agency/sessions/sess-1/abort", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "Cancelado no drift" }),
+      });
+      expect(mswAbortSessRes.status).toBe(200);
+      AgencySessionControlResponseSchema.parse(await mswAbortSessRes.json());
+
+      const mswPlanSessRes = await fetch("http://msw.local/api/agency/sessions/sess-1/plan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: "tc-1", approved: true }),
+      });
+      expect(mswPlanSessRes.status).toBe(200);
+      AgencySessionControlResponseSchema.parse(await mswPlanSessRes.json());
+
+      // Sessão real controlada via HTTP (409 inativa -> 200 steer/plan/abort) e isolamento 403/404
+      expect(typeof ownerDriftRow?.organizationId).toBe("string");
+      const driftOrgId = ownerDriftRow!.organizationId!;
+      const controlledSess = await createControlledAgencySession({
+        db: driftDb,
+        organizationId: driftOrgId,
+        projectId,
+        createdByUserId: ownerDriftRow!.id,
+        actorRole: "owner",
+        resourceId: `agency:${driftOrgId}:${projectId}:drift`,
+        threadId: `thread-drift-${crypto.randomUUID()}`,
+        initialMode: "discovery",
+      });
+
+      const inactiveSteerRes = await postSessionSteerRoute(
+        new Request(
+          `http://localhost:3000/api/agency/sessions/${controlledSess.sessionId}/steer`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ message: "Sem turn ativo" }),
+          }
+        ),
+        { params: Promise.resolve({ id: controlledSess.sessionId }) }
+      );
+      expect(inactiveSteerRes.status).toBe(409);
+
+      const driftTurnAbort = new AbortController();
+      attachSessionExecutionControl(controlledSess.sessionId, driftTurnAbort);
+
+      const realSteer200Res = await postSessionSteerRoute(
+        new Request(
+          `http://localhost:3000/api/agency/sessions/${controlledSess.sessionId}/steer`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ message: "Focar em testes", targetMode: "architect" }),
+          }
+        ),
+        { params: Promise.resolve({ id: controlledSess.sessionId }) }
+      );
+      expect(realSteer200Res.status).toBe(200);
+      expect(
+        AgencySessionControlResponseSchema.parse(await realSteer200Res.json())
+      ).toMatchObject({ ok: true, action: "steered", mode: "architect" });
+
+      const realPlan200Res = await postSessionPlanRoute(
+        new Request(
+          `http://localhost:3000/api/agency/sessions/${controlledSess.sessionId}/plan`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ toolCallId: "tc-drift-1", approved: true }),
+          }
+        ),
+        { params: Promise.resolve({ id: controlledSess.sessionId }) }
+      );
+      expect(realPlan200Res.status).toBe(200);
+      expect(
+        AgencySessionControlResponseSchema.parse(await realPlan200Res.json())
+      ).toMatchObject({ ok: true, action: "plan_resolved", mode: "build" });
+
+      const realAbortSess200Res = await postSessionAbortRoute(
+        new Request(
+          `http://localhost:3000/api/agency/sessions/${controlledSess.sessionId}/abort`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ reason: "Kill switch Drift HTTP" }),
+          }
+        ),
+        { params: Promise.resolve({ id: controlledSess.sessionId }) }
+      );
+      expect(realAbortSess200Res.status).toBe(200);
+      expect(
+        AgencySessionControlResponseSchema.parse(await realAbortSess200Res.json())
+      ).toMatchObject({ ok: true, action: "aborted", status: "aborted" });
+
+      await destroyAgentController();
+
+      const realInvalidSteerRes = await postSessionSteerRoute(
+        new Request("http://localhost:3000/api/agency/sessions/sess-unknown/steer", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({}),
+        }),
+        { params: Promise.resolve({ id: "sess-unknown" }) }
+      );
+      expect(realInvalidSteerRes.status).toBe(400);
+
+      const realNotFoundSteerRes = await postSessionSteerRoute(
+        new Request("http://localhost:3000/api/agency/sessions/sess-unknown/steer", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ message: "Redirecionar" }),
+        }),
+        { params: Promise.resolve({ id: "sess-unknown" }) }
+      );
+      expect(realNotFoundSteerRes.status).toBe(404);
+
+      const realNotFoundAbortRes = await postSessionAbortRoute(
+        new Request("http://localhost:3000/api/agency/sessions/sess-unknown/abort", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ reason: "Abortar desconhecida" }),
+        }),
+        { params: Promise.resolve({ id: "sess-unknown" }) }
+      );
+      expect(realNotFoundAbortRes.status).toBe(404);
+
+      const realNotFoundPlanRes = await postSessionPlanRoute(
+        new Request("http://localhost:3000/api/agency/sessions/sess-unknown/plan", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ toolCallId: "tc-missing", approved: true }),
+        }),
+        { params: Promise.resolve({ id: "sess-unknown" }) }
+      );
+      expect(realNotFoundPlanRes.status).toBe(404);
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

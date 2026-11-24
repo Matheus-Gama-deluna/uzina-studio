@@ -90,6 +90,7 @@ export const ResolveDecisionSchema = z
   .object({
     status: z.enum(["approved", "changes_requested", "rejected"]),
     humanFeedback: z.string().trim().max(4000).optional(),
+    newBudgetCapUsd: z.number().positive().max(10000).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

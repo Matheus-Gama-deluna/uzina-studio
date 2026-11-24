@@ -2,6 +2,8 @@ import { redactSensitiveText, redactSensitiveValue } from "@uzina/core";
 import { getDb, resolveDataDir, type UzinaDb } from "@uzina/db";
 import {
   createMastraRuntime,
+  resetAgentControllerForTests,
+  resetControllerProjectCostsForTests,
   WorkflowRuntimeError,
   type MastraWorkflowService,
 } from "@uzina/mastra-runtime";
@@ -79,6 +81,8 @@ export async function resetWebWorkflowRuntimeForTests(): Promise<void> {
   if (current) {
     await current.close();
   }
+  await resetAgentControllerForTests();
+  resetControllerProjectCostsForTests();
 }
 
 function sanitizeClientErrorMessage(message: string): string {

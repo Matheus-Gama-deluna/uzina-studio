@@ -2,10 +2,12 @@ import {
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
   AgencyThreadListResponseSchema,
+  BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
   CodebaseReindexResponseSchema,
   CodebaseTreeResponseSchema,
+  DEFAULT_PROJECT_STAGE_AUTOMATION,
   DecisionListResponseSchema,
   ProvenanceListResponseSchema,
   SymbolGraphResponseSchema,
@@ -71,6 +73,8 @@ export const mockProjects = ProjectListResponseSchema.parse({
       maturityScore: 84,
       designMdPath: ".uzina/DESIGN.md",
       status: "active",
+      stageAutomation: { ...DEFAULT_PROJECT_STAGE_AUTOMATION },
+      budgetCapUsd: null,
       repositories: [
         {
           id: MOCK_REPO_ID,
@@ -721,6 +725,7 @@ export const mockEngineConfigResponse = EngineConfigResponseSchema.parse({
     ollamaEmbeddingModel: "bge-m3",
     astMode: "polyglot",
     workspaceKind: "worktree",
+    codingExecutorMode: "opencode",
     skeletonMaxTokens: 2000,
     qmdTopK: 5,
     autoInjectInRunner: true,
@@ -910,3 +915,9 @@ export const mockAgencyThreadListResponse = AgencyThreadListResponseSchema.parse
     },
   ],
 });
+
+export const mockBackgroundTasksResponse =
+  BackgroundTaskListResponseSchema.parse({
+    projectId: MOCK_PROJECT_ID,
+    items: [],
+  });

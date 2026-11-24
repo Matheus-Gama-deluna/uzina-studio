@@ -13,10 +13,12 @@ import {
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
+  type BackgroundTaskSummary,
   type Decision,
   type DeliverableStatus,
   type DeliverableWorkflowState,
   type DeliverableWorkflowStatus,
+  type OrgRole,
   type ResolveDecisionInput,
   type ResolveDecisionResponse,
   type StrategyRouterOutput,
@@ -41,6 +43,9 @@ import type { RunSecurityScanDeps } from "@uzina/security-engine";
 import { and, desc, eq } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
 import { createExecutiveCopilotAgent } from "./agents/executive-copilot.js";
+import { BackgroundTasksRegistry } from "./background-tasks.js";
+import { destroyAgentController } from "./controller.js";
+import { getProjectAccumulatedCostUsd } from "./finops.js";
 import {
   closeMastraStorage,
   getMastraStorageSingleton,
@@ -69,6 +74,7 @@ export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
 
 export interface MastraWorkflowService {
   mastra: Mastra;
+  backgroundTasks: BackgroundTasksRegistry;
   getWorkflowState(params: {
     deliverableId: string;
     organizationId: string;
@@ -77,19 +83,36 @@ export interface MastraWorkflowService {
     deliverableId: string;
     organizationId: string;
     input: WorkflowStartInput;
+    signal?: AbortSignal;
   }): Promise<DeliverableWorkflowState>;
   resumeDeliverableWorkflow(params: {
     deliverableId: string;
     organizationId: string;
     resolvedByUserId?: string;
+    actorRole?: OrgRole;
     input: WorkflowResumeInput;
+    signal?: AbortSignal;
   }): Promise<DeliverableWorkflowState>;
   resolveDecision(params: {
     decisionId: string;
     organizationId: string;
     resolvedByUserId?: string;
+    actorRole?: OrgRole;
     input: ResolveDecisionInput;
   }): Promise<ResolveDecisionResponse>;
+  listProjectBackgroundTasks(params: {
+    organizationId: string;
+    projectId: string;
+  }): Promise<BackgroundTaskSummary[]>;
+  abortDeliverableRun(params: {
+    deliverableId: string;
+    organizationId: string;
+    reason?: string;
+  }): Promise<{
+    aborted: boolean;
+    deliverableId: string;
+    mastraRunId: string | null;
+  }>;
   close(): Promise<void>;
 }
 
@@ -391,9 +414,56 @@ export async function createMastraRuntime(
     });
   };
 
+  const backgroundTasks = new BackgroundTasksRegistry();
+  const activeRunAborters = new Map<string, AbortController>();
+
+  const validateAndApplyBudgetCapOnResume = async (params: {
+    projectId: string;
+    decision: string;
+    actorRole?: OrgRole;
+    newBudgetCapUsd?: number;
+  }): Promise<void> => {
+    if (
+      !params.actorRole ||
+      (params.actorRole !== "owner" && params.actorRole !== "admin")
+    ) {
+      throw new WorkflowRuntimeError({
+        statusCode: 403,
+        code: "FORBIDDEN_SESSION_ACCESS",
+        message:
+          "Apenas 'owner' ou 'admin' podem aprovar ou ajustar o teto de orçamento (budgetCapUsd).",
+      });
+    }
+    if (params.decision === "approved") {
+      const accumulated = await getProjectAccumulatedCostUsd(
+        options.db,
+        params.projectId
+      );
+      if (
+        params.newBudgetCapUsd === undefined ||
+        !Number.isFinite(params.newBudgetCapUsd) ||
+        params.newBudgetCapUsd <= accumulated
+      ) {
+        throw new WorkflowRuntimeError({
+          statusCode: 422,
+          code: "INVALID_WORKFLOW_INPUT",
+          message: `Informe newBudgetCapUsd estritamente maior que o custo acumulado do projeto ($${accumulated.toFixed(4)}).`,
+        });
+      }
+      await options.db
+        .update(projects)
+        .set({
+          budgetCapUsd: params.newBudgetCapUsd.toFixed(6),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, params.projectId));
+    }
+  };
+
   const withDeliverableLock = async <T>(
     deliverableId: string,
-    fn: (workerCtx: LockWorkerContextValue) => Promise<T>
+    fn: (workerCtx: LockWorkerContextValue) => Promise<T>,
+    externalSignal?: AbortSignal
   ): Promise<T> => {
     const workerId = `op-${crypto.randomUUID()}`;
     const lock = await acquireDeliverableLock(options.db, {
@@ -413,7 +483,21 @@ export async function createMastraRuntime(
       });
     }
 
-    const workerCtx: LockWorkerContextValue = { workerId };
+    const runAbort = new AbortController();
+    const onExternalAbort = () => runAbort.abort(externalSignal?.reason);
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        runAbort.abort(externalSignal.reason);
+      } else {
+        externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+      }
+    }
+    activeRunAborters.set(deliverableId, runAbort);
+
+    const workerCtx: LockWorkerContextValue = {
+      workerId,
+      abortSignal: runAbort.signal,
+    };
     const heartbeatTimer = setInterval(() => {
       void renewDeliverableLock(options.db, { deliverableId, workerId }).catch(
         () => undefined
@@ -424,6 +508,12 @@ export async function createMastraRuntime(
       return await lockWorkerContext.run(workerCtx, () => fn(workerCtx));
     } finally {
       clearInterval(heartbeatTimer);
+      if (externalSignal) {
+        externalSignal.removeEventListener("abort", onExternalAbort);
+      }
+      if (activeRunAborters.get(deliverableId) === runAbort) {
+        activeRunAborters.delete(deliverableId);
+      }
       await releaseDeliverableLock(options.db, {
         deliverableId,
         workerId,
@@ -433,16 +523,24 @@ export async function createMastraRuntime(
 
   return {
     mastra,
+    backgroundTasks,
 
     async getWorkflowState({ deliverableId, organizationId }) {
       return buildWorkflowState(deliverableId, organizationId);
     },
 
-    async startDeliverableWorkflow({ deliverableId, organizationId, input }) {
+    async startDeliverableWorkflow({
+      deliverableId,
+      organizationId,
+      input,
+      signal,
+    }) {
       const parsedInput = WorkflowStartInputSchema.parse(input);
       await findScopedDeliverable(options.db, deliverableId, organizationId);
 
-      await withDeliverableLock(deliverableId, async (workerCtx) => {
+      await withDeliverableLock(
+        deliverableId,
+        async (workerCtx) => {
         const current = await findScopedDeliverable(
           options.db,
           deliverableId,
@@ -539,7 +637,8 @@ export async function createMastraRuntime(
             cause: result.error,
           });
         }
-      });
+      },
+      signal);
 
       return buildWorkflowState(deliverableId, organizationId);
     },
@@ -548,12 +647,16 @@ export async function createMastraRuntime(
       deliverableId,
       organizationId,
       resolvedByUserId,
+      actorRole,
       input,
+      signal,
     }) {
       const parsedInput = WorkflowResumeInputSchema.parse(input);
       await findScopedDeliverable(options.db, deliverableId, organizationId);
 
-      await withDeliverableLock(deliverableId, async (workerCtx) => {
+      await withDeliverableLock(
+        deliverableId,
+        async (workerCtx) => {
         const current = await findScopedDeliverable(
           options.db,
           deliverableId,
@@ -633,6 +736,15 @@ export async function createMastraRuntime(
         const gateParsed = WorkflowGateTypeSchema.safeParse(
           suspendPayloadObj?.gate
         );
+        if (gateParsed.success && gateParsed.data === "budget_cap_pause") {
+          await validateAndApplyBudgetCapOnResume({
+            projectId: current.projectId,
+            decision: parsedInput.decision,
+            actorRole,
+            newBudgetCapUsd: parsedInput.newBudgetCapUsd,
+          });
+        }
+
         if (gateParsed.success) {
           await options.db
             .update(decisions)
@@ -677,7 +789,8 @@ export async function createMastraRuntime(
             cause: result.error,
           });
         }
-      });
+      },
+      signal);
 
       return buildWorkflowState(deliverableId, organizationId);
     },
@@ -686,6 +799,7 @@ export async function createMastraRuntime(
       decisionId,
       organizationId,
       resolvedByUserId,
+      actorRole,
       input,
     }) {
       const parsedDecisionInput = ResolveDecisionSchema.parse(input);
@@ -794,6 +908,21 @@ export async function createMastraRuntime(
             });
           }
 
+          const resolveGate = WorkflowGateTypeSchema.safeParse(
+            suspendPayloadObj?.gate
+          );
+          if (
+            lockedDecision.decisionType === "budget_cap_pause" ||
+            (resolveGate.success && resolveGate.data === "budget_cap_pause")
+          ) {
+            await validateAndApplyBudgetCapOnResume({
+              projectId: current.projectId,
+              decision: parsedDecisionInput.status,
+              actorRole,
+              newBudgetCapUsd: parsedDecisionInput.newBudgetCapUsd,
+            });
+          }
+
           const updatedRows = await options.db
             .update(decisions)
             .set({
@@ -827,6 +956,9 @@ export async function createMastraRuntime(
             resumeData: {
               decision: parsedDecisionInput.status,
               feedback: parsedDecisionInput.humanFeedback,
+              ...(parsedDecisionInput.newBudgetCapUsd !== undefined
+                ? { newBudgetCapUsd: parsedDecisionInput.newBudgetCapUsd }
+                : {}),
             },
             outputOptions: { includeState: true },
           });
@@ -865,7 +997,61 @@ export async function createMastraRuntime(
       };
     },
 
+    async listProjectBackgroundTasks({ organizationId, projectId }) {
+      const [proj] = await options.db
+        .select({ id: projects.id })
+        .from(projects)
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(
+          and(
+            eq(projects.id, projectId),
+            eq(clients.organizationId, organizationId)
+          )
+        )
+        .limit(1);
+
+      if (!proj) {
+        throw new WorkflowRuntimeError({
+          statusCode: 404,
+          code: "FORBIDDEN_PROJECT_SCOPE",
+          message: `Projeto '${projectId}' não encontrado na organização.`,
+        });
+      }
+
+      return backgroundTasks.listForProject(options.db, {
+        organizationId,
+        projectId,
+      });
+    },
+
+    async abortDeliverableRun({ deliverableId, organizationId, reason }) {
+      const row = await findScopedDeliverable(
+        options.db,
+        deliverableId,
+        organizationId
+      );
+      const effectiveReason = reason?.trim() || "ABORTED_BY_USER";
+      const bgAborted = backgroundTasks.abortForDeliverable(
+        organizationId,
+        deliverableId,
+        effectiveReason
+      );
+      const activeAborter = activeRunAborters.get(deliverableId);
+      let activeAborted = false;
+      if (activeAborter && !activeAborter.signal.aborted) {
+        activeAborter.abort(effectiveReason);
+        activeAborted = true;
+      }
+      return {
+        aborted: bgAborted || activeAborted,
+        deliverableId: row.id,
+        mastraRunId: row.mastraRunId ?? null,
+      };
+    },
+
     async close() {
+      await backgroundTasks.drainAll();
+      await destroyAgentController();
       await mastra.shutdown();
       await closeMastraStorage();
     },

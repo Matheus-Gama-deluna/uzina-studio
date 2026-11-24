@@ -1,0 +1,3 @@
+ALTER TABLE "projects" ADD COLUMN "stage_automation_json" jsonb DEFAULT '{"discovery":"manual","spec_review":"manual","visual_studio":"manual","contract_tests":"auto","building":"auto","verifying":"auto","decision_pending":"manual"}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "budget_cap_usd" numeric(12, 6);--> statement-breakpoint
+ALTER TABLE "engine_configs" ADD COLUMN "coding_executor_mode" text DEFAULT 'opencode' NOT NULL;

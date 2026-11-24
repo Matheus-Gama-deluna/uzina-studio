@@ -1,17 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { MastraDBMessage, ToolsInput } from "@mastra/core/agent";
 import {
+  AgentsMDInjector,
   TokenLimiterProcessor,
   ToolSearchProcessor,
   defaultStabilityErrorProcessors,
+  formatSkillsCatalog,
   type ErrorProcessorOrWorkflow,
   type InputProcessorOrWorkflow,
   type OutputProcessorOrWorkflow,
   type ProcessInputArgs,
+  type ProcessInputStepArgs,
   type ProcessOutputResultArgs,
+  type ProcessOutputStepArgs,
   type ProcessOutputStreamArgs,
   type ProcessToolResultArgs,
+  type SkillCatalogEntry,
 } from "@mastra/core/processors";
-import { redactSensitiveText, redactSensitiveValue } from "@uzina/core";
+import {
+  assertPathInsideWorkspace,
+  estimateTokenCostUsd,
+  loadNativeSkills,
+  redactSensitiveText,
+  redactSensitiveValue,
+} from "@uzina/core";
+import type { UzinaDb } from "@uzina/db";
+import { getProjectAccumulatedCostUsd } from "./finops.js";
 
 const DEFAULT_STREAM_HOLDBACK_CHARS = 256;
 const TOOL_SEARCH_THRESHOLD = 8;
@@ -318,4 +333,181 @@ export function createUzinaOutputProcessors(params: {
 
 export function createUzinaErrorProcessors(): ErrorProcessorOrWorkflow[] {
   return defaultStabilityErrorProcessors();
+}
+
+const SENSITIVE_FILE_SEGMENT_RE =
+  /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.master-key|\.git[\\/](?:config|hooks)(?:$|[\\/])|[^\\/]+\.(?:pem|key)$)/i;
+
+export function isSensitiveWorkspaceFile(filePath: string): boolean {
+  const normalized = filePath.trim();
+  if (!normalized) return true;
+  if (SENSITIVE_FILE_SEGMENT_RE.test(normalized)) return true;
+  const base = path.basename(normalized).toLowerCase();
+  return (
+    base === ".env" ||
+    base.startsWith(".env.") ||
+    base === ".master-key" ||
+    base.endsWith(".pem") ||
+    base.endsWith(".key")
+  );
+}
+
+export function createUzinaAgentsMdInjector(options: {
+  workspaceRoot?: string | null;
+  untrustedCheckout?: boolean;
+  maxTokens?: number;
+} = {}): AgentsMDInjector {
+  const resolveValidRoot = (args?: ProcessInputStepArgs): string | undefined => {
+    const candidate =
+      (args?.requestContext?.get("workspaceRoot") as string | undefined) ??
+      options.workspaceRoot;
+    if (typeof candidate !== "string" || candidate.trim().length === 0) {
+      return undefined;
+    }
+    try {
+      const resolved = path.resolve(candidate);
+      if (!fs.existsSync(resolved)) return undefined;
+      return assertPathInsideWorkspace(resolved, resolved, { allowRoot: true });
+    } catch {
+      return undefined;
+    }
+  };
+
+  return new AgentsMDInjector({
+    maxTokens: options.maxTokens ?? 1500,
+    isEnabled: (args) => {
+      if (options.untrustedCheckout) return false;
+      if (args.requestContext?.get("untrustedCheckout") === true) return false;
+      return resolveValidRoot(args) !== undefined;
+    },
+    getBasePath: (args) => resolveValidRoot(args),
+    getReader: (args) => {
+      const root = resolveValidRoot(args);
+      if (!root) {
+        return {
+          pathExists: () => false,
+          isDirectory: () => false,
+          readFile: () => {
+            throw new Error("AGENTS_READER_DISABLED: workspaceRoot ausente.");
+          },
+        };
+      }
+      return {
+        pathExists: (targetPath: string) => {
+          try {
+            if (isSensitiveWorkspaceFile(targetPath)) return false;
+            const resolved = assertPathInsideWorkspace(root, targetPath, {
+              allowRoot: true,
+            });
+            const stat = fs.lstatSync(resolved);
+            if (stat.isSymbolicLink()) return false;
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        isDirectory: (targetPath: string) => {
+          try {
+            const resolved = assertPathInsideWorkspace(root, targetPath, {
+              allowRoot: true,
+            });
+            const stat = fs.lstatSync(resolved);
+            return !stat.isSymbolicLink() && stat.isDirectory();
+          } catch {
+            return false;
+          }
+        },
+        readFile: (targetPath: string) => {
+          if (isSensitiveWorkspaceFile(targetPath)) {
+            throw new Error("Acesso negado a arquivo sensível.");
+          }
+          const resolved = assertPathInsideWorkspace(root, targetPath);
+          const stat = fs.lstatSync(resolved);
+          if (stat.isSymbolicLink()) {
+            throw new Error("Symlinks não são permitidos em AgentsMDInjector.");
+          }
+          const raw = fs.readFileSync(resolved, "utf8");
+          const sanitized = redactSensitiveText(raw).replace(
+            CONTROL_TAG_RE,
+            "[control-tag-escaped]"
+          );
+          return sanitized.slice(0, 6000);
+        },
+      };
+    },
+  });
+}
+
+export function createUzinaSkillsContext(skillsDir?: string): {
+  entries: SkillCatalogEntry[];
+  catalogMarkdown: string;
+} {
+  try {
+    const definitions = loadNativeSkills({ skillsDir });
+    const entries: SkillCatalogEntry[] = definitions
+      .map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        location: `packages/skills/${skill.name}/SKILL.md`,
+        source: "uzina-native",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      entries,
+      catalogMarkdown: formatSkillsCatalog(entries),
+    };
+  } catch {
+    return {
+      entries: [],
+      catalogMarkdown: "",
+    };
+  }
+}
+
+export function createBudgetGuardProcessor(params: {
+  db: UzinaDb;
+  projectId: string;
+  budgetCapUsd: number | null | undefined;
+  modelId?: string;
+  onBudgetExceeded?: (info: {
+    accumulatedUsd: number;
+    budgetCapUsd: number;
+  }) => void;
+}) {
+  return {
+    id: "uzina-budget-guard",
+    name: "Uzina Project Budget Guard",
+    async processOutputStep({
+      usage,
+      messageList,
+      abort,
+    }: ProcessOutputStepArgs) {
+      const cap = params.budgetCapUsd;
+      if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0) {
+        return messageList;
+      }
+      const usageRec = usage as {
+        inputTokens?: number;
+        outputTokens?: number;
+      };
+      const stepCost = estimateTokenCostUsd(params.modelId ?? "gpt-4o-mini", {
+        inputTokens: usageRec.inputTokens ?? 0,
+        outputTokens: usageRec.outputTokens ?? 0,
+      });
+      const accumulated = await getProjectAccumulatedCostUsd(
+        params.db,
+        params.projectId,
+        stepCost
+      );
+      if (accumulated >= cap) {
+        params.onBudgetExceeded?.({
+          accumulatedUsd: accumulated,
+          budgetCapUsd: cap,
+        });
+        abort("BUDGET_CAP_EXCEEDED");
+      }
+      return messageList;
+    },
+  };
 }

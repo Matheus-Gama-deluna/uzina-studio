@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   EngineConfigResponseSchema,
   type AstEngineMode,
+  type CodingExecutorMode,
   type EmbeddingEngineMode,
   type WorkspaceKind,
 } from "@uzina/contracts";
@@ -14,6 +15,7 @@ interface EngineDraft {
   embeddingMode?: EmbeddingEngineMode;
   astMode?: AstEngineMode;
   workspaceKind?: WorkspaceKind;
+  codingExecutorMode?: CodingExecutorMode;
   skeletonMaxTokens?: string;
   qmdTopK?: string;
   autoInjectInRunner?: boolean;
@@ -44,6 +46,8 @@ export function EngineConfigPanel() {
   const embeddingMode = draft.embeddingMode ?? cfg?.embeddingMode ?? "deterministic";
   const astMode = draft.astMode ?? cfg?.astMode ?? "polyglot";
   const workspaceKind = draft.workspaceKind ?? cfg?.workspaceKind ?? "worktree";
+  const codingExecutorMode =
+    draft.codingExecutorMode ?? cfg?.codingExecutorMode ?? "opencode";
   const skeletonMaxTokens =
     draft.skeletonMaxTokens ?? String(cfg?.skeletonMaxTokens ?? 2000);
   const qmdTopK = draft.qmdTopK ?? String(cfg?.qmdTopK ?? 5);
@@ -66,6 +70,7 @@ export function EngineConfigPanel() {
           embeddingMode,
           astMode,
           workspaceKind,
+          codingExecutorMode,
           skeletonMaxTokens: Number(skeletonMaxTokens),
           qmdTopK: Number(qmdTopK),
           autoInjectInRunner,
@@ -87,7 +92,7 @@ export function EngineConfigPanel() {
       setDraft({});
       setSaveErr(null);
       setSaveMsg(
-        `Motores atualizados em tempo real (sem restart): ${res.activeEmbeddingProviderId} · AST ${res.config.astMode} · Workspace ${res.config.workspaceKind}.`
+        `Motores atualizados em tempo real (sem restart): ${res.activeEmbeddingProviderId} · AST ${res.config.astMode} · Workspace ${res.config.workspaceKind} · Executor ${res.config.codingExecutorMode}.`
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["engine-config"] }),
@@ -194,10 +199,14 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-workspace-select"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Workspace de Execução
             </label>
             <select
+              id="engine-workspace-select"
               data-testid="engine-workspace-select"
               value={workspaceKind}
               onChange={(e) =>
@@ -206,10 +215,36 @@ export function EngineConfigPanel() {
                   workspaceKind: e.target.value as WorkspaceKind,
                 }))
               }
-              className="mt-1 w-full rounded border border-border-subtle bg-inset px-2.5 py-1.5 text-xs text-fg-primary focus:border-accent focus:outline-none"
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
             >
               <option value="worktree">worktree (Git Local Rápido)</option>
               <option value="docker">docker (Container Hardened)</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <label
+              htmlFor="engine-coding-executor-select"
+              className="block text-xs font-medium text-fg-secondary"
+            >
+              Executor de Codificação
+            </label>
+            <select
+              id="engine-coding-executor-select"
+              data-testid="engine-coding-executor-select"
+              value={codingExecutorMode}
+              onChange={(e) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  codingExecutorMode: e.target.value as CodingExecutorMode,
+                }))
+              }
+              className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+            >
+              <option value="opencode">opencode (OpenCode SDK + Worktree)</option>
+              <option value="mastra_coding_agent">
+                mastra_coding_agent (Mastra AgentWorkspace)
+              </option>
             </select>
           </div>
 

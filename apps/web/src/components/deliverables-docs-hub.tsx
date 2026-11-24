@@ -7,25 +7,31 @@ import type {
   AgencyChatIntent,
   AgencyChatResponse,
   AgencyOverviewResponse,
+  BackgroundTaskListResponse,
   Deliverable,
   DeliverableListResponse,
   DeliverableStatus,
   ProjectListResponse,
+  ProjectStageAutomation,
   RiskLevel,
+  UpdateProjectStageAutomation,
 } from "@uzina/contracts";
 import { getAllowedNextStatuses } from "@uzina/core/state-machine";
 import {
+  Activity,
   ArrowRight,
   FileText,
   Kanban,
   Layers,
   List,
   Loader2,
+  Lock,
   Pause,
   Play,
   Plus,
   RotateCcw,
   ShieldCheck,
+  Square,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +67,20 @@ function statusDotColor(status: DeliverableStatus): string {
   if (status === "failed") return "bg-status-danger";
   return "bg-fg-muted";
 }
+
+type ControllableStageKey = Exclude<
+  keyof ProjectStageAutomation,
+  "decision_pending"
+>;
+
+const CONTROLLABLE_STAGES = new Set<string>([
+  "discovery",
+  "spec_review",
+  "visual_studio",
+  "contract_tests",
+  "building",
+  "verifying",
+]);
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -103,6 +123,8 @@ export function DeliverablesDocsHub() {
   const [delivRisk, setDelivRisk] = useState<RiskLevel>("medium");
   const [formError, setFormError] = useState<string | null>(null);
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+  const [actionErrMsg, setActionErrMsg] = useState<string | null>(null);
+  const [budgetDraft, setBudgetDraft] = useState<string | null>(null);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -130,6 +152,21 @@ export function DeliverablesDocsHub() {
       fetchJson<DeliverableListResponse>(
         `/api/projects/${activeProject?.id}/deliverables`
       ),
+  });
+
+  const backgroundTasksQuery = useQuery({
+    queryKey: ["background-tasks", activeProject?.id ?? "none"],
+    enabled: Boolean(activeProject?.id),
+    queryFn: () =>
+      fetchJson<BackgroundTaskListResponse>(
+        `/api/projects/${activeProject?.id}/background-tasks`
+      ),
+    refetchInterval: (query) =>
+      query.state.data?.items.some(
+        (t) => t.status === "running" || t.status === "queued"
+      )
+        ? 4000
+        : false,
   });
 
   const agencyQuery = useQuery({
@@ -161,6 +198,87 @@ export function DeliverablesDocsHub() {
     longTermArtifacts.find((d) => d.id === selectedDocId) ??
     longTermArtifacts[0] ??
     null;
+
+  const updateProjectConfigMutation = useMutation({
+    mutationFn: async (payload: {
+      stageAutomation?: UpdateProjectStageAutomation;
+      budgetCapUsd?: number | null;
+    }) => {
+      if (!activeProject) throw new Error("Nenhum projeto ativo.");
+      const res = await fetch(`/api/projects/${activeProject.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao atualizar configuração do projeto.");
+      }
+      return res.json();
+    },
+    onSuccess: async (_data, vars) => {
+      setActionErrMsg(null);
+      if (vars.budgetCapUsd !== undefined) {
+        setBudgetDraft(null);
+        setBannerMsg(
+          vars.budgetCapUsd === null
+            ? "Teto de orçamento do projeto removido."
+            : `Teto de orçamento atualizado para US$ ${vars.budgetCapUsd.toFixed(2)}.`
+        );
+      } else if (vars.stageAutomation) {
+        setBannerMsg("Automação de fase do Kanban atualizada.");
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
+
+  const abortWorkflowMutation = useMutation({
+    mutationFn: async (deliverableId: string) => {
+      const res = await fetch(`/api/deliverables/${deliverableId}/workflow/abort`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reason: "Abortado manualmente pelo operador no painel de Entregas.",
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          body?.error ?? "Falha ao abortar execução da entrega."
+        );
+      }
+      return res.json();
+    },
+    onSuccess: async () => {
+      setActionErrMsg(null);
+      setBannerMsg("Execução da entrega abortada e marcada como pausada.");
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["background-tasks", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
 
   const transitionMutation = useMutation({
     mutationFn: async ({
@@ -453,6 +571,98 @@ export function DeliverablesDocsHub() {
         )}
       </header>
 
+      {mainTab === "slices" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface px-3.5 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
+            <span
+              data-testid="project-background-tasks-badge"
+              className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-border-default bg-inset px-2.5 font-mono text-xs tabular-nums text-fg-primary"
+            >
+              <Activity className="size-3.5 text-fg-muted" />
+              <span>
+                Tarefas em 2º plano:{" "}
+                {
+                  (backgroundTasksQuery.data?.items ?? []).filter(
+                    (t) => t.status === "running" || t.status === "queued"
+                  ).length
+                }{" "}
+                ativas / {(backgroundTasksQuery.data?.items ?? []).length} total
+              </span>
+            </span>
+            <span className="text-fg-muted">
+              Fases em Auto avançam sem bloqueio humano; Decisão HITL permanece sempre Manual.
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              htmlFor="project-budget-cap-input"
+              className="text-xs font-medium text-fg-secondary"
+            >
+              Teto Orçamento (USD)
+            </label>
+            <input
+              id="project-budget-cap-input"
+              data-testid="project-budget-cap-input"
+              type="number"
+              min={0.5}
+              step="0.5"
+              value={
+                budgetDraft ??
+                (activeProject.budgetCapUsd != null
+                  ? String(activeProject.budgetCapUsd)
+                  : "")
+              }
+              onChange={(e) => setBudgetDraft(e.target.value)}
+              placeholder="Sem teto"
+              className="min-h-8 w-28 rounded-md border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary tabular-nums placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+            />
+            <button
+              type="button"
+              data-testid="btn-save-budget-cap"
+              disabled={updateProjectConfigMutation.isPending}
+              onClick={() => {
+                const raw = (
+                  budgetDraft ??
+                  (activeProject.budgetCapUsd != null
+                    ? String(activeProject.budgetCapUsd)
+                    : "")
+                ).trim();
+                if (!raw) {
+                  updateProjectConfigMutation.mutate({ budgetCapUsd: null });
+                  return;
+                }
+                const num = Number(raw);
+                if (!Number.isFinite(num) || num <= 0) {
+                  setActionErrMsg("Informe um teto de orçamento positivo em USD.");
+                  return;
+                }
+                updateProjectConfigMutation.mutate({ budgetCapUsd: num });
+              }}
+              className="inline-flex min-h-8 items-center rounded-md border border-border-default bg-inset px-2.5 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+            >
+              Salvar Teto
+            </button>
+          </div>
+        </div>
+      )}
+
+      {actionErrMsg && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 rounded-lg border border-status-danger/35 bg-status-danger/10 px-4 py-2.5 text-sm text-status-danger"
+        >
+          <span>{actionErrMsg}</span>
+          <button
+            type="button"
+            onClick={() => setActionErrMsg(null)}
+            className="text-xs underline"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
+
       {bannerMsg && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-status-ok/35 bg-status-ok/10 px-4 py-2.5 text-sm text-status-ok">
           <span>{bannerMsg}</span>
@@ -574,18 +784,76 @@ export function DeliverablesDocsHub() {
                     aria-label={`Coluna ${col.label}`}
                     className="flex w-72 shrink-0 flex-col rounded-xl border border-border-subtle bg-surface"
                   >
-                    <header className="flex items-center justify-between border-b border-border-subtle px-3.5 py-2.5">
-                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-fg-primary">
-                        <span
-                          className={`size-2 rounded-full ${statusDotColor(
-                            col.id
-                          )}`}
-                        />
-                        <span>{col.label}</span>
-                      </span>
-                      <span className="tabular-nums font-mono text-xs text-fg-muted">
-                        {colItems.length}
-                      </span>
+                    <header className="flex flex-col gap-2 border-b border-border-subtle px-3.5 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-2 text-xs font-semibold text-fg-primary">
+                          <span
+                            className={`size-2 rounded-full ${statusDotColor(
+                              col.id
+                            )}`}
+                          />
+                          <span>{col.label}</span>
+                        </span>
+                        <span className="tabular-nums font-mono text-xs text-fg-muted">
+                          {colItems.length}
+                        </span>
+                      </div>
+
+                      {col.id === "decision_pending" ? (
+                        <div className="flex items-center justify-between">
+                          <span
+                            data-testid="kanban-stage-lock-decision_pending"
+                            title="Portão humano obrigatório — nunca automatizado"
+                            className="inline-flex items-center gap-1.5 rounded border border-border-default bg-inset px-2 py-0.5 text-xs font-medium text-fg-secondary"
+                          >
+                            <Lock className="size-3" />
+                            <span>Manual (HITL)</span>
+                          </span>
+                        </div>
+                      ) : CONTROLLABLE_STAGES.has(col.id) ? (
+                        (() => {
+                          const stageKey = col.id as ControllableStageKey;
+                          const mode =
+                            activeProject.stageAutomation?.[stageKey] ??
+                            "manual";
+                          const isAuto = mode === "auto";
+                          return (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-fg-muted">
+                                Avanço da fase
+                              </span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isAuto}
+                                aria-label={`Automação da fase ${col.label}`}
+                                data-testid={`kanban-stage-mode-${col.id}`}
+                                disabled={updateProjectConfigMutation.isPending}
+                                onClick={() =>
+                                  updateProjectConfigMutation.mutate({
+                                    stageAutomation: {
+                                      [stageKey]: isAuto ? "manual" : "auto",
+                                    },
+                                  })
+                                }
+                                className={`inline-flex min-h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
+                                  isAuto
+                                    ? "border-border-strong bg-elevated text-fg-primary"
+                                    : "border-border-default bg-inset text-fg-secondary hover:text-fg-primary"
+                                }`}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={`size-2 rounded-full ${
+                                    isAuto ? "bg-status-ok" : "bg-fg-muted"
+                                  }`}
+                                />
+                                <span>{isAuto ? "Auto" : "Manual"}</span>
+                              </button>
+                            </div>
+                          );
+                        })()
+                      ) : null}
                     </header>
 
                     <div className="flex max-h-[420px] flex-1 flex-col gap-2.5 overflow-y-auto p-3">
@@ -620,7 +888,7 @@ export function DeliverablesDocsHub() {
                               >
                                 {item.title}
                               </button>
-                              <div className="flex items-center justify-between border-t border-border-subtle pt-2 text-xs text-fg-muted">
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-2 text-xs text-fg-muted">
                                 <span>{item.hasUi ? "UI + API" : "API"}</span>
                                 <div className="flex items-center gap-1.5">
                                   {primaryNext && (
@@ -656,6 +924,23 @@ export function DeliverablesDocsHub() {
                                         <Pause className="size-3" />
                                       </button>
                                     )}
+                                  {!["approved", "merged", "paused", "failed"].includes(
+                                    item.status
+                                  ) && (
+                                    <button
+                                      type="button"
+                                      aria-label={`Abortar execução de ${item.title}`}
+                                      data-testid={`btn-abort-deliverable-${item.id}`}
+                                      disabled={abortWorkflowMutation.isPending}
+                                      onClick={() =>
+                                        abortWorkflowMutation.mutate(item.id)
+                                      }
+                                      className="inline-flex min-h-7 items-center gap-1 rounded border border-status-danger/35 bg-status-danger/10 px-2 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:opacity-50"
+                                    >
+                                      <Square className="size-3" />
+                                      <span>Abortar</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </article>
@@ -737,6 +1022,23 @@ export function DeliverablesDocsHub() {
                             >
                               <span>Avançar</span>
                               <ArrowRight className="size-3" />
+                            </button>
+                          )}
+                          {!["approved", "merged", "paused", "failed"].includes(
+                            item.status
+                          ) && (
+                            <button
+                              type="button"
+                              aria-label={`Abortar execução de ${item.title}`}
+                              data-testid={`btn-abort-deliverable-${item.id}`}
+                              disabled={abortWorkflowMutation.isPending}
+                              onClick={() =>
+                                abortWorkflowMutation.mutate(item.id)
+                              }
+                              className="inline-flex min-h-8 items-center gap-1 rounded-md border border-status-danger/35 bg-status-danger/10 px-2.5 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:opacity-50"
+                            >
+                              <Square className="size-3" />
+                              <span>Abortar</span>
                             </button>
                           )}
                         </div>
