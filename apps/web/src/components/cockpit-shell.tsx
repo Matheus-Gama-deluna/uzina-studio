@@ -711,11 +711,12 @@ export function CockpitShell({
               onClick={() => setPaletteOpen(true)}
               data-testid="open-command-palette"
               aria-label="Abrir paleta de comandos"
+              title="Paleta de comandos (⌘K / Ctrl+K)"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             >
-              <Command className="size-3.5" strokeWidth={1.75} />
+              <Command className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
               <kbd className="hidden font-mono text-xs text-fg-muted md:inline">
-                ⌘K
+                K
               </kbd>
             </button>
             <ThemeToggle />

@@ -13,7 +13,7 @@ import {
   getDb,
   projectRepositories,
 } from "@uzina/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -75,7 +75,7 @@ export async function GET(
     .select()
     .from(deliverables)
     .where(eq(deliverables.projectId, project.id))
-    .orderBy(desc(deliverables.createdAt));
+    .orderBy(asc(deliverables.createdAt), asc(deliverables.id));
 
   return NextResponse.json(
     DeliverableListResponseSchema.parse({ items: rows.map(mapDeliverable) }),

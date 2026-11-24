@@ -434,7 +434,7 @@ export function ProvidersManager() {
       </section>
 
       {/* Guia Rápido de Provedores (1 clique para abrir modal pré-configurado) */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {(
           [
             {
@@ -451,6 +451,11 @@ export function ProvidersManager() {
               type: "anthropic" as const,
               title: "Anthropic Direct",
               desc: "Claude Sonnet 4.5 (Arquiteto) + Claude Haiku 4.5 (Execução Rápida).",
+            },
+            {
+              type: "omniroute" as const,
+              title: "OmniRoute Gateway",
+              desc: "Gateway unificado OpenAI-compatible (ex.: omni-fast e roteamento por papel).",
             },
             {
               type: "ollama" as const,
@@ -529,7 +534,7 @@ export function ProvidersManager() {
             <p className="mt-1.5 max-w-lg text-sm text-fg-secondary">
               Enquanto nenhum provedor estiver salvo no Cofre, o Chat opera em{" "}
               <strong className="text-fg-primary">Modo Assistido Local</strong>.
-              Escolha um dos 4 cartões acima ou abra o assistente de configuração.
+              Escolha um dos 5 cartões acima ou abra o assistente de configuração.
             </p>
             <button
               type="button"
@@ -574,7 +579,7 @@ export function ProvidersManager() {
                         )}
                       </div>
                       {profile.baseUrl && (
-                        <p className="font-mono text-xs text-fg-muted">
+                        <p className="break-all font-mono text-xs text-fg-muted">
                           {profile.baseUrl}
                         </p>
                       )}

@@ -1659,6 +1659,10 @@ function isHeadlessOrBackendOnlyPrompt(message: string): boolean {
   return headlessMatch && !explicitUiMatch;
 }
 
+function trimTrailingDots(text: string): string {
+  return text.trim().replace(/\.+$/, "");
+}
+
 function deriveDeliverableWaveFromPrompt(params: {
   projectName: string;
   message: string;
@@ -1673,12 +1677,13 @@ function deriveDeliverableWaveFromPrompt(params: {
   riskLevel: RiskLevel;
 }> {
   const headlessOnly = isHeadlessOrBackendOnlyPrompt(params.message);
+  const cleanMsgSummary = trimTrailingDots(params.message.slice(0, 220));
 
   if (params.originKind === "brownfield") {
     return [
       {
         title: `Slice 1 (Ciclo #${params.cycleNumber}) — Mapeamento Arquitetural, Contratos & Testes de Caracterização`,
-        description: `Consolidar contratos de validação e testes de caracterização sobre o repositório de ${params.projectName} (${params.message.slice(0, 220)}).`,
+        description: `Consolidar contratos de validação e testes de caracterização sobre o repositório de ${params.projectName} (${cleanMsgSummary}).`,
         hasUi: false,
         strategy: "characterization_strangler",
         riskLevel: "medium",
@@ -1711,7 +1716,7 @@ function deriveDeliverableWaveFromPrompt(params: {
   return [
     {
       title: `Slice 1 (Ciclo #${params.cycleNumber}) — Fundação de Contratos, Entidades & Fronteiras Tipadas`,
-      description: `Modelar entidades centrais, regras de negócio e fronteiras tipadas para ${params.projectName}: ${params.message.slice(0, 220)}.`,
+      description: `Modelar entidades centrais, regras de negócio e fronteiras tipadas para ${params.projectName}: ${cleanMsgSummary}.`,
       hasUi: false,
       strategy: "api_contract_first",
       riskLevel: "medium",
@@ -1776,6 +1781,7 @@ async function executeDeterministicAgencyMutations(
   actionsExecuted: AgencyActionExecuted[];
   workflowDispatches: WorkflowDispatchInfo[];
   isTransactionalIntent: boolean;
+  alignmentMemoryId?: string;
 }> {
   const canMutate = WRITE_ROLES.has(params.actor.role);
   const actionsExecuted: AgencyActionExecuted[] = [];
@@ -1830,6 +1836,7 @@ async function executeDeterministicAgencyMutations(
   let handedOffFrom: AgencyAgentRole | null = null;
   let activeAgent = getAgent(parsed.targetAgentRole ?? "orchestrator");
   let replyLines: string[] = [];
+  let alignmentMemoryId: string | undefined;
 
   // 1. Fluxo Brownfield: Importar Repositório Existente (URL Git ou Caminho Local)
   if (effectiveIntent === "import_git_or_repo") {
@@ -2864,7 +2871,7 @@ async function executeDeterministicAgencyMutations(
     activeAgent = getAgent(resolvedRole);
 
     if (targetProjectId && canMutate) {
-      await createMemoryScoped(db, {
+      const createdAlign = await createMemoryScoped(db, {
         organizationId: params.actor.organizationId,
         input: {
           scopeType: "project",
@@ -2877,6 +2884,7 @@ async function executeDeterministicAgencyMutations(
           content: parsed.message,
         },
       });
+      alignmentMemoryId = createdAlign.id;
       actionsExecuted.push({
         type: "saved_qmd_memory",
         label: `Alinhamento registrado por ${activeAgent.name} nos Artefatos de Longo Prazo`,
@@ -2902,7 +2910,48 @@ async function executeDeterministicAgencyMutations(
     actionsExecuted,
     workflowDispatches,
     isTransactionalIntent: effectiveIntent !== "general_chat",
+    alignmentMemoryId,
   };
+}
+
+async function appendAlignmentAnswerToPrdMemory(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    memoryId?: string;
+    question: string;
+    agentName: string;
+    answer: string;
+    knownSecrets: readonly string[];
+  }
+): Promise<void> {
+  if (!params.memoryId || !params.answer.trim()) return;
+  const safeQuestion = redactSensitiveText(
+    params.question.trim(),
+    params.knownSecrets
+  );
+  const safeAnswer = redactSensitiveText(
+    params.answer.trim(),
+    params.knownSecrets
+  ).slice(0, 2500);
+  const qaContent = [
+    `**Pergunta / Direcionamento:** ${safeQuestion}`,
+    ``,
+    `**Resposta (${params.agentName}):** ${safeAnswer}`,
+  ].join("\n");
+
+  await db
+    .update(memories)
+    .set({
+      content: qaContent,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(memories.id, params.memoryId),
+        eq(memories.organizationId, params.organizationId)
+      )
+    );
 }
 
 export async function* streamAgencyChatScoped(
@@ -2956,6 +3005,7 @@ export async function* streamAgencyChatScoped(
       actionsExecuted,
       workflowDispatches,
       isTransactionalIntent,
+      alignmentMemoryId,
     } = mutationResult;
     let replyLines = [...mutationResult.replyLines];
 
@@ -3166,6 +3216,15 @@ export async function* streamAgencyChatScoped(
           },
         ],
       });
+      await appendAlignmentAnswerToPrdMemory(db, {
+        organizationId: params.actor.organizationId,
+        memoryId: alignmentMemoryId,
+        question: parsed.message,
+        agentName: activeAgent.name,
+        answer: fullReply,
+        knownSecrets,
+      });
+
       yield { type: "token", text: fullReply };
 
       const response = AgencyChatResponseSchema.parse({
@@ -3414,6 +3473,15 @@ export async function* streamAgencyChatScoped(
               knownSecrets
             );
 
+            await appendAlignmentAnswerToPrdMemory(db, {
+              organizationId: params.actor.organizationId,
+              memoryId: alignmentMemoryId,
+              question: parsed.message,
+              agentName: activeAgent.name,
+              answer: safeCombinedReply,
+              knownSecrets,
+            });
+
             const recalledLatest = await memory
               .recall({
                 threadId,
@@ -3499,6 +3567,14 @@ export async function* streamAgencyChatScoped(
 
     // Modo assistido local (offline / sem chave LLM) com persistência da thread no servidor
     const fullReply = redactSensitiveText(replyLines.join("\n"), knownSecrets);
+    await appendAlignmentAnswerToPrdMemory(db, {
+      organizationId: params.actor.organizationId,
+      memoryId: alignmentMemoryId,
+      question: parsed.message,
+      agentName: activeAgent.name,
+      answer: fullReply,
+      knownSecrets,
+    });
     await memory.saveMessages({
       messages: [
         {

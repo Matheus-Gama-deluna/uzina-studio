@@ -273,6 +273,12 @@ export function VisualStudioWorkspace() {
               <button
                 type="button"
                 data-testid="toggle-studio-inspector"
+                aria-label={
+                  inspectorOpen
+                    ? "Ocultar painel de ajustes"
+                    : "Abrir painel de ajustes"
+                }
+                aria-expanded={inspectorOpen}
                 onClick={() => setInspectorOpen((prev) => !prev)}
                 className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-fg-secondary hover:text-fg-primary"
               >

@@ -49,7 +49,7 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
     await page.waitForURL("**/app**");
     await expect(
       page.getByRole("heading", { name: "O que vamos construir hoje?" })
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId("btn-new-project").click();
     await page

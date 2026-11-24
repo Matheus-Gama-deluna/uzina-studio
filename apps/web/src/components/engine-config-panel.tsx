@@ -154,10 +154,14 @@ export function EngineConfigPanel() {
       <form onSubmit={handleSave} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-embedding-select"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Motor de Embeddings (QMD)
             </label>
             <select
+              id="engine-embedding-select"
               data-testid="engine-embedding-select"
               value={embeddingMode}
               onChange={(e) =>
@@ -177,10 +181,14 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-ast-select"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Indexador AST
             </label>
             <select
+              id="engine-ast-select"
               data-testid="engine-ast-select"
               value={astMode}
               onChange={(e) =>
@@ -249,10 +257,14 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-skeleton-tokens-input"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Orçamento Esqueleto (tokens)
             </label>
             <input
+              id="engine-skeleton-tokens-input"
               type="number"
               min={200}
               max={8000}
@@ -271,10 +283,14 @@ export function EngineConfigPanel() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-qmd-topk-input"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               QMD Top-K Contexto
             </label>
             <input
+              id="engine-qmd-topk-input"
               type="number"
               min={1}
               max={10}
@@ -287,11 +303,15 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-docker-cpu"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Docker CPU / Memória
             </label>
             <div className="mt-1 flex gap-1.5">
               <input
+                id="engine-docker-cpu"
                 type="text"
                 value={dockerCpuLimit}
                 onChange={(e) =>
@@ -304,6 +324,7 @@ export function EngineConfigPanel() {
                 className="min-h-9 w-1/2 rounded-md border border-border-default bg-inset px-2 font-mono text-xs text-fg-primary focus:border-border-strong focus:outline-none"
               />
               <input
+                id="engine-docker-mem"
                 type="text"
                 value={dockerMemoryLimit}
                 onChange={(e) =>
@@ -319,11 +340,15 @@ export function EngineConfigPanel() {
           </div>
 
           <div className="min-w-0 sm:col-span-2">
-            <label className="block text-xs font-medium text-fg-secondary">
+            <label
+              htmlFor="engine-ollama-url"
+              className="block text-xs font-medium text-fg-secondary"
+            >
               Ollama Endpoint &amp; Modelo (se ativo)
             </label>
-            <div className="mt-1 flex gap-1.5">
+            <div className="mt-1 flex flex-wrap gap-1.5">
               <input
+                id="engine-ollama-url"
                 type="url"
                 value={ollamaBaseUrl}
                 onChange={(e) =>
@@ -332,9 +357,11 @@ export function EngineConfigPanel() {
                     ollamaBaseUrl: e.target.value,
                   }))
                 }
+                aria-label="URL base do servidor Ollama"
                 className="min-w-0 flex-1 rounded border border-border-subtle bg-inset px-2.5 py-1.5 font-mono text-xs text-fg-primary focus:border-accent focus:outline-none"
               />
               <input
+                id="engine-ollama-model"
                 type="text"
                 value={ollamaEmbeddingModel}
                 onChange={(e) =>
@@ -343,6 +370,7 @@ export function EngineConfigPanel() {
                     ollamaEmbeddingModel: e.target.value,
                   }))
                 }
+                aria-label="Modelo de embedding Ollama"
                 className="w-28 rounded border border-border-subtle bg-inset px-2.5 py-1.5 font-mono text-xs text-fg-primary focus:border-accent focus:outline-none"
               />
             </div>
