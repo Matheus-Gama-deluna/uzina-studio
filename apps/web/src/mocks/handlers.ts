@@ -255,6 +255,12 @@ export const handlers = [
     if (parsed.data.budgetCapUsd !== undefined) {
       project.budgetCapUsd = parsed.data.budgetCapUsd;
     }
+    if (parsed.data.budgetCapTokens !== undefined) {
+      project.budgetCapTokens = parsed.data.budgetCapTokens;
+    }
+    if (parsed.data.finalizePolicy !== undefined) {
+      project.finalizePolicy = parsed.data.finalizePolicy;
+    }
     if (parsed.data.name !== undefined) project.name = parsed.data.name;
     if (parsed.data.description !== undefined) project.description = parsed.data.description;
     if (parsed.data.defaultDevelopmentStrategy !== undefined) {
@@ -282,6 +288,43 @@ export const handlers = [
         items: mockBackgroundTasksResponse.items,
       })
     );
+  }),
+
+  http.post("*/api/projects/:id/autonomous-cycle", ({ params }) => {
+    const projectId = String(params.id ?? "");
+    const firstDeliv = mockDeliverables.items.find((d) => d.projectId === projectId);
+    return HttpResponse.json({
+      dispatched: Boolean(firstDeliv),
+      alreadyRunning: false,
+      taskId: firstDeliv ? `bg-mock-${firstDeliv.id.slice(0, 8)}` : null,
+      deliverableId: firstDeliv?.id ?? null,
+      deliverableTitle: firstDeliv?.title ?? null,
+      message: firstDeliv
+        ? `Ciclo autônomo iniciado para '${firstDeliv.title}'.`
+        : "Nenhuma entrega elegível para ciclo autônomo.",
+    });
+  }),
+
+  http.post("*/api/deliverables/:id/merge", ({ params }) => {
+    const id = String(params.id ?? "");
+    const deliv = mockDeliverables.items.find((d) => d.id === id);
+    return HttpResponse.json({
+      ok: true,
+      mode: "local_merge",
+      commitSha: "abcdef1234567",
+      branchName: deliv?.branchName ?? "uzina/mock",
+      message: "Branch mesclada em 'main'.",
+    });
+  }),
+
+  http.delete("*/api/deliverables/:id/worktree", ({ params }) => {
+    return HttpResponse.json({
+      cleaned: true,
+      deliverableId: String(
+        params.id ?? mockDeliverables.items[0]?.id ?? crypto.randomUUID()
+      ),
+      message: "Worktree órfão removido e registro atualizado.",
+    });
   }),
 
   http.get("*/api/projects/:id/deliverables", ({ request }) => {

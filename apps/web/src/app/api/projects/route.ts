@@ -2,6 +2,7 @@ import {
   CreateProjectSchema,
   DEFAULT_PROJECT_STAGE_AUTOMATION,
   DevelopmentStrategySchema,
+  ProjectFinalizePolicySchema,
   ProjectListResponseSchema,
   ProjectRepositorySchema,
   ProjectSchema,
@@ -44,6 +45,17 @@ export function mapProject(
     parsedBudget !== null && Number.isFinite(parsedBudget)
       ? parsedBudget
       : null;
+  const parsedTokenCap = row.budgetCapTokens ?? null;
+  const budgetCapTokens =
+    parsedTokenCap !== null &&
+    Number.isInteger(parsedTokenCap) &&
+    parsedTokenCap > 0
+      ? parsedTokenCap
+      : null;
+  const parsedPolicy = ProjectFinalizePolicySchema.safeParse(
+    row.finalizePolicy ?? "local_merge"
+  );
+  const finalizePolicy = parsedPolicy.success ? parsedPolicy.data : "local_merge";
 
   return ProjectSchema.parse({
     id: row.id,
@@ -59,6 +71,8 @@ export function mapProject(
     status: ProjectStatusSchema.parse(row.status),
     stageAutomation,
     budgetCapUsd,
+    budgetCapTokens,
+    finalizePolicy,
     repositories: repos.map((r) =>
       ProjectRepositorySchema.parse({
         id: r.id,

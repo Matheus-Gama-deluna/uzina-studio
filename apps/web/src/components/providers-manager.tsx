@@ -171,6 +171,9 @@ export function ProvidersManager() {
   const [roleModels, setRoleModels] = useState<Record<AgentRole, string>>(() =>
     buildBindingsForPreset("google", "recommended_tiering")
   );
+  const [customPricingOpen, setCustomPricingOpen] = useState(false);
+  const [customInputUsd, setCustomInputUsd] = useState("");
+  const [customOutputUsd, setCustomOutputUsd] = useState("");
 
   const providersQuery = useQuery({
     queryKey: ["providers"],
@@ -239,6 +242,26 @@ export function ProvidersManager() {
         }
       }
 
+      const parsedIn = Number(customInputUsd);
+      const parsedOut = Number(customOutputUsd);
+      const hasCustomRates =
+        customInputUsd.trim().length > 0 &&
+        customOutputUsd.trim().length > 0 &&
+        Number.isFinite(parsedIn) &&
+        parsedIn >= 0 &&
+        Number.isFinite(parsedOut) &&
+        parsedOut >= 0;
+
+      const nextCustomPricing = hasCustomRates
+        ? {
+            ...(editing?.customPricing ?? {}),
+            "*": {
+              inputPer1MUsd: parsedIn,
+              outputPer1MUsd: parsedOut,
+            },
+          }
+        : editing?.customPricing;
+
       if (editing) {
         const res = await fetch(`/api/providers/${editing.id}`, {
           method: "PATCH",
@@ -248,6 +271,9 @@ export function ProvidersManager() {
             baseUrl: baseUrl.trim() || null,
             ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
             roleBindings,
+            ...(nextCustomPricing !== undefined
+              ? { customPricing: nextCustomPricing }
+              : {}),
             isDefault,
           }),
         });
@@ -267,6 +293,9 @@ export function ProvidersManager() {
           baseUrl: baseUrl.trim() || null,
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           roleBindings,
+          ...(nextCustomPricing !== undefined
+            ? { customPricing: nextCustomPricing }
+            : {}),
           isDefault,
         }),
       });
@@ -299,6 +328,9 @@ export function ProvidersManager() {
     setApiKey("");
     setIsDefault(profiles.length === 0);
     setRoleModels(buildBindingsForPreset(initialType, "recommended_tiering"));
+    setCustomPricingOpen(false);
+    setCustomInputUsd("");
+    setCustomOutputUsd("");
     setFormError(null);
     setPingResult(null);
     setModalOpen(true);
@@ -326,6 +358,10 @@ export function ProvidersManager() {
       security: profile.roleBindings.security?.modelId ?? defaults.security,
       copilot: profile.roleBindings.copilot?.modelId ?? defaults.copilot,
     });
+    const wildcardRate = profile.customPricing?.["*"];
+    setCustomPricingOpen(Boolean(wildcardRate));
+    setCustomInputUsd(wildcardRate ? String(wildcardRate.inputPer1MUsd) : "");
+    setCustomOutputUsd(wildcardRate ? String(wildcardRate.outputPer1MUsd) : "");
     setFormError(null);
     setPingResult(null);
     setModalOpen(true);
@@ -815,6 +851,59 @@ export function ProvidersManager() {
                 />
                 <span>Definir como provedor padrão da Central Conversacional</span>
               </label>
+
+              <div className="rounded-md border border-border-subtle bg-inset/50 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomPricingOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between text-xs font-medium text-fg-secondary hover:text-fg-primary"
+                >
+                  <span>Tarifa customizada FinOps (opcional — USD por 1M tokens)</span>
+                  <span>{customPricingOpen ? "−" : "+"}</span>
+                </button>
+                {customPricingOpen && (
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="provider-custom-input-usd"
+                        className="block text-xs text-fg-secondary"
+                      >
+                        Input (USD / 1M tok)
+                      </label>
+                      <input
+                        id="provider-custom-input-usd"
+                        data-testid="provider-custom-input-usd"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={customInputUsd}
+                        onChange={(e) => setCustomInputUsd(e.target.value)}
+                        placeholder="Ex.: 0.40"
+                        className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="provider-custom-output-usd"
+                        className="block text-xs text-fg-secondary"
+                      >
+                        Output (USD / 1M tok)
+                      </label>
+                      <input
+                        id="provider-custom-output-usd"
+                        data-testid="provider-custom-output-usd"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={customOutputUsd}
+                        onChange={(e) => setCustomOutputUsd(e.target.value)}
+                        placeholder="Ex.: 1.20"
+                        className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {pingResult && (
                 <div

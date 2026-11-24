@@ -6,19 +6,26 @@ import {
   type WorkflowState,
 } from "@mastra/core/workflows";
 import {
+  AutonomousCycleResponseSchema,
+  CleanupDeliverableWorktreeResponseSchema,
   DecisionSchema,
   DeliverableStatusSchema,
   DeliverableWorkflowStateSchema,
+  EvidencePackSchema,
+  MergeDeliverableBranchResponseSchema,
   ResolveDecisionSchema,
   StrategyRouterOutputSchema,
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorkflowStartInputSchema,
+  type AutonomousCycleResponse,
   type BackgroundTaskSummary,
+  type CleanupDeliverableWorktreeResponse,
   type Decision,
   type DeliverableStatus,
   type DeliverableWorkflowState,
   type DeliverableWorkflowStatus,
+  type MergeDeliverableBranchResponse,
   type OrgRole,
   type ResolveDecisionInput,
   type ResolveDecisionResponse,
@@ -34,18 +41,25 @@ import {
   deliverables,
   designAssets,
   executionEvents,
+  projectRepositories,
   projects,
+  providerProfiles,
   releaseDeliverableLock,
   renewDeliverableLock,
   type UzinaDb,
 } from "@uzina/db";
-import type { ExecutionWorkspace, OpenCodeTransport } from "@uzina/opencode-bridge";
+import {
+  LocalGitWorktreeWorkspace,
+  type ExecutionWorkspace,
+  type OpenCodeTransport,
+} from "@uzina/opencode-bridge";
 import type { RunSecurityScanDeps } from "@uzina/security-engine";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
 import { createExecutiveCopilotAgent } from "./agents/executive-copilot.js";
 import { BackgroundTasksRegistry } from "./background-tasks.js";
 import { destroyAgentController } from "./controller.js";
+import { recordExecutionEvent } from "./event-bus.js";
 import { getProjectAccumulatedCostUsd } from "./finops.js";
 import {
   closeMastraStorage,
@@ -56,6 +70,7 @@ import {
   LOCK_HEARTBEAT_INTERVAL_MS,
   createDeliverableLifecycleWorkflow,
   lockWorkerContext,
+  mergeBranchIntoBaseSafe,
   type FinalizeRunner,
   type LockWorkerContextValue,
   type VerifyRunner,
@@ -116,6 +131,18 @@ export interface MastraWorkflowService {
     deliverableId: string;
     mastraRunId: string | null;
   }>;
+  runProjectAutonomousCycle(params: {
+    projectId: string;
+    organizationId: string;
+  }): Promise<AutonomousCycleResponse>;
+  mergeDeliverableBranch(params: {
+    deliverableId: string;
+    organizationId: string;
+  }): Promise<MergeDeliverableBranchResponse>;
+  cleanupDeliverableWorktree(params: {
+    deliverableId: string;
+    organizationId: string;
+  }): Promise<CleanupDeliverableWorktreeResponse>;
   close(): Promise<void>;
 }
 
@@ -526,7 +553,7 @@ export async function createMastraRuntime(
     }
   };
 
-  return {
+  const service: MastraWorkflowService = {
     mastra,
     backgroundTasks,
 
@@ -1054,6 +1081,395 @@ export async function createMastraRuntime(
       };
     },
 
+    async runProjectAutonomousCycle({ projectId, organizationId }) {
+      const [projRow] = await options.db
+        .select({ project: projects })
+        .from(projects)
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(
+          and(
+            eq(projects.id, projectId),
+            eq(clients.organizationId, organizationId)
+          )
+        )
+        .limit(1);
+
+      if (!projRow) {
+        throw new WorkflowRuntimeError({
+          statusCode: 404,
+          code: "FORBIDDEN_PROJECT_SCOPE",
+          message: `Projeto '${projectId}' não encontrado na organização.`,
+        });
+      }
+
+      const currentTasks = await backgroundTasks.listForProject(options.db, {
+        organizationId,
+        projectId,
+      });
+      const activeTask = currentTasks.find(
+        (t) => t.status === "running" || t.status === "queued"
+      );
+      if (activeTask) {
+        return AutonomousCycleResponseSchema.parse({
+          dispatched: false,
+          alreadyRunning: true,
+          taskId: activeTask.id,
+          deliverableId: activeTask.deliverableId,
+          deliverableTitle: null,
+          message: `Ciclo autônomo já está em andamento (${activeTask.summary}).`,
+        });
+      }
+
+      const [defaultRepo] = await options.db
+        .select({ id: projectRepositories.id })
+        .from(projectRepositories)
+        .where(eq(projectRepositories.projectId, projectId))
+        .orderBy(desc(projectRepositories.createdAt))
+        .limit(1);
+
+      if (!defaultRepo) {
+        return AutonomousCycleResponseSchema.parse({
+          dispatched: false,
+          alreadyRunning: false,
+          taskId: null,
+          deliverableId: null,
+          deliverableTitle: null,
+          message:
+            "Cadastre/vincule um repositório local ao projeto antes de executar o ciclo autônomo.",
+        });
+      }
+
+      const orgProviders = await options.db
+        .select({ roleBindingsJson: providerProfiles.roleBindingsJson })
+        .from(providerProfiles)
+        .where(eq(providerProfiles.organizationId, organizationId));
+
+      const hasBuilderProvider = orgProviders.some(
+        (p) =>
+          p.roleBindingsJson?.builder?.modelId &&
+          p.roleBindingsJson.builder.modelId.trim().length > 0
+      );
+      if (!hasBuilderProvider) {
+        return AutonomousCycleResponseSchema.parse({
+          dispatched: false,
+          alreadyRunning: false,
+          taskId: null,
+          deliverableId: null,
+          deliverableTitle: null,
+          message:
+            "Configure um provedor LLM com modelo atribuído ao papel Builder antes de executar o ciclo autônomo.",
+        });
+      }
+
+      const projectDelivs = await options.db
+        .select()
+        .from(deliverables)
+        .where(eq(deliverables.projectId, projectId))
+        .orderBy(asc(deliverables.createdAt));
+
+      const eligible = projectDelivs.find(
+        (d) =>
+          d.status !== "merged" &&
+          d.status !== "failed" &&
+          d.status !== "approved" &&
+          d.status !== "decision_pending"
+      );
+
+      if (!eligible) {
+        return AutonomousCycleResponseSchema.parse({
+          dispatched: false,
+          alreadyRunning: false,
+          taskId: null,
+          deliverableId: null,
+          deliverableTitle: null,
+          message:
+            "Nenhuma entrega elegível para ciclo autônomo (verifique Decisões HITL pendentes ou entregas concluídas).",
+        });
+      }
+
+      const [pendingDec] = await options.db
+        .select({ id: decisions.id })
+        .from(decisions)
+        .where(
+          and(
+            eq(decisions.deliverableId, eligible.id),
+            eq(decisions.status, "pending")
+          )
+        )
+        .limit(1);
+
+      if (pendingDec) {
+        return AutonomousCycleResponseSchema.parse({
+          dispatched: false,
+          alreadyRunning: false,
+          taskId: null,
+          deliverableId: eligible.id,
+          deliverableTitle: eligible.title,
+          message: `A entrega '${eligible.title}' possui decisão humana pendente na Caixa de Decisões.`,
+        });
+      }
+
+      if (eligible.mastraRunId) {
+        const st = await service
+          .getWorkflowState({
+            deliverableId: eligible.id,
+            organizationId,
+          })
+          .catch(() => null);
+        if (st?.workflowStatus === "suspended") {
+          return AutonomousCycleResponseSchema.parse({
+            dispatched: false,
+            alreadyRunning: false,
+            taskId: null,
+            deliverableId: eligible.id,
+            deliverableTitle: eligible.title,
+            message: `A entrega '${eligible.title}' está suspensa em portão humano (${st.gate ?? "HITL"}).`,
+          });
+        }
+        if (st?.workflowStatus === "running") {
+          return AutonomousCycleResponseSchema.parse({
+            dispatched: false,
+            alreadyRunning: true,
+            taskId: null,
+            deliverableId: eligible.id,
+            deliverableTitle: eligible.title,
+            message: `A entrega '${eligible.title}' já possui execução Mastra ativa.`,
+          });
+        }
+      }
+
+      if (!eligible.repositoryId) {
+        await options.db
+          .update(deliverables)
+          .set({
+            repositoryId: defaultRepo.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, eligible.id));
+      }
+
+      const task = backgroundTasks.enqueue({
+        organizationId,
+        projectId,
+        deliverableId: eligible.id,
+        kind: "workflow_cycle",
+        summary: `Ciclo autônomo em execução para '${eligible.title}'`,
+        mastraRunId: eligible.mastraRunId ?? null,
+        work: async ({ signal, updateTask }) => {
+          const state = await service.startDeliverableWorkflow({
+            deliverableId: eligible.id,
+            organizationId,
+            input: {},
+            signal,
+          });
+          updateTask({
+            mastraRunId: state.runId,
+            status:
+              state.workflowStatus === "suspended"
+                ? "suspended"
+                : state.workflowStatus === "failed"
+                  ? "failed"
+                  : "completed",
+            summary: `${eligible.title}: ${state.deliverableStatus} (${state.workflowStatus})`,
+          });
+        },
+      });
+
+      return AutonomousCycleResponseSchema.parse({
+        dispatched: true,
+        alreadyRunning: false,
+        taskId: task.id,
+        deliverableId: eligible.id,
+        deliverableTitle: eligible.title,
+        message: `Ciclo autônomo iniciado para '${eligible.title}' (${task.id}).`,
+      });
+    },
+
+    async mergeDeliverableBranch({ deliverableId, organizationId }) {
+      const row = await findScopedDeliverable(
+        options.db,
+        deliverableId,
+        organizationId
+      );
+      if (row.status !== "approved" && row.status !== "merged") {
+        throw new WorkflowRuntimeError({
+          statusCode: 409,
+          code: "WORKFLOW_NOT_SUSPENDED",
+          message:
+            "Apenas entregas aprovadas no portão HITL podem ser mescladas na branch base.",
+        });
+      }
+      if (!row.branchName) {
+        throw new WorkflowRuntimeError({
+          statusCode: 409,
+          code: "WORKFLOW_NOT_SUSPENDED",
+          message: "Entregável não possui branch pendente para mesclar.",
+        });
+      }
+      if (!row.repositoryId) {
+        throw new WorkflowRuntimeError({
+          statusCode: 422,
+          code: "MISSING_PRECONDITION",
+          message: "Entregável não está vinculado a um repositório.",
+        });
+      }
+
+      const [repo] = await options.db
+        .select()
+        .from(projectRepositories)
+        .where(eq(projectRepositories.id, row.repositoryId))
+        .limit(1);
+
+      if (!repo) {
+        throw new WorkflowRuntimeError({
+          statusCode: 422,
+          code: "MISSING_PRECONDITION",
+          message: "Repositório do entregável não encontrado.",
+        });
+      }
+
+      const mergeAttempt = await mergeBranchIntoBaseSafe({
+        repoPath: repo.localPath,
+        branchName: row.branchName,
+        baseBranch: repo.defaultBranch || "main",
+        deleteBranchOnSuccess: true,
+      });
+
+      if (!mergeAttempt.ok) {
+        return MergeDeliverableBranchResponseSchema.parse({
+          ok: false,
+          mode: "local_branch_ready",
+          commitSha: mergeAttempt.commitSha,
+          branchName: row.branchName,
+          message:
+            mergeAttempt.mergeBlockedReason ??
+            "Não foi possível mesclar a branch na base.",
+        });
+      }
+
+      const parsedPack = EvidencePackSchema.safeParse(row.evidencePackJson);
+      const nextPack = parsedPack.success
+        ? {
+            ...parsedPack.data,
+            finalizeInfo: {
+              mode: "local_merge" as const,
+              commitSha:
+                mergeAttempt.commitSha ??
+                parsedPack.data.finalizeInfo?.commitSha ??
+                null,
+              prUrl: parsedPack.data.finalizeInfo?.prUrl ?? null,
+              branchName: row.branchName,
+              mergeBlockedReason: null,
+            },
+          }
+        : row.evidencePackJson;
+
+      await options.db
+        .update(deliverables)
+        .set({
+          branchName: null,
+          evidencePackJson: nextPack as Record<string, unknown> | null,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliverables.id, row.id));
+
+      await recordExecutionEvent(options.db, {
+        deliverableId: row.id,
+        stage: "stage_finalize",
+        actorRole: "builder",
+        eventType: "stage_change",
+        payload: {
+          status: row.status,
+          finalizeMode: "local_merge",
+          commitSha: mergeAttempt.commitSha,
+          manualMerge: true,
+        },
+      });
+
+      return MergeDeliverableBranchResponseSchema.parse({
+        ok: true,
+        mode: "local_merge",
+        commitSha: mergeAttempt.commitSha,
+        branchName: row.branchName,
+        message: `Branch '${row.branchName}' mesclada em '${repo.defaultBranch || "main"}' (${mergeAttempt.commitSha?.slice(0, 7) ?? "HEAD"}).`,
+      });
+    },
+
+    async cleanupDeliverableWorktree({ deliverableId, organizationId }) {
+      const row = await findScopedDeliverable(
+        options.db,
+        deliverableId,
+        organizationId
+      );
+
+      const projTasks = await backgroundTasks.listForProject(options.db, {
+        organizationId,
+        projectId: row.projectId,
+      });
+      const activeForDeliverable = projTasks.some(
+        (t) =>
+          t.deliverableId === row.id &&
+          (t.status === "running" || t.status === "queued")
+      );
+      if (activeForDeliverable || activeRunAborters.has(row.id)) {
+        throw new WorkflowRuntimeError({
+          statusCode: 409,
+          code: "WORKFLOW_ALREADY_RUNNING",
+          message:
+            "Não é possível limpar o worktree enquanto a entrega possui execução ativa.",
+        });
+      }
+
+      if (row.worktreePath && row.repositoryId && row.branchName) {
+        const [repo] = await options.db
+          .select()
+          .from(projectRepositories)
+          .where(eq(projectRepositories.id, row.repositoryId))
+          .limit(1);
+
+        if (repo) {
+          const workspace =
+            options.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+          try {
+            await workspace.attach({
+              deliverableId: row.id,
+              repoPath: repo.localPath,
+              workspacePath: row.worktreePath,
+              branchName: row.branchName,
+              baseBranch: repo.defaultBranch || "main",
+            });
+            await workspace.cleanup({ deleteBranch: false });
+          } catch {
+            // Melhor esforço se o diretório já foi removido manualmente
+          }
+        }
+      }
+
+      await options.db
+        .update(deliverables)
+        .set({
+          worktreePath: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliverables.id, row.id));
+
+      await recordExecutionEvent(options.db, {
+        deliverableId: row.id,
+        stage: "stage_finalize",
+        actorRole: "builder",
+        eventType: "stage_change",
+        payload: {
+          worktreeCleaned: true,
+        },
+      });
+
+      return CleanupDeliverableWorktreeResponseSchema.parse({
+        cleaned: true,
+        deliverableId: row.id,
+        message: "Worktree órfão removido e registro atualizado.",
+      });
+    },
+
     async close() {
       await backgroundTasks.drainAll();
       await destroyAgentController();
@@ -1061,4 +1477,6 @@ export async function createMastraRuntime(
       await closeMastraStorage();
     },
   };
+
+  return service;
 }

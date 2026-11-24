@@ -197,7 +197,7 @@ export function FinopsDashboard() {
         >
           <div className="flex items-center justify-between text-fg-muted">
             <span className="text-xs font-medium text-fg-secondary">
-              Economia Estimada
+              Economia vs Gasto Real
             </span>
             <Coins className="size-4 text-status-ok" strokeWidth={1.75} />
           </div>
@@ -205,7 +205,8 @@ export function FinopsDashboard() {
             US$ {(summary?.estimatedCostSavedUsd ?? 0).toFixed(4)}
           </p>
           <p className="mt-1 font-mono text-xs text-fg-muted tabular-nums">
-            {summary?.totalEvents ?? 0} evento(s)
+            Gasto real: US$ {(summary?.totalLlmCostUsd ?? 0).toFixed(4)} ·{" "}
+            {(summary?.totalLlmTokens ?? 0).toLocaleString("pt-BR")} tok
           </p>
         </div>
       </section>
@@ -353,6 +354,64 @@ export function FinopsDashboard() {
           </div>
         </section>
       </div>
+
+      <section
+        data-testid="finops-llm-calls-section"
+        className="uzina-card space-y-3 rounded-xl border border-border-subtle bg-surface p-5"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-fg-primary">
+              Consumo Real de LLM (Chamadas Recentes)
+            </h2>
+            <p className="text-xs text-fg-secondary">
+              Tokens e custo calculados a partir dos eventos reais de execução dos workflows.
+            </p>
+          </div>
+          <span className="font-mono text-xs text-fg-secondary tabular-nums">
+            Total: {(summary?.totalLlmTokens ?? 0).toLocaleString("pt-BR")} tokens · US${" "}
+            {(summary?.totalLlmCostUsd ?? 0).toFixed(4)}
+          </span>
+        </div>
+
+        {(summary?.recentLlmCalls ?? []).length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border-default bg-inset px-4 py-6 text-center text-sm text-fg-secondary">
+            Nenhuma chamada LLM de workflow registrada ainda. Execute um ciclo para acompanhar tokens e custo por modelo.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border-subtle text-fg-muted">
+                  <th className="py-2 pr-3 font-medium">Etapa / Papel</th>
+                  <th className="py-2 pr-3 font-medium">Modelo</th>
+                  <th className="py-2 pr-3 font-medium">Entrada / Saída</th>
+                  <th className="py-2 text-right font-medium">Custo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-subtle font-mono tabular-nums">
+                {(summary?.recentLlmCalls ?? []).slice(0, 10).map((call) => (
+                  <tr key={call.id}>
+                    <td className="py-2 pr-3 text-fg-primary">
+                      {call.stage} · {call.actorRole}
+                    </td>
+                    <td className="py-2 pr-3 text-fg-secondary">
+                      {call.modelId ?? "padrão"}
+                    </td>
+                    <td className="py-2 pr-3 text-fg-secondary">
+                      {call.inputTokens.toLocaleString("pt-BR")} /{" "}
+                      {call.outputTokens.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="py-2 text-right text-fg-primary">
+                      US$ {call.estimatedCostUsd.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <EngineConfigPanel />
     </div>

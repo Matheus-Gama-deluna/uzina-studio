@@ -13,6 +13,21 @@ export const RoleBindingsSchema = z.partialRecord(
 );
 export type RoleBindings = z.infer<typeof RoleBindingsSchema>;
 
+export const ModelPricingRateSchema = z
+  .object({
+    inputPer1MUsd: z.number().min(0).max(1000),
+    outputPer1MUsd: z.number().min(0).max(1000),
+    cacheReadPer1MUsd: z.number().min(0).max(1000).optional(),
+  })
+  .strict();
+export type ModelPricingRate = z.infer<typeof ModelPricingRateSchema>;
+
+export const CustomModelPricingMapSchema = z.record(
+  z.string().trim().min(1).max(160),
+  ModelPricingRateSchema
+);
+export type CustomModelPricingMap = z.infer<typeof CustomModelPricingMapSchema>;
+
 export const ProviderProfilePublicSchema = z
   .object({
     id: z.uuid(),
@@ -23,6 +38,7 @@ export const ProviderProfilePublicSchema = z
     hasApiKey: z.boolean(),
     keyPreview: z.string().min(3).max(32).nullable(),
     roleBindings: RoleBindingsSchema,
+    customPricing: CustomModelPricingMapSchema.default({}),
     isDefault: z.boolean(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -37,6 +53,7 @@ export const CreateProviderProfileSchema = z
     baseUrl: HttpUrlSchema.nullable().optional(),
     apiKey: z.string().trim().min(4).max(512).optional(),
     roleBindings: RoleBindingsSchema.default({}),
+    customPricing: CustomModelPricingMapSchema.optional(),
     isDefault: z.boolean().default(false),
   })
   .strict()
@@ -83,6 +100,7 @@ export const UpdateProviderProfileSchema = z
     baseUrl: HttpUrlSchema.nullable().optional(),
     apiKey: z.string().trim().min(4).max(512).optional(),
     roleBindings: RoleBindingsSchema.optional(),
+    customPricing: CustomModelPricingMapSchema.optional(),
     isDefault: z.boolean().optional(),
   })
   .strict();

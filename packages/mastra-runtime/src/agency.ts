@@ -1159,14 +1159,23 @@ export async function resolveProjectAgencyStateScoped(
       });
 
     const pendingDec = pendingByDeliverable.get(d.id);
-    const ev = d.evidencePackJson;
-    const evidenceSummary = ev
-      ? `Verify Gate ejecutado · Testes: ${JSON.stringify(ev.testsSummary ?? "OK")} · AppSec: ${JSON.stringify(ev.securitySummary ?? "0 críticos")}`
-      : d.status === "decision_pending"
-        ? "Slice validado pelo Tech Lead e QA; aguardando sua aprovação ou pedido de ajuste no portão HITL."
-        : d.status === "approved" || d.status === "merged"
-          ? "Slice aprovado e verificado em todas as camadas (Contratos, Testes e AppSec)."
-          : `Em progresso na fase '${STAGE_LABELS[d.status as DeliverableStatus]}' sob responsabilidade de ${owner.name}.`;
+    const ev = d.evidencePackJson as Record<string, unknown> | null;
+    const evVerifyPassed =
+      ev && typeof ev.verifyPassed === "boolean" ? ev.verifyPassed : null;
+    const evNotes =
+      ev && typeof ev.verifierNotes === "string" && ev.verifierNotes.trim()
+        ? ev.verifierNotes.trim()
+        : null;
+    const evidenceSummary =
+      d.status === "failed"
+        ? `Verify Gate reprovado (${d.verifyAttempts}/${d.maxVerifyAttempts}): ${evNotes ?? "Falha nos critérios de verificação."}`
+        : ev
+          ? `Verify Gate executado (${evVerifyPassed === false ? "REPROVADO" : "APROVADO"}) · ${evNotes ?? "Checks determinísticos registrados"} · AppSec: ${JSON.stringify(ev.securitySummary ?? "0 críticos")}`
+          : d.status === "decision_pending"
+            ? "Slice validado pelo Tech Lead e QA; aguardando sua aprovação ou pedido de ajuste no portão HITL."
+            : d.status === "approved" || d.status === "merged"
+              ? "Slice aprovado e verificado em todas as camadas (Contratos, Testes e AppSec)."
+              : `Em progresso na fase '${STAGE_LABELS[d.status as DeliverableStatus]}' sob responsabilidade de ${owner.name}.`;
 
     return {
       deliverableId: d.id,

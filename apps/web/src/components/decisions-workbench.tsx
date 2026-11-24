@@ -474,7 +474,7 @@ export function DecisionsWorkbench() {
                           evidencePack.tokenSummary.totalInputTokens +
                           evidencePack.tokenSummary.totalOutputTokens
                         ).toLocaleString("pt-BR")}{" "}
-                        • \${evidencePack.tokenSummary.estimatedCostUsd.toFixed(4)}
+                        • US$ {evidencePack.tokenSummary.estimatedCostUsd.toFixed(4)}
                       </p>
                     </div>
                   </div>

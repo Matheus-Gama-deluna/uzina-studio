@@ -364,3 +364,41 @@ export const DeliverableWorkflowStateSchema = z.object({
 export type DeliverableWorkflowState = z.infer<
   typeof DeliverableWorkflowStateSchema
 >;
+
+export const AutonomousCycleResponseSchema = z
+  .object({
+    dispatched: z.boolean(),
+    alreadyRunning: z.boolean(),
+    taskId: z.string().min(1).max(160).nullable(),
+    deliverableId: z.uuid().nullable(),
+    deliverableTitle: z.string().trim().min(1).max(200).nullable(),
+    message: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+export type AutonomousCycleResponse = z.infer<
+  typeof AutonomousCycleResponseSchema
+>;
+
+export const MergeDeliverableBranchResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    mode: z.enum(["local_merge", "local_branch_ready"]),
+    commitSha: z.string().nullable(),
+    branchName: z.string().nullable(),
+    message: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+export type MergeDeliverableBranchResponse = z.infer<
+  typeof MergeDeliverableBranchResponseSchema
+>;
+
+export const CleanupDeliverableWorktreeResponseSchema = z
+  .object({
+    cleaned: z.boolean(),
+    deliverableId: z.uuid(),
+    message: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+export type CleanupDeliverableWorktreeResponse = z.infer<
+  typeof CleanupDeliverableWorktreeResponseSchema
+>;

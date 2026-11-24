@@ -98,9 +98,75 @@ describe("@uzina/core — redactSensitiveText & estimateTokenCostUsd", () => {
         outputTokens: 500,
         cacheReadTokens: 0,
       },
+      customPricing: undefined,
       expected: 0,
     },
-  ])("estimateTokenCostUsd: $label", ({ modelId, usage, expected }) => {
-    expect(estimateTokenCostUsd(modelId, usage)).toBe(expected);
+    {
+      label: "customPricing aplica tarifa exata para omni-fast",
+      modelId: "omni-fast",
+      usage: {
+        inputTokens: 500_000,
+        outputTokens: 100_000,
+        cacheReadTokens: 200_000,
+      },
+      customPricing: {
+        "omni-fast": {
+          inputPer1MUsd: 0.4,
+          outputPer1MUsd: 1.2,
+          cacheReadPer1MUsd: 0.05,
+        },
+      },
+      expected: 0.33,
+    },
+    {
+      label: "customPricing com wildcard '*' aplica tarifa padrao para modelo prefixado",
+      modelId: "openai/omni-custom",
+      usage: {
+        inputTokens: 1_000_000,
+        outputTokens: 250_000,
+        cacheReadTokens: 0,
+      },
+      customPricing: {
+        "*": {
+          inputPer1MUsd: 0.5,
+          outputPer1MUsd: 2.0,
+        },
+      },
+      expected: 1.0,
+    },
+    {
+      label: "customPricing sem cacheReadPer1MUsd usa fallback de 10% do inputPer1MUsd",
+      modelId: "omni-fast",
+      usage: {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 500_000,
+      },
+      customPricing: {
+        "omni-fast": {
+          inputPer1MUsd: 2.0,
+          outputPer1MUsd: 4.0,
+        },
+      },
+      expected: 2.1,
+    },
+    {
+      label: "customPricing casa modelo prefixado openai/omni-fast na chave sem prefixo",
+      modelId: "openai/omni-fast",
+      usage: {
+        inputTokens: 500_000,
+        outputTokens: 500_000,
+        cacheReadTokens: 0,
+      },
+      customPricing: {
+        "omni-fast": {
+          inputPer1MUsd: 1.0,
+          outputPer1MUsd: 3.0,
+        },
+      },
+      expected: 2.0,
+    },
+  ])("estimateTokenCostUsd: $label", ({ modelId, usage, customPricing, expected }) => {
+    expect(estimateTokenCostUsd(modelId, usage, customPricing)).toBe(expected);
   });
 });

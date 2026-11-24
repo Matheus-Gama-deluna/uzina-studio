@@ -72,6 +72,7 @@ export async function POST(request: Request): Promise<Response> {
         encryptedApiKey,
         keyPreview,
         roleBindingsJson: body.data.roleBindings,
+        customPricingJson: body.data.customPricing ?? {},
         isDefault: body.data.isDefault,
       })
       .returning();

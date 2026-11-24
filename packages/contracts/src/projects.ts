@@ -34,6 +34,13 @@ export type CreateProjectRepositoryInput = z.infer<
   typeof CreateProjectRepositorySchema
 >;
 
+export const ProjectFinalizePolicySchema = z.enum([
+  "local_merge",
+  "branch_only",
+  "draft_pr",
+]);
+export type ProjectFinalizePolicy = z.infer<typeof ProjectFinalizePolicySchema>;
+
 export const ProjectSchema = z.object({
   id: z.uuid(),
   clientId: z.uuid(),
@@ -48,6 +55,14 @@ export const ProjectSchema = z.object({
     ...DEFAULT_PROJECT_STAGE_AUTOMATION,
   })),
   budgetCapUsd: z.number().positive().max(10000).nullable().default(null),
+  budgetCapTokens: z
+    .number()
+    .int()
+    .positive()
+    .max(500_000_000)
+    .nullable()
+    .default(null),
+  finalizePolicy: ProjectFinalizePolicySchema.default("local_merge"),
   repositories: z.array(ProjectRepositorySchema),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -75,6 +90,14 @@ export const UpdateProjectSchema = z
     status: ProjectStatusSchema.optional(),
     stageAutomation: UpdateProjectStageAutomationSchema.optional(),
     budgetCapUsd: z.number().positive().max(10000).nullable().optional(),
+    budgetCapTokens: z
+      .number()
+      .int()
+      .positive()
+      .max(500_000_000)
+      .nullable()
+      .optional(),
+    finalizePolicy: ProjectFinalizePolicySchema.optional(),
   })
   .strict();
 export type UpdateProjectInput = z.infer<typeof UpdateProjectSchema>;
