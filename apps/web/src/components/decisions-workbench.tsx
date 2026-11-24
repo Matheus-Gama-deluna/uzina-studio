@@ -253,7 +253,7 @@ export function DecisionsWorkbench() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
+    <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-fg-muted">
@@ -356,10 +356,10 @@ export function DecisionsWorkbench() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-12">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-12">
           <section
             aria-label="Fila de decisões"
-            className="space-y-2 lg:col-span-4"
+            className="min-w-0 space-y-2 lg:col-span-4"
           >
             {items.map((item) => {
               const isSelected = selectedDecision?.id === item.id;
@@ -409,24 +409,24 @@ export function DecisionsWorkbench() {
           {selectedDecision && (
             <section
               aria-label="Detalhes da decisão selecionada"
-              className="uzina-card space-y-5 rounded-xl border border-border-subtle bg-surface p-5 lg:col-span-8"
+              className="uzina-card min-w-0 space-y-5 overflow-hidden rounded-xl border border-border-subtle bg-surface p-4 sm:p-5 lg:col-span-8"
             >
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle pb-4">
-                <div>
+                <div className="min-w-0 flex-1">
                   <span className="font-mono text-xs uppercase text-fg-muted">
                     {GATE_LABELS[selectedDecision.decisionType] ??
                       selectedDecision.decisionType}
                   </span>
-                  <h2 className="mt-1 text-lg font-semibold text-fg-primary">
+                  <h2 className="mt-1 break-words text-lg font-semibold text-fg-primary">
                     {selectedDecision.summary}
                   </h2>
-                  <p className="mt-0.5 text-xs text-fg-muted tabular-nums">
+                  <p className="mt-0.5 break-all text-xs text-fg-muted tabular-nums">
                     Step: {selectedDecision.mastraStepId} • Entregável:{" "}
                     {selectedDecision.deliverableId}
                   </p>
                 </div>
                 <span
-                  className={`rounded border px-2.5 py-1 text-xs font-medium ${STATUS_BADGE[selectedDecision.status].className}`}
+                  className={`shrink-0 rounded border px-2.5 py-1 text-xs font-medium ${STATUS_BADGE[selectedDecision.status].className}`}
                 >
                   {STATUS_BADGE[selectedDecision.status].label}
                 </span>
@@ -434,8 +434,8 @@ export function DecisionsWorkbench() {
 
               {evidencePack ? (
                 <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-md border border-border-subtle bg-inset p-3">
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="min-w-0 rounded-md border border-border-subtle bg-inset p-3">
                       <span className="text-xs font-medium text-fg-muted">
                         Branch
                       </span>
@@ -446,7 +446,7 @@ export function DecisionsWorkbench() {
                         </span>
                       </div>
                     </div>
-                    <div className="rounded-md border border-border-subtle bg-inset p-3">
+                    <div className="min-w-0 rounded-md border border-border-subtle bg-inset p-3">
                       <span className="text-xs font-medium text-fg-muted">
                         Verify (.uzina/verify)
                       </span>
@@ -455,7 +455,7 @@ export function DecisionsWorkbench() {
                         {evidencePack.verifyAttempts}x
                       </p>
                     </div>
-                    <div className="rounded-md border border-border-subtle bg-inset p-3">
+                    <div className="min-w-0 rounded-md border border-border-subtle bg-inset p-3">
                       <span className="text-xs font-medium text-fg-muted">
                         AppSec Gate
                       </span>
@@ -465,11 +465,11 @@ export function DecisionsWorkbench() {
                         {evidencePack.securitySummary.medium}
                       </p>
                     </div>
-                    <div className="rounded-md border border-border-subtle bg-inset p-3">
+                    <div className="min-w-0 rounded-md border border-border-subtle bg-inset p-3">
                       <span className="text-xs font-medium text-fg-muted">
                         Tokens / Custo
                       </span>
-                      <p className="mt-1 font-mono text-sm font-semibold text-fg-primary tabular-nums">
+                      <p className="mt-1 break-words font-mono text-sm font-semibold text-fg-primary tabular-nums">
                         {(
                           evidencePack.tokenSummary.totalInputTokens +
                           evidencePack.tokenSummary.totalOutputTokens
@@ -479,10 +479,10 @@ export function DecisionsWorkbench() {
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-border-subtle bg-inset p-3.5">
-                    <div className="flex items-center justify-between">
+                  <div className="min-w-0 rounded-md border border-border-subtle bg-inset p-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-fg-secondary">
-                        <ShieldCheck className="size-3.5 text-accent" />
+                        <ShieldCheck className="size-3.5 shrink-0 text-accent" />
                         <span>Checks Determinísticos & Verifier</span>
                       </h3>
                       <span className="font-mono text-xs text-fg-muted tabular-nums">
@@ -494,41 +494,46 @@ export function DecisionsWorkbench() {
                       {evidencePack.verifyChecks.map((chk) => (
                         <li
                           key={chk.name}
-                          className="flex items-center justify-between rounded border border-border-subtle bg-surface px-2.5 py-1.5 text-xs"
+                          className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-subtle bg-surface px-2.5 py-1.5 text-xs"
                         >
-                          <span className="flex items-center gap-2 font-mono text-fg-primary">
+                          <span className="flex min-w-0 items-center gap-2 font-mono text-fg-primary">
                             <span
                               className={
                                 chk.passed
-                                  ? "text-status-ok"
-                                  : "text-status-error"
+                                  ? "shrink-0 text-status-ok"
+                                  : "shrink-0 text-status-error"
                               }
                             >
                               {chk.passed ? "PASS" : "FAIL"}
                             </span>
-                            <span>{chk.name}</span>
+                            <span className="break-all">{chk.name}</span>
                           </span>
-                          <span className="truncate pl-4 text-fg-secondary tabular-nums">
+                          <span className="min-w-0 break-words text-fg-secondary tabular-nums">
                             {chk.summary} ({chk.durationMs}ms)
                           </span>
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-2.5 text-xs text-fg-secondary">
+                    <p className="mt-2.5 break-words text-xs text-fg-secondary">
                       <strong className="text-fg-primary">
                         Verifier ({evidencePack.verifierVerdict}):
                       </strong>{" "}
                       {evidencePack.verifierNotes}
                     </p>
                     {evidencePack.diffSummary.preview && (
-                      <pre className="mt-3 max-h-44 overflow-auto rounded border border-border-subtle bg-canvas p-2.5 font-mono text-xs text-fg-secondary">
-                        {evidencePack.diffSummary.preview}
-                      </pre>
+                      <>
+                        <pre className="mt-3 max-h-44 max-w-full overflow-auto whitespace-pre rounded border border-border-subtle bg-canvas p-2.5 font-mono text-xs text-fg-secondary">
+                          {evidencePack.diffSummary.preview}
+                        </pre>
+                        <p className="mt-1.5 text-[11px] text-fg-muted sm:hidden">
+                          Deslize horizontalmente para visualizar o diff completo.
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>
               ) : (
-                <pre className="max-h-60 overflow-auto rounded-md border border-border-subtle bg-canvas p-3 font-mono text-xs text-fg-secondary">
+                <pre className="max-h-60 max-w-full overflow-auto whitespace-pre rounded-md border border-border-subtle bg-canvas p-3 font-mono text-xs text-fg-secondary">
                   {JSON.stringify(selectedDecision.payloadJson, null, 2)}
                 </pre>
               )}

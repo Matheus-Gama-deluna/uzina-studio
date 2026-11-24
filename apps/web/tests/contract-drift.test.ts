@@ -1909,6 +1909,30 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         })
       );
       expect(crossOrgQmdRes.status).toBe(404);
+
+      // Slice 22: GET /api/projects/[id]/deliverables ordena em ordem crescente (createdAt ASC)
+      const listAscRes = await getDeliverables(
+        new Request(`http://localhost:3000/api/projects/${projectId}/deliverables`, {
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(listAscRes.status).toBe(200);
+      const listAsc = DeliverableListResponseSchema.parse(
+        await listAscRes.json()
+      );
+      expect(listAsc.items.length).toBeGreaterThanOrEqual(2);
+      for (let i = 1; i < listAsc.items.length; i += 1) {
+        const prevTime = Date.parse(listAsc.items[i - 1]!.createdAt);
+        const currTime = Date.parse(listAsc.items[i]!.createdAt);
+        expect(currTime).toBeGreaterThanOrEqual(prevTime);
+      }
+      const listAscTitles = listAsc.items.map((item) => item.title);
+      expect(listAscTitles.slice(-2)).toEqual([
+        "Entrega Abort Drift",
+        "API Contrato Backend S21",
+      ]);
+      expect(listAsc.items[listAsc.items.length - 1]?.id).toBe(backendDeliv.id);
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

@@ -204,6 +204,17 @@ export function DeliverablesDocsHub() {
     longTermArtifacts[0] ??
     null;
 
+  function selectSliceAndScroll(sliceId: string) {
+    setSelectedSliceId(sliceId);
+    if (typeof document !== "undefined") {
+      requestAnimationFrame(() => {
+        document
+          .getElementById("slice-detail-panel")
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    }
+  }
+
   const updateProjectConfigMutation = useMutation({
     mutationFn: async (payload: {
       stageAutomation?: UpdateProjectStageAutomation;
@@ -938,7 +949,13 @@ export function DeliverablesDocsHub() {
         </div>
       ) : (
         /* ABA 1: Lista ou Kanban + Leitor Amplo de Slice */
-        <div className="space-y-6">
+        <div
+          className={
+            viewMode === "kanban"
+              ? "space-y-6"
+              : "grid grid-cols-1 gap-5 lg:grid-cols-12"
+          }
+        >
           {viewMode === "kanban" ? (
             <div
               data-testid="kanban-board"
@@ -1045,15 +1062,25 @@ export function DeliverablesDocsHub() {
                           const primaryNext = nextAllowed.find(
                             (s) => s !== "paused" && s !== "failed"
                           );
+                          const isCardSelected =
+                            activeSlice?.deliverableId === item.id;
                           return (
                             <article
                               key={item.id}
                               data-testid={`deliverable-card-${item.id}`}
-                              className="space-y-2.5 rounded-lg border border-border-default bg-canvas p-3"
+                              onClick={() => selectSliceAndScroll(item.id)}
+                              className={`cursor-pointer space-y-2.5 rounded-lg border p-3 transition-colors ${
+                                isCardSelected
+                                  ? "border-accent/60 bg-elevated/40"
+                                  : "border-border-default bg-canvas hover:border-border-strong"
+                              }`}
                             >
                               <button
                                 type="button"
-                                onClick={() => setSelectedSliceId(item.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  selectSliceAndScroll(item.id);
+                                }}
                                 className="text-left text-sm font-medium leading-snug text-fg-primary hover:underline"
                               >
                                 {item.title}
@@ -1065,12 +1092,13 @@ export function DeliverablesDocsHub() {
                                     <button
                                       type="button"
                                       disabled={transitionMutation.isPending}
-                                      onClick={() =>
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         transitionMutation.mutate({
                                           id: item.id,
                                           status: primaryNext,
-                                        })
-                                      }
+                                        });
+                                      }}
                                       className="inline-flex min-h-7 items-center gap-1 rounded border border-border-default bg-surface px-2 text-xs text-fg-primary hover:border-border-strong"
                                     >
                                       <span>Avançar</span>
@@ -1083,12 +1111,13 @@ export function DeliverablesDocsHub() {
                                         type="button"
                                         aria-label={`Pausar ${item.title}`}
                                         disabled={transitionMutation.isPending}
-                                        onClick={() =>
+                                        onClick={(e) => {
+                                          e.stopPropagation();
                                           transitionMutation.mutate({
                                             id: item.id,
                                             status: "paused",
-                                          })
-                                        }
+                                          });
+                                        }}
                                         className="rounded border border-border-subtle p-1.5 text-fg-muted hover:text-fg-primary"
                                       >
                                         <Pause className="size-3" />
@@ -1102,9 +1131,10 @@ export function DeliverablesDocsHub() {
                                       aria-label={`Abortar execução de ${item.title}`}
                                       data-testid={`btn-abort-deliverable-${item.id}`}
                                       disabled={abortWorkflowMutation.isPending}
-                                      onClick={() =>
-                                        abortWorkflowMutation.mutate(item.id)
-                                      }
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        abortWorkflowMutation.mutate(item.id);
+                                      }}
                                       className="inline-flex min-h-7 items-center gap-1 rounded border border-status-danger/35 bg-status-danger/10 px-2 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:opacity-50"
                                     >
                                       <Square className="size-3" />
@@ -1123,8 +1153,6 @@ export function DeliverablesDocsHub() {
               })}
             </div>
           ) : (
-            /* Visão Lista Calma & Leitor de Slice */
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
               <div
                 data-testid="list-board"
                 className="space-y-2 lg:col-span-5"
@@ -1217,11 +1245,15 @@ export function DeliverablesDocsHub() {
                   );
                 })}
               </div>
+          )}
 
               {/* Leitor Amplo de Dossiê, Blueprint & Retorno Cíclico */}
               <div
+                id="slice-detail-panel"
                 data-testid="slice-artifact-inspector"
-                className="rounded-xl border border-border-subtle bg-surface p-5 sm:p-6 lg:col-span-7"
+                className={`rounded-xl border border-border-subtle bg-surface p-5 sm:p-6 ${
+                  viewMode === "kanban" ? "" : "lg:col-span-7"
+                }`}
               >
                 {activeSlice ? (
                   <div className="space-y-4">
@@ -1489,12 +1521,10 @@ export function DeliverablesDocsHub() {
                   </div>
                 ) : (
                   <p className="py-10 text-center text-sm text-fg-muted">
-                    Selecione uma entrega ao lado para ler seu Dossiê e Blueprint.
+                    Selecione uma entrega para ler seu Dossiê e Blueprint.
                   </p>
                 )}
               </div>
-            </div>
-          )}
         </div>
       )}
 

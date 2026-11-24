@@ -382,3 +382,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Playwright `pnpm test:e2e`: `2 passed (25.4s)`.
   * Revisores independentes: `test-critic` (bordas incorporadas e retestadas), `appsec-auditor` (**PASS** + hardening XSS/QMD/redação aplicado) e `factory-verifier` (**PASS**).
 * **Próximo passo:** Iniciar execução do **Slice 22 (P2 — Mobile 390px Zero-Overflow, A11y WCAG, Kanban/PRD/Presets & Zero Warnings Turbopack)**.
+
+---
+
+## 2026-11-24 — Slice 22: P2 — Mobile 390px Zero-Overflow, A11y WCAG, Kanban/PRD/Presets & Zero Warnings Turbopack (`fix/slice-22-p2-mobile-a11y-polish-build`)
+
+* **Entregue:**
+  * **P2.1 Build Limpo, Ordenação & PRD Vivo (`processors.ts`, `/api/projects/[id]/deliverables`, `agency.ts`):** `/*turbopackIgnore: true*/` em `createUzinaAgentsMdInjector` eliminando 100% dos warnings no build Next.js/Turbopack; ordenação ascendente determinística `asc(deliverables.createdAt), asc(deliverables.id)` para exibição `Slice 1 → N`; helper `trimTrailingDots` evitando `".."` e `appendAlignmentAnswerToPrdMemory` persistindo perguntas e respostas completas no PRD com redação de segredos nos fluxos `live_llm` e `local_assisted`.
+  * **P2.2 Mobile, A11y WCAG, Kanban, Preset OmniRoute & Hardening E2E (`decisions-workbench.tsx`, `cockpit-shell.tsx`, `visual-studio-workspace.tsx`, `engine-config-panel.tsx`, `deliverables-docs-hub.tsx`, `providers-manager.tsx`, `smoke.spec.ts`):** eliminação de overflow horizontal em `390x844` na Caixa de Decisões; remoção do ícone `⌘` duplicado em `⌘K`; `aria-label` dinâmica e `aria-expanded` em `toggle-studio-inspector`; pares `htmlFor`/`id` e `aria-label` completos em `/app/finops`; cards do Kanban clicáveis rolando para `#slice-detail-panel`; 5º cartão 1-clique `OmniRoute Gateway` (`quick-provider-preset-omniroute`) em `/app/providers`; e timeout de `15_000ms` pós-login em `smoke.spec.ts` para blindar cold-start do PGlite.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`73` arquivos, `236` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS, `0` warnings Turbopack (`@uzina/mastra-runtime` `14` arquivos / `57 passed`, `@uzina/web` `11` arquivos / `28 passed`, `@uzina/db` `12 passed | 1 skipped`).
+  * Playwright `pnpm test:e2e`: `2 passed (26.1s)`.
+  * QA visual `browser` multi-viewport (`1440x900` Light/Dark/A+ e `390x844` zero overflow): **PASS** (`0` console errors, `0` HTTP `>= 500`).
+  * Revisores independentes: `test-critic` (bordas incorporadas em `slice22-p2-prd-qa-and-polish.integration.test.ts` e `contract-drift.test.ts`) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 23 (P3.1 + P3.2 — Tool Trace Timeline, SSE Resumível & Semantic Diff Chunking)**.

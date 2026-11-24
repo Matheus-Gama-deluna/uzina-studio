@@ -365,8 +365,8 @@ export function createUzinaAgentsMdInjector(options: {
       return undefined;
     }
     try {
-      const resolved = path.resolve(candidate);
-      if (!fs.existsSync(resolved)) return undefined;
+      const resolved = path.resolve(/*turbopackIgnore: true*/ candidate);
+      if (!fs.existsSync(/*turbopackIgnore: true*/ resolved)) return undefined;
       return assertPathInsideWorkspace(resolved, resolved, { allowRoot: true });
     } catch {
       return undefined;
@@ -399,7 +399,7 @@ export function createUzinaAgentsMdInjector(options: {
             const resolved = assertPathInsideWorkspace(root, targetPath, {
               allowRoot: true,
             });
-            const stat = fs.lstatSync(resolved);
+            const stat = fs.lstatSync(/*turbopackIgnore: true*/ resolved);
             if (stat.isSymbolicLink()) return false;
             return true;
           } catch {
@@ -411,7 +411,7 @@ export function createUzinaAgentsMdInjector(options: {
             const resolved = assertPathInsideWorkspace(root, targetPath, {
               allowRoot: true,
             });
-            const stat = fs.lstatSync(resolved);
+            const stat = fs.lstatSync(/*turbopackIgnore: true*/ resolved);
             return !stat.isSymbolicLink() && stat.isDirectory();
           } catch {
             return false;
@@ -422,11 +422,11 @@ export function createUzinaAgentsMdInjector(options: {
             throw new Error("Acesso negado a arquivo sensível.");
           }
           const resolved = assertPathInsideWorkspace(root, targetPath);
-          const stat = fs.lstatSync(resolved);
+          const stat = fs.lstatSync(/*turbopackIgnore: true*/ resolved);
           if (stat.isSymbolicLink()) {
             throw new Error("Symlinks não são permitidos em AgentsMDInjector.");
           }
-          const raw = fs.readFileSync(resolved, "utf8");
+          const raw = fs.readFileSync(/*turbopackIgnore: true*/ resolved, "utf8");
           const sanitized = redactSensitiveText(raw).replace(
             CONTROL_TAG_RE,
             "[control-tag-escaped]"
