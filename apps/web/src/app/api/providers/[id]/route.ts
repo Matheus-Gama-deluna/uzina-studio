@@ -93,6 +93,9 @@ export async function PATCH(
         ...(body.data.roleBindings !== undefined
           ? { roleBindingsJson: body.data.roleBindings }
           : {}),
+        ...(body.data.customPricing !== undefined
+          ? { customPricingJson: body.data.customPricing }
+          : {}),
         ...(body.data.isDefault !== undefined
           ? { isDefault: body.data.isDefault }
           : {}),

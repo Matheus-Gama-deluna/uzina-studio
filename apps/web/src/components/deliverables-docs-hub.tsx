@@ -7,10 +7,14 @@ import type {
   AgencyChatIntent,
   AgencyChatResponse,
   AgencyOverviewResponse,
+  AutonomousCycleResponse,
   BackgroundTaskListResponse,
+  CleanupDeliverableWorktreeResponse,
   Deliverable,
   DeliverableListResponse,
   DeliverableStatus,
+  MergeDeliverableBranchResponse,
+  ProjectFinalizePolicy,
   ProjectListResponse,
   ProjectStageAutomation,
   RiskLevel,
@@ -125,6 +129,7 @@ export function DeliverablesDocsHub() {
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
   const [actionErrMsg, setActionErrMsg] = useState<string | null>(null);
   const [budgetDraft, setBudgetDraft] = useState<string | null>(null);
+  const [budgetTokensDraft, setBudgetTokensDraft] = useState<string | null>(null);
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -203,6 +208,8 @@ export function DeliverablesDocsHub() {
     mutationFn: async (payload: {
       stageAutomation?: UpdateProjectStageAutomation;
       budgetCapUsd?: number | null;
+      budgetCapTokens?: number | null;
+      finalizePolicy?: ProjectFinalizePolicy;
     }) => {
       if (!activeProject) throw new Error("Nenhum projeto ativo.");
       const res = await fetch(`/api/projects/${activeProject.id}`, {
@@ -220,13 +227,16 @@ export function DeliverablesDocsHub() {
     },
     onSuccess: async (_data, vars) => {
       setActionErrMsg(null);
-      if (vars.budgetCapUsd !== undefined) {
+      if (vars.budgetCapUsd !== undefined || vars.budgetCapTokens !== undefined) {
         setBudgetDraft(null);
+        setBudgetTokensDraft(null);
         setBannerMsg(
-          vars.budgetCapUsd === null
-            ? "Teto de orçamento do projeto removido."
-            : `Teto de orçamento atualizado para US$ ${vars.budgetCapUsd.toFixed(2)}.`
+          vars.budgetCapUsd === null && vars.budgetCapTokens === null
+            ? "Tetos de orçamento do projeto removidos."
+            : "Teto(s) de orçamento do projeto atualizados."
         );
+      } else if (vars.finalizePolicy) {
+        setBannerMsg("Política de entrega Git atualizada.");
       } else if (vars.stageAutomation) {
         setBannerMsg("Automação de fase do Kanban atualizada.");
       }
@@ -237,6 +247,95 @@ export function DeliverablesDocsHub() {
         }),
         queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
       ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
+
+  const autonomousCycleMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeProject) throw new Error("Nenhum projeto ativo.");
+      const res = await fetch(`/api/projects/${activeProject.id}/autonomous-cycle`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao iniciar ciclo autônomo.");
+      }
+      return (await res.json()) as AutonomousCycleResponse;
+    },
+    onSuccess: async (data) => {
+      setActionErrMsg(null);
+      setBannerMsg(data.message);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["background-tasks", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
+
+  const mergeBranchMutation = useMutation({
+    mutationFn: async (deliverableId: string) => {
+      const res = await fetch(`/api/deliverables/${deliverableId}/merge`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao mesclar branch.");
+      }
+      return (await res.json()) as MergeDeliverableBranchResponse;
+    },
+    onSuccess: async (data) => {
+      if (!data.ok) {
+        setActionErrMsg(data.message);
+      } else {
+        setActionErrMsg(null);
+        setBannerMsg(data.message);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
+      ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
+
+  const cleanupWorktreeMutation = useMutation({
+    mutationFn: async (deliverableId: string) => {
+      const res = await fetch(`/api/deliverables/${deliverableId}/worktree`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao limpar worktree.");
+      }
+      return (await res.json()) as CleanupDeliverableWorktreeResponse;
+    },
+    onSuccess: async (data) => {
+      setActionErrMsg(null);
+      setBannerMsg(data.message);
+      await queryClient.invalidateQueries({
+        queryKey: ["deliverables", activeProject?.id ?? "none"],
+      });
     },
     onError: (err: Error) => {
       setActionErrMsg(err.message);
@@ -550,17 +649,16 @@ export function DeliverablesDocsHub() {
             <button
               type="button"
               data-testid="btn-run-autonomous-cycle"
-              disabled={agencyActionMutation.isPending}
-              onClick={() =>
-                agencyActionMutation.mutate({
-                  intent: "advance_cycle",
-                  message:
-                    "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão.",
-                })
+              disabled={
+                autonomousCycleMutation.isPending ||
+                (backgroundTasksQuery.data?.items ?? []).some(
+                  (t) => t.status === "running" || t.status === "queued"
+                )
               }
+              onClick={() => autonomousCycleMutation.mutate()}
               className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover disabled:opacity-50"
             >
-              {agencyActionMutation.isPending ? (
+              {autonomousCycleMutation.isPending ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <Play className="size-3.5" />
@@ -596,6 +694,29 @@ export function DeliverablesDocsHub() {
 
           <div className="flex flex-wrap items-center gap-2">
             <label
+              htmlFor="project-finalize-policy-select"
+              className="text-xs font-medium text-fg-secondary"
+            >
+              Entrega Git
+            </label>
+            <select
+              id="project-finalize-policy-select"
+              data-testid="project-finalize-policy-select"
+              disabled={updateProjectConfigMutation.isPending}
+              value={activeProject.finalizePolicy ?? "local_merge"}
+              onChange={(e) =>
+                updateProjectConfigMutation.mutate({
+                  finalizePolicy: e.target.value as ProjectFinalizePolicy,
+                })
+              }
+              className="min-h-8 rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+            >
+              <option value="local_merge">Merge Local em main</option>
+              <option value="branch_only">Somente Branch</option>
+              <option value="draft_pr">Draft PR (GitHub CLI)</option>
+            </select>
+
+            <label
               htmlFor="project-budget-cap-input"
               className="text-xs font-medium text-fg-secondary"
             >
@@ -605,8 +726,8 @@ export function DeliverablesDocsHub() {
               id="project-budget-cap-input"
               data-testid="project-budget-cap-input"
               type="number"
-              min={0.5}
-              step="0.5"
+              min={0.01}
+              step="0.05"
               value={
                 budgetDraft ??
                 (activeProject.budgetCapUsd != null
@@ -615,29 +736,78 @@ export function DeliverablesDocsHub() {
               }
               onChange={(e) => setBudgetDraft(e.target.value)}
               placeholder="Sem teto"
-              className="min-h-8 w-28 rounded-md border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary tabular-nums placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+              className="min-h-8 w-24 rounded-md border border-border-default bg-inset px-2 font-mono text-xs text-fg-primary tabular-nums placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
             />
+
+            <label
+              htmlFor="project-budget-cap-tokens-input"
+              className="text-xs font-medium text-fg-secondary"
+            >
+              Teto Tokens
+            </label>
+            <input
+              id="project-budget-cap-tokens-input"
+              data-testid="project-budget-cap-tokens-input"
+              type="number"
+              min={1000}
+              step="1000"
+              value={
+                budgetTokensDraft ??
+                (activeProject.budgetCapTokens != null
+                  ? String(activeProject.budgetCapTokens)
+                  : "")
+              }
+              onChange={(e) => setBudgetTokensDraft(e.target.value)}
+              placeholder="Sem teto"
+              className="min-h-8 w-28 rounded-md border border-border-default bg-inset px-2 font-mono text-xs text-fg-primary tabular-nums placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+            />
+
             <button
               type="button"
               data-testid="btn-save-budget-cap"
               disabled={updateProjectConfigMutation.isPending}
               onClick={() => {
-                const raw = (
+                const rawUsd = (
                   budgetDraft ??
                   (activeProject.budgetCapUsd != null
                     ? String(activeProject.budgetCapUsd)
                     : "")
                 ).trim();
-                if (!raw) {
-                  updateProjectConfigMutation.mutate({ budgetCapUsd: null });
-                  return;
+                const rawTok = (
+                  budgetTokensDraft ??
+                  (activeProject.budgetCapTokens != null
+                    ? String(activeProject.budgetCapTokens)
+                    : "")
+                ).trim();
+
+                let nextUsd: number | null = null;
+                if (rawUsd) {
+                  const num = Number(rawUsd);
+                  if (!Number.isFinite(num) || num <= 0) {
+                    setActionErrMsg(
+                      "Informe um teto de orçamento positivo em USD."
+                    );
+                    return;
+                  }
+                  nextUsd = num;
                 }
-                const num = Number(raw);
-                if (!Number.isFinite(num) || num <= 0) {
-                  setActionErrMsg("Informe um teto de orçamento positivo em USD.");
-                  return;
+
+                let nextTokens: number | null = null;
+                if (rawTok) {
+                  const numTok = Number(rawTok);
+                  if (!Number.isInteger(numTok) || numTok <= 0) {
+                    setActionErrMsg(
+                      "Informe um teto de tokens inteiro positivo."
+                    );
+                    return;
+                  }
+                  nextTokens = numTok;
                 }
-                updateProjectConfigMutation.mutate({ budgetCapUsd: num });
+
+                updateProjectConfigMutation.mutate({
+                  budgetCapUsd: nextUsd,
+                  budgetCapTokens: nextTokens,
+                });
               }}
               className="inline-flex min-h-8 items-center rounded-md border border-border-default bg-inset px-2.5 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
             >
@@ -1118,16 +1288,127 @@ export function DeliverablesDocsHub() {
                           {JSON.stringify(activeSlice.blueprintJson, null, 2)}
                         </pre>
                       )}
-                      {sliceSubTab === "evidence" && (
-                        <div className="space-y-3 text-sm text-fg-primary">
-                          <p>{activeSlice.evidenceSummary}</p>
-                          <p className="font-mono text-xs text-fg-secondary">
-                            Tentativas do Verify Gate:{" "}
-                            {activeSlice.verifyAttempts}/
-                            {activeSlice.maxVerifyAttempts}
-                          </p>
-                        </div>
-                      )}
+                      {sliceSubTab === "evidence" && (() => {
+                        const activeDeliverable =
+                          deliverablesList.find(
+                            (d) => d.id === activeSlice.deliverableId
+                          ) ?? null;
+                        const pack = activeDeliverable?.evidencePackJson ?? null;
+                        const finInfo = pack?.finalizeInfo ?? null;
+                        return (
+                          <div className="space-y-3 text-sm text-fg-primary">
+                            <p>{activeSlice.evidenceSummary}</p>
+                            <p className="font-mono text-xs text-fg-secondary tabular-nums">
+                              Tentativas do Verify Gate:{" "}
+                              {activeSlice.verifyAttempts}/
+                              {activeSlice.maxVerifyAttempts}
+                            </p>
+
+                            {pack && (
+                              <div className="space-y-2 border-t border-border-subtle pt-2.5">
+                                <p className="text-xs text-fg-secondary">
+                                  <strong className="text-fg-primary">
+                                    Verifier ({pack.verifierVerdict}):
+                                  </strong>{" "}
+                                  {pack.verifierNotes}
+                                </p>
+                                <ul className="space-y-1">
+                                  {pack.verifyChecks.map((chk) => (
+                                    <li
+                                      key={chk.name}
+                                      className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-subtle bg-surface px-2.5 py-1.5 text-xs"
+                                    >
+                                      <span className="font-mono">
+                                        <span
+                                          className={
+                                            chk.passed
+                                              ? "text-status-ok"
+                                              : "text-status-danger"
+                                          }
+                                        >
+                                          {chk.passed ? "PASS" : "FAIL"}
+                                        </span>{" "}
+                                        {chk.name}
+                                      </span>
+                                      <span className="text-fg-secondary">
+                                        {chk.summary}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {finInfo && (
+                              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-subtle bg-surface px-3 py-2 text-xs">
+                                <div className="space-y-0.5 font-mono text-fg-secondary">
+                                  <p>
+                                    Entrega Git:{" "}
+                                    <strong className="text-fg-primary">
+                                      {finInfo.mode === "local_merge"
+                                        ? "Mesclado na base"
+                                        : finInfo.mode === "draft_pr"
+                                          ? "Draft PR aberta"
+                                          : "Branch pronta (merge pendente)"}
+                                    </strong>
+                                    {finInfo.commitSha
+                                      ? ` · ${finInfo.commitSha.slice(0, 7)}`
+                                      : ""}
+                                  </p>
+                                  {finInfo.mergeBlockedReason && (
+                                    <p className="text-status-warn">
+                                      {finInfo.mergeBlockedReason}
+                                    </p>
+                                  )}
+                                </div>
+                                {finInfo.mode === "local_branch_ready" &&
+                                  activeDeliverable?.branchName && (
+                                    <button
+                                      type="button"
+                                      data-testid="btn-merge-deliverable-branch"
+                                      disabled={mergeBranchMutation.isPending}
+                                      onClick={() =>
+                                        mergeBranchMutation.mutate(
+                                          activeDeliverable.id
+                                        )
+                                      }
+                                      className="inline-flex min-h-8 items-center rounded border border-accent/40 bg-accent-subtle px-2.5 text-xs font-medium text-accent hover:border-accent disabled:opacity-50"
+                                    >
+                                      {mergeBranchMutation.isPending
+                                        ? "Mesclando..."
+                                        : "Mesclar na branch base"}
+                                    </button>
+                                  )}
+                              </div>
+                            )}
+
+                            {activeDeliverable?.worktreePath &&
+                              (activeDeliverable.status === "failed" ||
+                                activeDeliverable.status === "paused") && (
+                                <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-subtle bg-surface px-3 py-2 text-xs">
+                                  <span className="font-mono text-fg-secondary">
+                                    Worktree preservado p/ diagnóstico
+                                  </span>
+                                  <button
+                                    type="button"
+                                    data-testid="btn-cleanup-deliverable-worktree"
+                                    disabled={cleanupWorktreeMutation.isPending}
+                                    onClick={() =>
+                                      cleanupWorktreeMutation.mutate(
+                                        activeDeliverable.id
+                                      )
+                                    }
+                                    className="inline-flex min-h-8 items-center rounded border border-border-default bg-inset px-2.5 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+                                  >
+                                    {cleanupWorktreeMutation.isPending
+                                      ? "Limpando..."
+                                      : "Limpar Worktree"}
+                                  </button>
+                                </div>
+                              )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="space-y-3 border-t border-border-subtle pt-3">

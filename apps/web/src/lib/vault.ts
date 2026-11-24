@@ -1,4 +1,5 @@
 import {
+  CustomModelPricingMapSchema,
   ProviderProfilePublicSchema,
   ProviderTypeSchema,
   RoleBindingsSchema,
@@ -33,6 +34,9 @@ export function toPublicProviderProfile(
 ): ProviderProfilePublic {
   const providerType = ProviderTypeSchema.parse(row.providerType);
   const roleBindings = RoleBindingsSchema.parse(row.roleBindingsJson ?? {});
+  const customPricing = CustomModelPricingMapSchema.parse(
+    row.customPricingJson ?? {}
+  );
 
   return ProviderProfilePublicSchema.parse({
     id: row.id,
@@ -43,6 +47,7 @@ export function toPublicProviderProfile(
     hasApiKey: Boolean(row.encryptedApiKey),
     keyPreview: row.keyPreview,
     roleBindings,
+    customPricing,
     isDefault: row.isDefault,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -1,5 +1,7 @@
 import type {
+  CustomModelPricingMap,
   DesignAssetType,
+  ProjectFinalizePolicy,
   ProjectStageAutomation,
   RoleBindings,
 } from "@uzina/contracts";
@@ -72,6 +74,11 @@ export const projects = pgTable(
       .default(DEFAULT_STAGE_AUTOMATION)
       .notNull(),
     budgetCapUsd: numeric("budget_cap_usd", { precision: 12, scale: 6 }),
+    budgetCapTokens: integer("budget_cap_tokens"),
+    finalizePolicy: text("finalize_policy")
+      .$type<ProjectFinalizePolicy>()
+      .default("local_merge")
+      .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -170,6 +177,10 @@ export const providerProfiles = pgTable(
     keyPreview: text("key_preview"),
     roleBindingsJson: jsonb("role_bindings_json")
       .$type<RoleBindings>()
+      .default({})
+      .notNull(),
+    customPricingJson: jsonb("custom_pricing_json")
+      .$type<CustomModelPricingMap>()
       .default({})
       .notNull(),
     isDefault: boolean("is_default").default(false).notNull(),

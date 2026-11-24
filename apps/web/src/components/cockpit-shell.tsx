@@ -101,6 +101,28 @@ export function CockpitShell({
 
   const switcherRef = useRef<HTMLDivElement | null>(null);
 
+  function handleSelectProject(clientId: string, projectId: string) {
+    setActiveContext({ clientId, projectId });
+    setSwitcherOpen(false);
+    setMobileMenuOpen(false);
+    setProjectSearch("");
+
+    const subRouteMatch = pathname.match(/^\/app\/projects\/[^/]+(\/.*)?$/);
+    if (subRouteMatch) {
+      const suffix = subRouteMatch[1] ?? "";
+      router.push(`/app/projects/${projectId}${suffix}`);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("projectId")) {
+        params.set("projectId", projectId);
+        router.replace(`${pathname}?${params.toString()}`);
+      }
+    }
+  }
+
   const isFactoryRoute =
     pathname.startsWith("/app/ideas") ||
     pathname.startsWith("/app/memories") ||
@@ -287,15 +309,9 @@ export function CockpitShell({
                             role="option"
                             aria-selected={isSelected}
                             data-testid={`switcher-project-${project.id}`}
-                            onClick={() => {
-                              setActiveContext({
-                                clientId: client.id,
-                                projectId: project.id,
-                              });
-                              setSwitcherOpen(false);
-                              setMobileMenuOpen(false);
-                              setProjectSearch("");
-                            }}
+                            onClick={() =>
+                              handleSelectProject(client.id, project.id)
+                            }
                             className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
                               isSelected
                                 ? "bg-surface font-medium text-fg-primary"

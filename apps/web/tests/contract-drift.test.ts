@@ -8,8 +8,10 @@ import {
   AgencyStreamEventSchema,
   AgencyThreadListResponseSchema,
   ApiErrorSchema,
+  AutonomousCycleResponseSchema,
   BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
+  CleanupDeliverableWorktreeResponseSchema,
   ClientListResponseSchema,
   CodebaseReindexResponseSchema,
   CodebaseTreeResponseSchema,
@@ -29,9 +31,11 @@ import {
   GenerateDesignMdResponseSchema,
   MemoryListResponseSchema,
   MemorySchema,
+  MergeDeliverableBranchResponseSchema,
   ProjectListResponseSchema,
   ProjectSchema,
   ProviderProfileListResponseSchema,
+  ProviderProfilePublicSchema,
   QmdReindexResponseSchema,
   QmdSearchResponseSchema,
   ResolveDecisionResponseSchema,
@@ -41,7 +45,7 @@ import {
   StitchMcpSyncResponseSchema,
   WorkflowAbortResponseSchema,
 } from "@uzina/contracts";
-import { closeDb, getDb, users } from "@uzina/db";
+import { closeDb, executionEvents, getDb, users } from "@uzina/db";
 import {
   attachSessionExecutionControl,
   createControlledAgencySession,
@@ -68,6 +72,9 @@ import { GET as getDecisions } from "../src/app/api/decisions/route";
 import { POST as resolveDecisionRoute } from "../src/app/api/decisions/[id]/resolve/route";
 import { GET as getDeliverableEvents } from "../src/app/api/deliverables/[id]/events/route";
 import { POST as postWorkflowAbortRoute } from "../src/app/api/deliverables/[id]/workflow/abort/route";
+import { POST as postDeliverableMergeRoute } from "../src/app/api/deliverables/[id]/merge/route";
+import { DELETE as deleteDeliverableWorktreeRoute } from "../src/app/api/deliverables/[id]/worktree/route";
+import { POST as postAutonomousCycleRoute } from "../src/app/api/projects/[id]/autonomous-cycle/route";
 import { GET as getWorkflow } from "../src/app/api/deliverables/[id]/workflow/route";
 import { POST as resumeWorkflow } from "../src/app/api/deliverables/[id]/workflow/resume/route";
 import { POST as startWorkflow } from "../src/app/api/deliverables/[id]/workflow/start/route";
@@ -1537,6 +1544,273 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         { params: Promise.resolve({ id: "sess-unknown" }) }
       );
       expect(realNotFoundPlanRes.status).toBe(404);
+
+      // Slice 20 — P0 Contract Drift & RBAC (finalizePolicy, budgetCapTokens, customPricing, merge/worktree/autonomous-cycle, FinOps LLM)
+      const s20MswProj = await fetch(`http://msw.local/api/projects/${mswProjectId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          finalizePolicy: "branch_only",
+          budgetCapTokens: 50000,
+        }),
+      });
+      expect(s20MswProj.status).toBe(200);
+      expect(ProjectSchema.parse(await s20MswProj.json())).toMatchObject({
+        finalizePolicy: "branch_only",
+        budgetCapTokens: 50000,
+      });
+
+      const s20RealProj = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            finalizePolicy: "branch_only",
+            budgetCapTokens: 75000,
+          }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(s20RealProj.status).toBe(200);
+      expect(ProjectSchema.parse(await s20RealProj.json())).toMatchObject({
+        finalizePolicy: "branch_only",
+        budgetCapTokens: 75000,
+      });
+
+      const s20DevTokenBudgetForbidden = await patchProjectRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", cookie: otherCookie },
+          body: JSON.stringify({ budgetCapTokens: 1000 }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(s20DevTokenBudgetForbidden.status).toBe(403);
+
+      const s20CustomProvRes = await createProvider(
+        new Request("http://localhost:3000/api/providers", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            name: "OmniRoute S20 Drift",
+            providerType: "omniroute",
+            baseUrl: "https://omnirouter.deluna.dev.br/v1",
+            apiKey: "sk-s20-drift-key-9999",
+            roleBindings: { builder: { modelId: "omni-fast" } },
+            customPricing: {
+              "omni-fast": { inputPer1MUsd: 0.4, outputPer1MUsd: 1.2 },
+            },
+          }),
+        })
+      );
+      expect(s20CustomProvRes.status).toBe(201);
+      const parsedS20Prov = ProviderProfilePublicSchema.parse(
+        await s20CustomProvRes.json()
+      );
+      expect(parsedS20Prov.customPricing["omni-fast"]).toEqual({
+        inputPer1MUsd: 0.4,
+        outputPer1MUsd: 1.2,
+      });
+
+      await driftDb.insert(executionEvents).values({
+        deliverableId,
+        stage: "stage_build",
+        actorRole: "builder",
+        eventType: "token_usage",
+        tokensInput: 2500,
+        tokensOutput: 500,
+        cacheReadTokens: 200,
+        estimatedCostUsd: "0.004200",
+        payloadJson: { modelId: "omni-fast" },
+      });
+
+      const s20RealFinops = await getFinopsSummaryRoute(
+        new Request("http://localhost:3000/api/finops/summary", {
+          headers: { cookie },
+        })
+      );
+      expect(s20RealFinops.status).toBe(200);
+      const parsedS20Finops = FinopsSummarySchema.parse(
+        await s20RealFinops.json()
+      );
+      expect(parsedS20Finops.totalLlmTokens).toBeGreaterThanOrEqual(3000);
+      expect(parsedS20Finops.totalLlmCostUsd).toBeGreaterThanOrEqual(0.0042);
+      expect(
+        parsedS20Finops.recentLlmCalls.some((c) => c.modelId === "omni-fast")
+      ).toBe(true);
+
+      // Auth/Validation/Anti-IDOR checks nas rotas P0 (401, 400, 404 cross-org)
+      const thirdSignUp = await authPost(
+        new Request("http://localhost:3000/api/auth/sign-up/email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: "Terceira Org",
+            email: "cross-s20-drift@uzina.studio",
+            password: "StrongPassword!123",
+          }),
+        })
+      );
+      expect(thirdSignUp.status).toBe(200);
+      const thirdCookie = getCookie(thirdSignUp);
+
+      expect(
+        (
+          await postAutonomousCycleRoute(
+            new Request(`http://localhost:3000/api/projects/${projectId}/autonomous-cycle`, {
+              method: "POST",
+            }),
+            { params: Promise.resolve({ id: projectId }) }
+          )
+        ).status
+      ).toBe(401);
+      expect(
+        (
+          await postAutonomousCycleRoute(
+            new Request("http://localhost:3000/api/projects/not-uuid/autonomous-cycle", {
+              method: "POST",
+              headers: { cookie },
+            }),
+            { params: Promise.resolve({ id: "not-uuid" }) }
+          )
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await postAutonomousCycleRoute(
+            new Request(`http://localhost:3000/api/projects/${projectId}/autonomous-cycle`, {
+              method: "POST",
+              headers: { cookie: thirdCookie },
+            }),
+            { params: Promise.resolve({ id: projectId }) }
+          )
+        ).status
+      ).toBe(404);
+
+      expect(
+        (
+          await postDeliverableMergeRoute(
+            new Request(`http://localhost:3000/api/deliverables/${deliverableId}/merge`, {
+              method: "POST",
+            }),
+            { params: Promise.resolve({ id: deliverableId }) }
+          )
+        ).status
+      ).toBe(401);
+      expect(
+        (
+          await postDeliverableMergeRoute(
+            new Request("http://localhost:3000/api/deliverables/not-uuid/merge", {
+              method: "POST",
+              headers: { cookie },
+            }),
+            { params: Promise.resolve({ id: "not-uuid" }) }
+          )
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await postDeliverableMergeRoute(
+            new Request(`http://localhost:3000/api/deliverables/${deliverableId}/merge`, {
+              method: "POST",
+              headers: { cookie: thirdCookie },
+            }),
+            { params: Promise.resolve({ id: deliverableId }) }
+          )
+        ).status
+      ).toBe(404);
+
+      expect(
+        (
+          await deleteDeliverableWorktreeRoute(
+            new Request(`http://localhost:3000/api/deliverables/${deliverableId}/worktree`, {
+              method: "DELETE",
+            }),
+            { params: Promise.resolve({ id: deliverableId }) }
+          )
+        ).status
+      ).toBe(401);
+      expect(
+        (
+          await deleteDeliverableWorktreeRoute(
+            new Request("http://localhost:3000/api/deliverables/not-uuid/worktree", {
+              method: "DELETE",
+              headers: { cookie },
+            }),
+            { params: Promise.resolve({ id: "not-uuid" }) }
+          )
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await deleteDeliverableWorktreeRoute(
+            new Request(`http://localhost:3000/api/deliverables/${deliverableId}/worktree`, {
+              method: "DELETE",
+              headers: { cookie: thirdCookie },
+            }),
+            { params: Promise.resolve({ id: deliverableId }) }
+          )
+        ).status
+      ).toBe(404);
+
+      const mswCycleRes = await fetch(
+        `http://msw.local/api/projects/${mswProjectId}/autonomous-cycle`,
+        { method: "POST" }
+      );
+      expect(mswCycleRes.status).toBe(200);
+      AutonomousCycleResponseSchema.parse(await mswCycleRes.json());
+
+      const realCycleRes = await postAutonomousCycleRoute(
+        new Request(`http://localhost:3000/api/projects/${projectId}/autonomous-cycle`, {
+          method: "POST",
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(realCycleRes.status).toBe(200);
+      AutonomousCycleResponseSchema.parse(await realCycleRes.json());
+
+      const mswMergeRes = await fetch(
+        `http://msw.local/api/deliverables/${mswDeliverableId}/merge`,
+        { method: "POST" }
+      );
+      expect(mswMergeRes.status).toBe(200);
+      MergeDeliverableBranchResponseSchema.parse(await mswMergeRes.json());
+
+      const devMergeForbiddenRes = await postDeliverableMergeRoute(
+        new Request(`http://localhost:3000/api/deliverables/${deliverableId}/merge`, {
+          method: "POST",
+          headers: { cookie: otherCookie },
+        }),
+        { params: Promise.resolve({ id: deliverableId }) }
+      );
+      expect(devMergeForbiddenRes.status).toBe(403);
+
+      const unapprovedMergeRes = await postDeliverableMergeRoute(
+        new Request(`http://localhost:3000/api/deliverables/${deliverableId}/merge`, {
+          method: "POST",
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: deliverableId }) }
+      );
+      expect(unapprovedMergeRes.status).toBe(409);
+
+      const mswCleanWtRes = await fetch(
+        `http://msw.local/api/deliverables/${mswDeliverableId}/worktree`,
+        { method: "DELETE" }
+      );
+      expect(mswCleanWtRes.status).toBe(200);
+      CleanupDeliverableWorktreeResponseSchema.parse(await mswCleanWtRes.json());
+
+      const realCleanWtRes = await deleteDeliverableWorktreeRoute(
+        new Request(`http://localhost:3000/api/deliverables/${deliverableId}/worktree`, {
+          method: "DELETE",
+          headers: { cookie },
+        }),
+        { params: Promise.resolve({ id: deliverableId }) }
+      );
+      expect(realCleanWtRes.status).toBe(200);
+      CleanupDeliverableWorktreeResponseSchema.parse(await realCleanWtRes.json());
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

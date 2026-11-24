@@ -2,6 +2,7 @@ import {
   EngineConfigResponseSchema,
   FinopsSummaryRequestSchema,
   FinopsSummarySchema,
+  LlmUsageCallEventSchema,
   RecordTokenSavingsSchema,
   TokenSavingsTechniqueSchema,
   UpdateEngineConfigSchema,
@@ -236,6 +237,72 @@ export async function getFinopsSummaryScoped(
     };
   });
 
+  // Telemetria real de chamadas LLM (execution_events)
+  const llmConditions = [
+    eq(clients.organizationId, params.organizationId),
+    inArray(executionEvents.eventType, ["token_usage", "verify_result"]),
+  ];
+  if (parsed.projectId) {
+    llmConditions.push(eq(projects.id, parsed.projectId));
+  }
+  if (parsed.from) {
+    llmConditions.push(gte(executionEvents.createdAt, new Date(parsed.from)));
+  }
+  if (parsed.to) {
+    llmConditions.push(lte(executionEvents.createdAt, new Date(parsed.to)));
+  }
+
+  const llmRows = await db
+    .select({ event: executionEvents })
+    .from(executionEvents)
+    .innerJoin(deliverables, eq(executionEvents.deliverableId, deliverables.id))
+    .innerJoin(projects, eq(deliverables.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .where(and(...llmConditions))
+    .orderBy(desc(executionEvents.createdAt));
+
+  let totalLlmTokens = 0;
+  let totalLlmCostUsd = 0;
+  const parsedLlmCalls = [];
+
+  for (const { event: ev } of llmRows) {
+    const inTok = Math.max(0, ev.tokensInput);
+    const outTok = Math.max(0, ev.tokensOutput);
+    const cacheTok = Math.max(0, ev.cacheReadTokens);
+    const costUsd = Math.max(0, Number(ev.estimatedCostUsd ?? 0));
+    totalLlmTokens += inTok + outTok;
+    totalLlmCostUsd += costUsd;
+
+    if (inTok === 0 && outTok === 0 && costUsd === 0) {
+      continue;
+    }
+
+    if (parsedLlmCalls.length < parsed.limit) {
+      const payloadObj =
+        ev.payloadJson && typeof ev.payloadJson === "object"
+          ? (ev.payloadJson as Record<string, unknown>)
+          : {};
+      const modelId =
+        typeof payloadObj.modelId === "string" && payloadObj.modelId.trim()
+          ? payloadObj.modelId.trim().slice(0, 160)
+          : null;
+      parsedLlmCalls.push(
+        LlmUsageCallEventSchema.parse({
+          id: ev.id,
+          deliverableId: ev.deliverableId,
+          stage: ev.stage,
+          actorRole: ev.actorRole,
+          modelId,
+          inputTokens: inTok,
+          outputTokens: outTok,
+          cacheReadTokens: cacheTok,
+          estimatedCostUsd: Number(costUsd.toFixed(6)),
+          createdAt: ev.createdAt.toISOString(),
+        })
+      );
+    }
+  }
+
   return FinopsSummarySchema.parse({
     organizationId: params.organizationId,
     workspaceKind: (await getEngineConfigScoped(db, { organizationId: params.organizationId, env: params.env })).config.workspaceKind,
@@ -249,6 +316,9 @@ export async function getFinopsSummaryScoped(
     estimatedCostSavedUsd,
     byTechnique,
     recentEvents: rows.slice(0, parsed.limit).map(toTokenSavingsEventDto),
+    totalLlmTokens,
+    totalLlmCostUsd: Number(totalLlmCostUsd.toFixed(6)),
+    recentLlmCalls: parsedLlmCalls,
   });
 }
 
@@ -589,4 +659,25 @@ export async function getProjectAccumulatedCostUsd(
   const controllerUsd = getControllerProjectCostMap().get(projectId) ?? 0;
   const extra = Number.isFinite(extraInMemoryUsd) && extraInMemoryUsd > 0 ? extraInMemoryUsd : 0;
   return Number((persistedUsd + controllerUsd + extra).toFixed(6));
+}
+
+export async function getProjectAccumulatedTokens(
+  db: UzinaDb,
+  projectId: string,
+  extraInMemoryTokens = 0
+): Promise<number> {
+  const [agg] = await db
+    .select({
+      totalTokens: sql<string>`COALESCE(SUM(${executionEvents.tokensInput} + ${executionEvents.tokensOutput}), 0)`,
+    })
+    .from(executionEvents)
+    .innerJoin(deliverables, eq(executionEvents.deliverableId, deliverables.id))
+    .where(eq(deliverables.projectId, projectId));
+
+  const persistedTokens = Math.max(0, Number(agg?.totalTokens ?? 0));
+  const extra =
+    Number.isFinite(extraInMemoryTokens) && extraInMemoryTokens > 0
+      ? Math.round(extraInMemoryTokens)
+      : 0;
+  return persistedTokens + extra;
 }

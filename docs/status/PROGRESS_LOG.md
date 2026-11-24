@@ -349,4 +349,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Builds `UZINA_STANDALONE=1` + padrão `@uzina/web` (`exit 0`) e Playwright `pnpm test:e2e` (`2 passed (22.1s)`).
   * QA Visual (`browser` em `http://127.0.0.1:3019`): **PASS** em `/app`, `/app/deliverables`, `/app/decisions` e `/app/finops` (Dark/Light Stone `1440×900` e Mobile `390×844`, `0` erros de console, `0` HTTP `>= 500`, `0` overflow horizontal).
   * Revisores independentes (`test-critic`, `appsec-auditor`, `egm-codebase-details`, `factory-verifier`) executados; achados de contrato/AppSec/testes corrigidos e revalidados integralmente no gate final.
-* **Próximo passo:** Aguardar revisão e autorização explícita do usuário para merge da branch `feat/slice-19-agent-controller-workflow-bridge-kanban-auto` na `main`.
+* **Próximo passo:** Revisão, merge para `main` e sequência com Plano Mestre P0–P3 (`Slices 20–25`).
+
+---
+
+## 2026-11-24 — Slice 20: P0 Crítico — Finalize Git Real, Switcher, Ciclo Autônomo & FinOps LLM (`fix/slice-20-p0-finalize-switcher-cycle-finops`)
+
+* **Entregue:**
+  * **P0.1 (`deliverable-lifecycle.ts`, `workspace.ts`, `service.ts`, `/api/deliverables/[id]/merge`, `/api/deliverables/[id]/worktree`):** corrigido bug crítico do `--` em `git checkout`/`git merge --ff-only` via `mergeBranchIntoBaseSafe` + `git status --porcelain --untracked-files=no`, adicionado `/.worktrees/` em `.git/info/exclude`, criada política configurável `finalizePolicy` (`local_merge` | `branch_only` | `draft_pr`), persistidos `branchName` e `mergeBlockedReason` em `finalizeInfo`, adicionado guard HITL `409` + RBAC `VAULT_WRITE_ROLES` em `POST /api/deliverables/[id]/merge` e remoção segura de worktree órfão em `DELETE /api/deliverables/[id]/worktree` (bloqueando `409` em task ativa).
+  * **P0.2 (`cockpit-shell.tsx`):** `handleSelectProject` sincroniza imediatamente `/app/projects/[id]/*` e query string `?projectId=` ao alternar projetos no switcher desktop/mobile.
+  * **P0.3 (`service.ts`, `/api/projects/[id]/autonomous-cycle`, `deliverables-docs-hub.tsx`, `agency.ts`):** criado endpoint dedicado e idempotente para o botão `Executar Ciclo Autônomo` no `BackgroundTasksRegistry`, exibido diagnóstico completo (`verifierNotes`, `verifyChecks`, `finalizeInfo`, botões `Mesclar na branch base` e `Limpar Worktree`) na aba Evidências e corrigido typo `"Verify Gate ejecutado"`.
+  * **P0.4 (`cost.ts`, `0012_icy_microchip.sql`, `finops.ts`, `decisions-workbench.tsx`, `providers-manager.tsx`, `finops-dashboard.tsx`):** removido literal `\$` em `decisions-workbench.tsx#L477`, adicionado `customPricingJson` por provedor em `estimateTokenCostUsd`, criado freio `budgetCapTokens` em `projects` (pausando execução mesmo com custo USD zero) e adicionada tabela **Consumo Real de LLM (`recentLlmCalls`)** em `/app/finops`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`71` arquivos, `228` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`@uzina/core` `17` testes em `redact-and-cost`, `@uzina/mastra-runtime` `12` arquivos / `39 passed`, `@uzina/web` `11` arquivos / `28 passed` incluindo `contract-drift.test.ts`).
+  * Playwright `pnpm test:e2e`: `2 passed (23.7s)`.
+  * Revisores independentes: `test-critic` (bordas incorporadas e retestadas), `appsec-auditor` (**PASS** + redação `commitRes.stderr`) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 21 (P1 — Estúdio Visual LLM, QMD Isolado, Co-piloto Executivo & Chat)**.

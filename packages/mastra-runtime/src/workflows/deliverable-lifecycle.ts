@@ -11,6 +11,7 @@ import {
   DiscoveryAnswerSchema,
   DiscoveryRoundSchema,
   EvidencePackSchema,
+  ProjectFinalizePolicySchema,
   ProjectStageAutomationSchema,
   StrategyRouterOutputSchema,
   StuckAlertSchema,
@@ -19,6 +20,7 @@ import {
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorktreeHandleSchema,
+  type CustomModelPricingMap,
   type DecisionStatus,
   type DecisionType,
   type DeliverableStatus,
@@ -27,6 +29,7 @@ import {
   type DiscoveryAnswer,
   type DiscoveryRound,
   type EvidencePack,
+  type ProjectFinalizePolicy,
   type ProjectStageAutomation,
   type ProviderType,
   type RoleBindings,
@@ -80,6 +83,7 @@ import { recordExecutionEvent } from "../event-bus.js";
 import {
   getEngineConfigScoped,
   getProjectAccumulatedCostUsd,
+  getProjectAccumulatedTokens,
 } from "../finops.js";
 import {
   formatMemoriesForPrompt,
@@ -168,6 +172,7 @@ export interface FinalizeOutcome {
   commitSha: string | null;
   prUrl: string | null;
   shouldDeleteBranchOnCleanup: boolean;
+  mergeBlockedReason?: string | null;
 }
 
 export type FinalizeRunner = (ctx: {
@@ -177,6 +182,7 @@ export type FinalizeRunner = (ctx: {
   remoteUrl: string | null;
   branchName: string;
   baseBranch: string;
+  finalizePolicy?: ProjectFinalizePolicy;
   commitMessage: string;
   prTitle: string;
   prBody: string;
@@ -296,6 +302,7 @@ interface ResolvedProviderProfile {
   baseUrl: string | null;
   encryptedApiKey: string | null;
   roleBindings: RoleBindings;
+  customPricing: CustomModelPricingMap;
 }
 
 async function resolveBuilderProviderProfile(
@@ -318,6 +325,7 @@ async function resolveBuilderProviderProfile(
         baseUrl: row.baseUrl,
         encryptedApiKey: row.encryptedApiKey,
         roleBindings: bindings,
+        customPricing: row.customPricingJson ?? {},
       };
     }
   }
@@ -354,6 +362,7 @@ async function resolveVerifierProviderProfile(
         baseUrl: row.baseUrl,
         encryptedApiKey: row.encryptedApiKey,
         roleBindings: bindings,
+        customPricing: row.customPricingJson ?? {},
       };
     }
     if (builderModel) {
@@ -366,6 +375,7 @@ async function resolveVerifierProviderProfile(
           ...bindings,
           verifier: { modelId: builderModel },
         },
+        customPricing: row.customPricingJson ?? {},
       };
     }
   }
@@ -482,11 +492,15 @@ async function resolveProjectAutomationAndBudget(
 ): Promise<{
   stageAutomation: ProjectStageAutomation;
   budgetCapUsd: number | null;
+  budgetCapTokens: number | null;
+  finalizePolicy: ProjectFinalizePolicy;
 }> {
   const [proj] = await db
     .select({
       stageAutomationJson: projects.stageAutomationJson,
       budgetCapUsd: projects.budgetCapUsd,
+      budgetCapTokens: projects.budgetCapTokens,
+      finalizePolicy: projects.finalizePolicy,
     })
     .from(projects)
     .where(eq(projects.id, projectId))
@@ -505,7 +519,20 @@ async function resolveProjectAutomationAndBudget(
       ? parsedBudget
       : null;
 
-  return { stageAutomation, budgetCapUsd };
+  const rawTokens = proj?.budgetCapTokens ?? null;
+  const budgetCapTokens =
+    rawTokens !== null && Number.isInteger(rawTokens) && rawTokens > 0
+      ? rawTokens
+      : null;
+
+  const parsedPolicy = ProjectFinalizePolicySchema.safeParse(
+    proj?.finalizePolicy ?? "local_merge"
+  );
+  const finalizePolicy: ProjectFinalizePolicy = parsedPolicy.success
+    ? parsedPolicy.data
+    : "local_merge";
+
+  return { stageAutomation, budgetCapUsd, budgetCapTokens, finalizePolicy };
 }
 
 async function findPendingDecisionTypeForStep(
@@ -531,15 +558,53 @@ async function findPendingDecisionTypeForStep(
 async function checkBudgetCapExceeded(
   db: UzinaDb,
   projectId: string,
-  budgetCapUsd: number | null
-): Promise<{ exceeded: boolean; accumulatedCostUsd: number }> {
-  if (budgetCapUsd == null) {
-    return { exceeded: false, accumulatedCostUsd: 0 };
+  budgetCapUsd: number | null,
+  budgetCapTokens: number | null = null,
+  extraCostUsd = 0,
+  extraTokens = 0
+): Promise<{
+  exceeded: boolean;
+  reason: "usd" | "tokens" | null;
+  accumulatedCostUsd: number;
+  accumulatedTokens: number;
+}> {
+  if (budgetCapUsd == null && budgetCapTokens == null) {
+    return {
+      exceeded: false,
+      reason: null,
+      accumulatedCostUsd: 0,
+      accumulatedTokens: 0,
+    };
   }
-  const accumulatedCostUsd = await getProjectAccumulatedCostUsd(db, projectId);
+  const [accumulatedCostUsd, accumulatedTokens] = await Promise.all([
+    budgetCapUsd != null
+      ? getProjectAccumulatedCostUsd(db, projectId, extraCostUsd)
+      : Promise.resolve(0),
+    budgetCapTokens != null
+      ? getProjectAccumulatedTokens(db, projectId, extraTokens)
+      : Promise.resolve(0),
+  ]);
+  if (budgetCapUsd != null && accumulatedCostUsd >= budgetCapUsd) {
+    return {
+      exceeded: true,
+      reason: "usd",
+      accumulatedCostUsd,
+      accumulatedTokens,
+    };
+  }
+  if (budgetCapTokens != null && accumulatedTokens >= budgetCapTokens) {
+    return {
+      exceeded: true,
+      reason: "tokens",
+      accumulatedCostUsd,
+      accumulatedTokens,
+    };
+  }
   return {
-    exceeded: accumulatedCostUsd >= budgetCapUsd,
+    exceeded: false,
+    reason: null,
     accumulatedCostUsd,
+    accumulatedTokens,
   };
 }
 
@@ -554,6 +619,9 @@ async function pauseDeliverableForBudgetCap(
     stage: "contract_tests" | "building" | "verifying";
     budgetCapUsd: number;
     accumulatedCostUsd: number;
+    budgetCapTokens?: number | null;
+    accumulatedTokens?: number;
+    reason?: "usd" | "tokens" | null;
   }
 ): Promise<void> {
   if (params.currentStatus !== "paused") {
@@ -570,16 +638,28 @@ async function pauseDeliverableForBudgetCap(
     })
     .where(eq(deliverables.id, params.deliverableId));
 
+  const isTokenReason =
+    params.reason === "tokens" && params.budgetCapTokens != null;
+  const summary = isTokenReason
+    ? `Orçamento de tokens atingido (${(params.accumulatedTokens ?? 0).toLocaleString("pt-BR")} / ${params.budgetCapTokens!.toLocaleString("pt-BR")} tokens) em '${params.title}'`
+    : `Orçamento do projeto atingido ($${params.accumulatedCostUsd.toFixed(4)} / $${params.budgetCapUsd.toFixed(4)}) em '${params.title}'`;
+
   await upsertPendingDecision(db, {
     deliverableId: params.deliverableId,
     mastraStepId: params.mastraStepId,
     decisionType: "budget_cap_pause",
-    summary: `Orçamento do projeto atingido ($${params.accumulatedCostUsd.toFixed(4)} / $${params.budgetCapUsd.toFixed(4)}) em '${params.title}'`,
+    summary,
     payloadJson: {
       gate: "budget_cap_pause",
       stage: params.stage,
       estimatedCostUsd: params.accumulatedCostUsd,
       budgetCapUsd: params.budgetCapUsd,
+      ...(params.budgetCapTokens != null
+        ? {
+            accumulatedTokens: params.accumulatedTokens ?? 0,
+            budgetCapTokens: params.budgetCapTokens,
+          }
+        : {}),
     },
   });
 
@@ -593,6 +673,12 @@ async function pauseDeliverableForBudgetCap(
       stage: params.stage,
       estimatedCostUsd: params.accumulatedCostUsd,
       budgetCapUsd: params.budgetCapUsd,
+      ...(params.budgetCapTokens != null
+        ? {
+            accumulatedTokens: params.accumulatedTokens ?? 0,
+            budgetCapTokens: params.budgetCapTokens,
+          }
+        : {}),
     },
   });
 }
@@ -744,6 +830,23 @@ async function defaultVerifyRunner(ctx: {
   return checks;
 }
 
+const SAFE_GIT_REF_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function assertSafeBranchRefName(ref: string, fieldName: string): string {
+  const trimmed = ref.trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("-") ||
+    trimmed.includes("..") ||
+    trimmed.endsWith(".lock") ||
+    trimmed.includes("//") ||
+    !SAFE_GIT_REF_NAME_RE.test(trimmed)
+  ) {
+    throw new Error(`Nome de ${fieldName} inválido para finalização: '${ref}'.`);
+  }
+  return trimmed;
+}
+
 async function defaultFinalizeRunner(ctx: {
   deliverableId: string;
   workspacePath: string;
@@ -751,17 +854,15 @@ async function defaultFinalizeRunner(ctx: {
   remoteUrl: string | null;
   branchName: string;
   baseBranch: string;
+  finalizePolicy?: ProjectFinalizePolicy;
   commitMessage: string;
   prTitle: string;
   prBody: string;
   signal: AbortSignal;
 }): Promise<FinalizeOutcome> {
-  if (!ctx.branchName || ctx.branchName.startsWith("-")) {
-    throw new Error("Nome de branch inválido para finalização.");
-  }
-  if (!ctx.baseBranch || ctx.baseBranch.startsWith("-")) {
-    throw new Error("Nome de baseBranch inválido para finalização.");
-  }
+  const safeBranch = assertSafeBranchRefName(ctx.branchName, "branchName");
+  const safeBaseBranch = assertSafeBranchRefName(ctx.baseBranch, "baseBranch");
+  const policy: ProjectFinalizePolicy = ctx.finalizePolicy ?? "local_merge";
 
   const gitEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
@@ -793,7 +894,7 @@ async function defaultFinalizeRunner(ctx: {
     );
     if (commitRes.exitCode !== 0) {
       throw new Error(
-        `Falha ao criar commit na branch '${ctx.branchName}': ${commitRes.stderr}`
+        `Falha ao criar commit na branch '${safeBranch}': ${redactSensitiveText(commitRes.stderr).slice(0, 500)}`
       );
     }
   }
@@ -805,6 +906,16 @@ async function defaultFinalizeRunner(ctx: {
     signal: ctx.signal,
   });
   const commitSha = revRes.exitCode === 0 ? revRes.stdout.trim() : null;
+
+  if (policy === "branch_only") {
+    return {
+      mode: "local_branch_ready",
+      commitSha,
+      prUrl: null,
+      shouldDeleteBranchOnCleanup: false,
+      mergeBlockedReason: null,
+    };
+  }
 
   if (ctx.remoteUrl) {
     const ghEnv: NodeJS.ProcessEnv = {
@@ -822,7 +933,7 @@ async function defaultFinalizeRunner(ctx: {
     if (authRes.exitCode === 0) {
       const pushRes = await runSubprocessSafe(
         "git",
-        ["push", "-u", "origin", "--", ctx.branchName],
+        ["push", "-u", "origin", safeBranch],
         { cwd: ctx.workspacePath, env: gitEnv, timeoutMs: 60_000, signal: ctx.signal }
       );
       if (pushRes.exitCode === 0) {
@@ -833,9 +944,9 @@ async function defaultFinalizeRunner(ctx: {
             "create",
             "--draft",
             "--base",
-            ctx.baseBranch,
+            safeBaseBranch,
             "--head",
-            ctx.branchName,
+            safeBranch,
             "--title",
             ctx.prTitle,
             "--body",
@@ -852,41 +963,55 @@ async function defaultFinalizeRunner(ctx: {
             commitSha,
             prUrl: urlLine?.trim() ?? null,
             shouldDeleteBranchOnCleanup: false,
+            mergeBlockedReason: null,
           };
         }
       }
     }
+
+    if (policy === "draft_pr") {
+      return {
+        mode: "local_branch_ready",
+        commitSha,
+        prUrl: null,
+        shouldDeleteBranchOnCleanup: false,
+        mergeBlockedReason:
+          "Remote ou GitHub CLI (gh) indisponível para abrir Draft PR; branch local preservada.",
+      };
+    }
+  } else if (policy === "draft_pr") {
+    return {
+      mode: "local_branch_ready",
+      commitSha,
+      prUrl: null,
+      shouldDeleteBranchOnCleanup: false,
+      mergeBlockedReason:
+        "Projeto configurado como draft_pr mas sem remoteUrl cadastrado; branch local preservada.",
+    };
   }
 
+  let mergeBlockedReason: string | null = null;
+
   if (ctx.repoPath && fs.existsSync(/*turbopackIgnore: true*/ ctx.repoPath)) {
-    const repoStatus = await runSubprocessSafe("git", ["status", "--porcelain"], {
-      cwd: ctx.repoPath,
-      env: gitEnv,
-      timeoutMs: 15_000,
+    const mergeAttempt = await mergeBranchIntoBaseSafe({
+      repoPath: ctx.repoPath,
+      branchName: safeBranch,
+      baseBranch: safeBaseBranch,
+      deleteBranchOnSuccess: false,
       signal: ctx.signal,
     });
-    if (repoStatus.exitCode === 0 && repoStatus.stdout.trim() === "") {
-      const checkoutRes = await runSubprocessSafe(
-        "git",
-        ["checkout", "--", ctx.baseBranch],
-        { cwd: ctx.repoPath, env: gitEnv, timeoutMs: 30_000, signal: ctx.signal }
-      );
-      if (checkoutRes.exitCode === 0) {
-        const mergeRes = await runSubprocessSafe(
-          "git",
-          ["merge", "--ff-only", "--", ctx.branchName],
-          { cwd: ctx.repoPath, env: gitEnv, timeoutMs: 30_000, signal: ctx.signal }
-        );
-        if (mergeRes.exitCode === 0) {
-          return {
-            mode: "local_merge",
-            commitSha,
-            prUrl: null,
-            shouldDeleteBranchOnCleanup: true,
-          };
-        }
-      }
+    if (mergeAttempt.ok) {
+      return {
+        mode: "local_merge",
+        commitSha: mergeAttempt.commitSha ?? commitSha,
+        prUrl: null,
+        shouldDeleteBranchOnCleanup: true,
+        mergeBlockedReason: null,
+      };
     }
+    mergeBlockedReason = mergeAttempt.mergeBlockedReason;
+  } else {
+    mergeBlockedReason = "Caminho local do repositório alvo não encontrado.";
   }
 
   return {
@@ -894,6 +1019,145 @@ async function defaultFinalizeRunner(ctx: {
     commitSha,
     prUrl: null,
     shouldDeleteBranchOnCleanup: false,
+    mergeBlockedReason,
+  };
+}
+
+export async function mergeBranchIntoBaseSafe(params: {
+  repoPath: string;
+  branchName: string;
+  baseBranch: string;
+  deleteBranchOnSuccess?: boolean;
+  signal?: AbortSignal;
+}): Promise<{
+  ok: boolean;
+  commitSha: string | null;
+  mergeBlockedReason: string | null;
+}> {
+  const safeBranch = assertSafeBranchRefName(params.branchName, "branchName");
+  const safeBaseBranch = assertSafeBranchRefName(params.baseBranch, "baseBranch");
+
+  const gitEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    SystemRoot: process.env.SystemRoot,
+    GIT_AUTHOR_NAME: "Uzina Studio",
+    GIT_AUTHOR_EMAIL: "uzina@local",
+    GIT_COMMITTER_NAME: "Uzina Studio",
+    GIT_COMMITTER_EMAIL: "uzina@local",
+  };
+
+  if (!params.repoPath || !fs.existsSync(/*turbopackIgnore: true*/ params.repoPath)) {
+    return {
+      ok: false,
+      commitSha: null,
+      mergeBlockedReason: "Caminho local do repositório alvo não encontrado.",
+    };
+  }
+
+  const branchRev = await runSubprocessSafe("git", ["rev-parse", safeBranch], {
+    cwd: params.repoPath,
+    env: gitEnv,
+    timeoutMs: 15_000,
+    signal: params.signal,
+  });
+  const branchSha = branchRev.exitCode === 0 ? branchRev.stdout.trim() : null;
+
+  const repoStatus = await runSubprocessSafe(
+    "git",
+    ["status", "--porcelain", "--untracked-files=no"],
+    {
+      cwd: params.repoPath,
+      env: gitEnv,
+      timeoutMs: 15_000,
+      signal: params.signal,
+    }
+  );
+  if (repoStatus.exitCode !== 0 || repoStatus.stdout.trim() !== "") {
+    return {
+      ok: false,
+      commitSha: branchSha,
+      mergeBlockedReason:
+        "Repositório alvo possui alterações rastreadas pendentes (working tree suja).",
+    };
+  }
+
+  const headBranchRes = await runSubprocessSafe(
+    "git",
+    ["rev-parse", "--abbrev-ref", "HEAD"],
+    { cwd: params.repoPath, env: gitEnv, timeoutMs: 15_000, signal: params.signal }
+  );
+  const currentHeadBranch =
+    headBranchRes.exitCode === 0 ? headBranchRes.stdout.trim() : "";
+
+  if (currentHeadBranch !== safeBaseBranch) {
+    const checkoutRes = await runSubprocessSafe(
+      "git",
+      ["checkout", safeBaseBranch],
+      {
+        cwd: params.repoPath,
+        env: gitEnv,
+        timeoutMs: 30_000,
+        signal: params.signal,
+      }
+    );
+    if (checkoutRes.exitCode !== 0) {
+      return {
+        ok: false,
+        commitSha: branchSha,
+        mergeBlockedReason: redactSensitiveText(
+          checkoutRes.stderr ||
+            `Não foi possível alternar o repositório alvo para '${safeBaseBranch}'.`
+        ).slice(0, 500),
+      };
+    }
+  }
+
+  const mergeRes = await runSubprocessSafe(
+    "git",
+    ["merge", "--ff-only", safeBranch],
+    {
+      cwd: params.repoPath,
+      env: gitEnv,
+      timeoutMs: 30_000,
+      signal: params.signal,
+    }
+  );
+  if (mergeRes.exitCode !== 0) {
+    return {
+      ok: false,
+      commitSha: branchSha,
+      mergeBlockedReason: redactSensitiveText(
+        mergeRes.stderr ||
+          mergeRes.stdout ||
+          `Merge fast-forward de '${safeBranch}' em '${safeBaseBranch}' bloqueado por divergência.`
+      ).slice(0, 500),
+    };
+  }
+
+  const headAfter = await runSubprocessSafe("git", ["rev-parse", "HEAD"], {
+    cwd: params.repoPath,
+    env: gitEnv,
+    timeoutMs: 15_000,
+    signal: params.signal,
+  });
+  const mergedSha =
+    headAfter.exitCode === 0 ? headAfter.stdout.trim() : branchSha;
+
+  if (params.deleteBranchOnSuccess) {
+    await runSubprocessSafe("git", ["branch", "-d", safeBranch], {
+      cwd: params.repoPath,
+      env: gitEnv,
+      timeoutMs: 15_000,
+      signal: params.signal,
+    }).catch(() => undefined);
+  }
+
+  return {
+    ok: true,
+    commitSha: mergedSha,
+    mergeBlockedReason: null,
   };
 }
 
@@ -2162,7 +2426,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         }
       }
 
-      const { stageAutomation, budgetCapUsd } =
+      const { stageAutomation, budgetCapUsd, budgetCapTokens } =
         await resolveProjectAutomationAndBudget(db, row.projectId);
       const effectiveContractStatus: DeliverableStatus =
         resumeData && currentStatus === "paused"
@@ -2189,9 +2453,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const preBudget = await checkBudgetCapExceeded(
         db,
         row.projectId,
-        budgetCapUsd
+        budgetCapUsd,
+        budgetCapTokens
       );
-      if (preBudget.exceeded && budgetCapUsd != null) {
+      if (preBudget.exceeded) {
         await pauseDeliverableForBudgetCap(db, {
           deliverableId: row.id,
           title: row.title,
@@ -2199,14 +2464,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           hasUi: currentState.hasUi,
           mastraStepId: "stage_contract_and_tests",
           stage: "contract_tests",
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preBudget.accumulatedCostUsd,
           accumulatedCostUsd: preBudget.accumulatedCostUsd,
+          budgetCapTokens,
+          accumulatedTokens: preBudget.accumulatedTokens,
+          reason: preBudget.reason,
         });
         return suspend({
           gate: "budget_cap_pause",
           stage: "contract_tests",
           estimatedCostUsd: preBudget.accumulatedCostUsd,
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preBudget.accumulatedCostUsd,
         });
       }
 
@@ -2327,9 +2595,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         heartbeat.stop();
       }
 
+      const builderModelId = provider.roleBindings.builder?.modelId;
       const contractCost = estimateTokenCostUsd(
-        provider.roleBindings.builder?.modelId,
-        sessionResult.tokenUsage
+        builderModelId,
+        sessionResult.tokenUsage,
+        provider.customPricing
       );
       if (
         sessionResult.tokenUsage.inputTokens > 0 ||
@@ -2345,18 +2615,22 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           tokensOutput: sessionResult.tokenUsage.outputTokens,
           cacheReadTokens: sessionResult.tokenUsage.cacheReadTokens,
           estimatedCostUsd: contractCost,
-          payload: { status: sessionResult.status },
+          payload: {
+            status: sessionResult.status,
+            ...(builderModelId ? { modelId: builderModelId } : {}),
+          },
         });
       }
 
       const postBudget = await checkBudgetCapExceeded(
         db,
         row.projectId,
-        budgetCapUsd
+        budgetCapUsd,
+        budgetCapTokens
       );
       if (
         sessionResult.errorMessage === "BUDGET_CAP_EXCEEDED" ||
-        (postBudget.exceeded && budgetCapUsd != null)
+        postBudget.exceeded
       ) {
         await setState({
           ...currentState,
@@ -2381,6 +2655,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stage: "contract_tests",
           budgetCapUsd: budgetCapUsd ?? postBudget.accumulatedCostUsd,
           accumulatedCostUsd: postBudget.accumulatedCostUsd,
+          budgetCapTokens,
+          accumulatedTokens: postBudget.accumulatedTokens,
+          reason: postBudget.reason,
         });
         return suspend({
           gate: "budget_cap_pause",
@@ -2595,7 +2872,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           : currentState.humanFeedback;
       }
 
-      const { stageAutomation, budgetCapUsd } =
+      const { stageAutomation, budgetCapUsd, budgetCapTokens } =
         await resolveProjectAutomationAndBudget(db, row.projectId);
       const effectiveBuildStatus: DeliverableStatus =
         resumeData && currentStatus === "paused" ? "building" : currentStatus;
@@ -2620,9 +2897,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const preBudget = await checkBudgetCapExceeded(
         db,
         row.projectId,
-        budgetCapUsd
+        budgetCapUsd,
+        budgetCapTokens
       );
-      if (preBudget.exceeded && budgetCapUsd != null) {
+      if (preBudget.exceeded) {
         await pauseDeliverableForBudgetCap(db, {
           deliverableId: row.id,
           title: row.title,
@@ -2630,14 +2908,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           hasUi: currentState.hasUi,
           mastraStepId: "stage_build",
           stage: "building",
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preBudget.accumulatedCostUsd,
           accumulatedCostUsd: preBudget.accumulatedCostUsd,
+          budgetCapTokens,
+          accumulatedTokens: preBudget.accumulatedTokens,
+          reason: preBudget.reason,
         });
         return suspend({
           gate: "budget_cap_pause",
           stage: "building",
           estimatedCostUsd: preBudget.accumulatedCostUsd,
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preBudget.accumulatedCostUsd,
         });
       }
 
@@ -2705,9 +2986,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         heartbeat.stop();
       }
 
+      const builderModelId = provider.roleBindings.builder?.modelId;
       const buildCost = estimateTokenCostUsd(
-        provider.roleBindings.builder?.modelId,
-        buildResult.tokenUsage
+        builderModelId,
+        buildResult.tokenUsage,
+        provider.customPricing
       );
       await recordExecutionEvent(db, {
         deliverableId: row.id,
@@ -2723,19 +3006,19 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           status: buildResult.status,
           turns: buildResult.turns,
           stuckPattern: buildResult.stuckAlert?.pattern ?? null,
+          ...(builderModelId ? { modelId: builderModelId } : {}),
         },
       });
 
       const postBuildBudget = await checkBudgetCapExceeded(
         db,
         row.projectId,
-        budgetCapUsd
+        budgetCapUsd,
+        budgetCapTokens
       );
       if (
         buildResult.errorMessage === "BUDGET_CAP_EXCEEDED" ||
-        (postBuildBudget.exceeded &&
-          budgetCapUsd != null &&
-          buildResult.status !== "stuck")
+        (postBuildBudget.exceeded && buildResult.status !== "stuck")
       ) {
         await setState({
           ...currentState,
@@ -2761,6 +3044,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stage: "building",
           budgetCapUsd: budgetCapUsd ?? postBuildBudget.accumulatedCostUsd,
           accumulatedCostUsd: postBuildBudget.accumulatedCostUsd,
+          budgetCapTokens,
+          accumulatedTokens: postBuildBudget.accumulatedTokens,
+          reason: postBuildBudget.reason,
         });
         return suspend({
           gate: "budget_cap_pause",
@@ -3031,7 +3317,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         }
       }
 
-      const { stageAutomation, budgetCapUsd } =
+      const { stageAutomation, budgetCapUsd, budgetCapTokens } =
         await resolveProjectAutomationAndBudget(db, row.projectId);
       const effectiveVerifyStatus: DeliverableStatus =
         resumeData && initialVerifyStatus === "paused"
@@ -3058,9 +3344,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const preVerifyBudget = await checkBudgetCapExceeded(
         db,
         row.projectId,
-        budgetCapUsd
+        budgetCapUsd,
+        budgetCapTokens
       );
-      if (preVerifyBudget.exceeded && budgetCapUsd != null) {
+      if (preVerifyBudget.exceeded) {
         await pauseDeliverableForBudgetCap(db, {
           deliverableId: row.id,
           title: row.title,
@@ -3068,14 +3355,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           hasUi: currentState.hasUi,
           mastraStepId: "stage_verify",
           stage: "verifying",
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preVerifyBudget.accumulatedCostUsd,
           accumulatedCostUsd: preVerifyBudget.accumulatedCostUsd,
+          budgetCapTokens,
+          accumulatedTokens: preVerifyBudget.accumulatedTokens,
+          reason: preVerifyBudget.reason,
         });
         return suspend({
           gate: "budget_cap_pause",
           stage: "verifying",
           estimatedCostUsd: preVerifyBudget.accumulatedCostUsd,
-          budgetCapUsd,
+          budgetCapUsd: budgetCapUsd ?? preVerifyBudget.accumulatedCostUsd,
         });
       }
 
@@ -3110,6 +3400,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       let securityGatePassed = true;
       let verifierVerdict: "approved" | "changes_required" = "approved";
       let verifierNotes = "";
+      let verifierModelUsed: string | null = null;
       let verifyTokensInput = 0;
       let verifyTokensOutput = 0;
       let verifyCacheTokens = 0;
@@ -3321,29 +3612,32 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             prompt: verifierPrompt,
           });
 
+          const verifierModelId = verifierProvider.roleBindings.verifier?.modelId;
+          verifierModelUsed = verifierModelId ?? null;
           verifyTokensInput = verifierSession.tokenUsage.inputTokens;
           verifyTokensOutput = verifierSession.tokenUsage.outputTokens;
           verifyCacheTokens = verifierSession.tokenUsage.cacheReadTokens;
           verifyCostUsd = estimateTokenCostUsd(
-            verifierProvider.roleBindings.verifier?.modelId,
-            verifierSession.tokenUsage
+            verifierModelId,
+            verifierSession.tokenUsage,
+            verifierProvider.customPricing
           );
 
-          const postVerifyAccumulated =
-            budgetCapUsd != null
-              ? await getProjectAccumulatedCostUsd(
-                  db,
-                  row.projectId,
-                  verifyCostUsd
-                )
-              : 0;
+          const postVerifyBudget = await checkBudgetCapExceeded(
+            db,
+            row.projectId,
+            budgetCapUsd,
+            budgetCapTokens,
+            verifyCostUsd,
+            verifyTokensInput + verifyTokensOutput
+          );
 
           if (
             verifierSession.errorMessage === "BUDGET_CAP_EXCEEDED" ||
-            (budgetCapUsd != null && postVerifyAccumulated >= budgetCapUsd)
+            postVerifyBudget.exceeded
           ) {
             budgetExceededInVerifier = true;
-            budgetAccumulatedInVerifier = postVerifyAccumulated;
+            budgetAccumulatedInVerifier = postVerifyBudget.accumulatedCostUsd;
           } else if (verifierSession.status !== "completed") {
             verifierVerdict = "changes_required";
             verifierNotes = `Sessão do Verifier encerrou com status '${verifierSession.status}'.`;
@@ -3391,7 +3685,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             tokensOutput: verifyTokensOutput,
             cacheReadTokens: verifyCacheTokens,
             estimatedCostUsd: verifyCostUsd,
-            payload: { attemptNumber, pausedForBudget: true },
+            payload: {
+              attemptNumber,
+              pausedForBudget: true,
+              ...(verifierModelUsed ? { modelId: verifierModelUsed } : {}),
+            },
           });
         }
         await setState({
@@ -3405,6 +3703,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           ),
         });
         const effectiveCap = budgetCapUsd ?? budgetAccumulatedInVerifier;
+        const accTokensAfter =
+          budgetCapTokens != null
+            ? await getProjectAccumulatedTokens(db, row.projectId)
+            : 0;
         await pauseDeliverableForBudgetCap(db, {
           deliverableId: row.id,
           title: row.title,
@@ -3414,6 +3716,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stage: "verifying",
           budgetCapUsd: effectiveCap,
           accumulatedCostUsd: budgetAccumulatedInVerifier,
+          budgetCapTokens,
+          accumulatedTokens: accTokensAfter,
+          reason:
+            budgetCapUsd != null && budgetAccumulatedInVerifier >= budgetCapUsd
+              ? "usd"
+              : budgetCapTokens != null && accTokensAfter >= budgetCapTokens
+                ? "tokens"
+                : null,
         });
         return suspend({
           gate: "budget_cap_pause",
@@ -3499,6 +3809,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           verifierVerdict,
           failureReasons,
           scanId,
+          ...(verifierModelUsed ? { modelId: verifierModelUsed } : {}),
         },
       });
 
@@ -3953,6 +4264,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       }
 
       const repo = await resolveProjectRepository(db, row.repositoryId);
+      const { finalizePolicy } = await resolveProjectAutomationAndBudget(
+        db,
+        row.projectId
+      );
       const workspace =
         deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
       await workspace.attach(worktreeHandle);
@@ -3967,6 +4282,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           remoteUrl: repo?.remoteUrl ?? null,
           branchName: worktreeHandle.branchName,
           baseBranch: worktreeHandle.baseBranch,
+          finalizePolicy,
           commitMessage: `feat(deliverable): ${row.title}`,
           prTitle: `[Uzina] ${row.title}`,
           prBody: currentState.evidencePack
@@ -4020,6 +4336,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
               mode: outcome.mode,
               commitSha: outcome.commitSha,
               prUrl: outcome.prUrl,
+              branchName: worktreeHandle.branchName,
+              mergeBlockedReason: outcome.mergeBlockedReason ?? null,
             },
           }
         : null;

@@ -38,11 +38,13 @@ export async function PATCH(
   if (!body.ok) return body.response;
 
   if (
-    body.data.budgetCapUsd !== undefined &&
+    (body.data.budgetCapUsd !== undefined ||
+      body.data.budgetCapTokens !== undefined) &&
     !VAULT_WRITE_ROLES.includes(guard.actor.role)
   ) {
     return jsonError(403, {
-      error: "Apenas owner ou admin podem alterar o teto de orçamento (budgetCapUsd).",
+      error:
+        "Apenas owner ou admin podem alterar o teto de orçamento (budgetCapUsd/budgetCapTokens).",
       code: "FORBIDDEN",
     });
   }
@@ -98,6 +100,12 @@ export async function PATCH(
                 ? null
                 : body.data.budgetCapUsd.toFixed(6),
           }
+        : {}),
+      ...(body.data.budgetCapTokens !== undefined
+        ? { budgetCapTokens: body.data.budgetCapTokens }
+        : {}),
+      ...(body.data.finalizePolicy !== undefined
+        ? { finalizePolicy: body.data.finalizePolicy }
         : {}),
       updatedAt: new Date(),
     })

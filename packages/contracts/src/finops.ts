@@ -68,6 +68,22 @@ export const FinopsSummaryRequestSchema = z
   .strict();
 export type FinopsSummaryRequest = z.infer<typeof FinopsSummaryRequestSchema>;
 
+export const LlmUsageCallEventSchema = z
+  .object({
+    id: z.uuid(),
+    deliverableId: z.uuid().nullable(),
+    stage: z.string().trim().min(1).max(120),
+    actorRole: z.string().trim().min(1).max(80),
+    modelId: z.string().trim().min(1).max(160).nullable(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    cacheReadTokens: z.number().int().nonnegative(),
+    estimatedCostUsd: z.number().nonnegative(),
+    createdAt: z.iso.datetime(),
+  })
+  .strict();
+export type LlmUsageCallEvent = z.infer<typeof LlmUsageCallEventSchema>;
+
 export const FinopsSummarySchema = z
   .object({
     organizationId: z.uuid(),
@@ -82,6 +98,9 @@ export const FinopsSummarySchema = z
     estimatedCostSavedUsd: z.number().nonnegative(),
     byTechnique: z.array(FinopsTechniqueBreakdownSchema),
     recentEvents: z.array(TokenSavingsEventSchema),
+    totalLlmTokens: z.number().int().nonnegative().default(0),
+    totalLlmCostUsd: z.number().nonnegative().default(0),
+    recentLlmCalls: z.array(LlmUsageCallEventSchema).default([]),
   })
   .strict();
 export type FinopsSummary = z.infer<typeof FinopsSummarySchema>;

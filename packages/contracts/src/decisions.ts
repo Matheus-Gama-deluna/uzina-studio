@@ -56,6 +56,8 @@ export const EvidencePackSchema = z.object({
       mode: z.enum(["draft_pr", "local_merge", "local_branch_ready"]),
       commitSha: z.string().nullable().optional(),
       prUrl: z.string().nullable().optional(),
+      branchName: z.string().nullable().optional(),
+      mergeBlockedReason: z.string().nullable().optional(),
     })
     .nullable()
     .optional(),
