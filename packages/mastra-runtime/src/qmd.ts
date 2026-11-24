@@ -27,10 +27,12 @@ import {
   clients,
   memories,
   memoryChunks,
+  projectRepositories,
   projects,
   type UzinaDb,
 } from "@uzina/db";
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
+import { WorkflowRuntimeError } from "./errors.js";
 import {
   recordTokenSavingsEventScoped,
   resolveOrganizationEmbeddingProvider,
@@ -93,14 +95,17 @@ function collectMarkdownFiles(
   subDirs: readonly string[]
 ): Array<{ relativePath: string; absolutePath: string }> {
   const results: Array<{ relativePath: string; absolutePath: string }> = [];
+  const seenRel = new Set<string>();
   const rawResolved = path.resolve(rootDir);
-  const resolvedRoot = fs.existsSync(rawResolved)
+  const resolvedRoot = fs.existsSync(/*turbopackIgnore: true*/ rawResolved)
     ? assertPathInsideWorkspace(rawResolved, rawResolved, { allowRoot: true })
     : rawResolved;
 
   const walk = (dirPath: string) => {
-    if (!fs.existsSync(dirPath)) return;
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    if (!fs.existsSync(/*turbopackIgnore: true*/ dirPath)) return;
+    const entries = fs.readdirSync(/*turbopackIgnore: true*/ dirPath, {
+      withFileTypes: true,
+    });
     for (const entry of entries) {
       if (
         IGNORED_DIRS.has(entry.name) ||
@@ -110,24 +115,44 @@ function collectMarkdownFiles(
         continue;
       }
       const abs = path.join(dirPath, entry.name);
-      const safeAbs = assertPathInsideWorkspace(resolvedRoot, abs);
+      let safeAbs: string;
+      try {
+        safeAbs = assertPathInsideWorkspace(resolvedRoot, abs);
+      } catch (err) {
+        if (err instanceof Error && err.name === "WorkspaceBoundaryError") {
+          continue;
+        }
+        throw err;
+      }
       if (entry.isDirectory()) {
         walk(safeAbs);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
-        const stat = fs.statSync(safeAbs);
+        const stat = fs.statSync(/*turbopackIgnore: true*/ safeAbs);
         if (stat.size <= MAX_MARKDOWN_BYTES) {
-          results.push({
-            relativePath: path.relative(resolvedRoot, safeAbs).replace(/\\/g, "/"),
-            absolutePath: safeAbs,
-          });
+          const relativePath = path
+            .relative(resolvedRoot, safeAbs)
+            .replace(/\\/g, "/");
+          if (!seenRel.has(relativePath)) {
+            seenRel.add(relativePath);
+            results.push({
+              relativePath,
+              absolutePath: safeAbs,
+            });
+          }
         }
       }
     }
   };
 
   for (const sub of subDirs) {
+    if (sub === ".") {
+      if (fs.existsSync(/*turbopackIgnore: true*/ resolvedRoot)) {
+        walk(resolvedRoot);
+      }
+      continue;
+    }
     const candidate = path.join(resolvedRoot, sub);
-    if (fs.existsSync(candidate)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) {
       walk(assertPathInsideWorkspace(resolvedRoot, candidate));
     }
   }
@@ -135,17 +160,47 @@ function collectMarkdownFiles(
   return results;
 }
 
+interface ScopedMarkdownTarget {
+  relativePath: string;
+  absolutePath: string;
+  scopeType: "org" | "project";
+  scopeId: string;
+}
+
 export async function reindexWorkspaceQmd(
   db: UzinaDb,
   params: {
     organizationId: string;
     rootDir?: string;
+    allowDirectRootDocs?: boolean;
     request?: QmdReindexRequest;
     provider?: EmbeddingProvider;
   }
 ): Promise<QmdReindexResponse> {
   const parsed = QmdReindexRequestSchema.parse(params.request ?? {});
   const provider = params.provider ?? resolveDefaultEmbeddingProvider();
+
+  if (parsed.projectId) {
+    const [scopedProject] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .where(
+        and(
+          eq(projects.id, parsed.projectId),
+          eq(clients.organizationId, params.organizationId)
+        )
+      )
+      .limit(1);
+
+    if (!scopedProject) {
+      throw new WorkflowRuntimeError({
+        statusCode: 404,
+        code: "FORBIDDEN_PROJECT_SCOPE",
+        message: `Projeto '${parsed.projectId}' não encontrado na organização.`,
+      });
+    }
+  }
 
   const orgMemories = await db
     .select()
@@ -188,11 +243,66 @@ export async function reindexWorkspaceQmd(
 
   let indexedDocFiles = 0;
   if (parsed.includeDocs) {
-    const rootDir = params.rootDir ?? process.cwd();
-    const mdFiles = collectMarkdownFiles(rootDir, [".uzina", "docs"]);
+    const targets: ScopedMarkdownTarget[] = [];
 
-    for (const file of mdFiles) {
-      const rawContent = fs.readFileSync(file.absolutePath, "utf8");
+    if (parsed.projectId) {
+      const repos = await db
+        .select()
+        .from(projectRepositories)
+        .where(eq(projectRepositories.projectId, parsed.projectId));
+
+      for (const repo of repos) {
+        if (!repo.localPath || !fs.existsSync(/*turbopackIgnore: true*/ repo.localPath)) {
+          continue;
+        }
+        const repoFiles = collectMarkdownFiles(repo.localPath, ["."]);
+        for (const f of repoFiles) {
+          const scopedPath =
+            repos.length > 1 ? `${repo.name}/${f.relativePath}` : f.relativePath;
+          targets.push({
+            relativePath: scopedPath,
+            absolutePath: f.absolutePath,
+            scopeType: "project",
+            scopeId: parsed.projectId,
+          });
+        }
+      }
+
+      if (parsed.force) {
+        await db
+          .delete(memoryChunks)
+          .where(
+            and(
+              eq(memoryChunks.organizationId, params.organizationId),
+              eq(memoryChunks.sourceType, "markdown"),
+              eq(memoryChunks.scopeType, "project"),
+              eq(memoryChunks.scopeId, parsed.projectId)
+            )
+          );
+      }
+    } else {
+      const allowPlatformScan =
+        parsed.includePlatformDocs === true ||
+        (params.rootDir !== undefined && params.allowDirectRootDocs !== false);
+      if (allowPlatformScan) {
+        const rootDir = params.rootDir ?? process.cwd();
+        const mdFiles = collectMarkdownFiles(rootDir, [".uzina", "docs"]);
+        for (const f of mdFiles) {
+          targets.push({
+            relativePath: f.relativePath,
+            absolutePath: f.absolutePath,
+            scopeType: "org",
+            scopeId: params.organizationId,
+          });
+        }
+      }
+    }
+
+    for (const file of targets) {
+      const rawContent = fs.readFileSync(
+        /*turbopackIgnore: true*/ file.absolutePath,
+        "utf8"
+      );
       const cleanMarkdown = redactSensitiveText(rawContent);
       const fileHash = sha256Hex(cleanMarkdown);
 
@@ -206,6 +316,8 @@ export async function reindexWorkspaceQmd(
           .where(
             and(
               eq(memoryChunks.organizationId, params.organizationId),
+              eq(memoryChunks.scopeType, file.scopeType),
+              eq(memoryChunks.scopeId, file.scopeId),
               eq(memoryChunks.sourcePath, file.relativePath)
             )
           );
@@ -225,6 +337,8 @@ export async function reindexWorkspaceQmd(
         .where(
           and(
             eq(memoryChunks.organizationId, params.organizationId),
+            eq(memoryChunks.scopeType, file.scopeType),
+            eq(memoryChunks.scopeId, file.scopeId),
             eq(memoryChunks.sourcePath, file.relativePath)
           )
         );
@@ -244,8 +358,8 @@ export async function reindexWorkspaceQmd(
           sourceType: "markdown" as const,
           memoryId: null,
           sourcePath: file.relativePath,
-          scopeType: "org" as const,
-          scopeId: params.organizationId,
+          scopeType: file.scopeType,
+          scopeId: file.scopeId,
           headingPath: chunk.headingPath,
           lineStart: chunk.lineStart,
           lineEnd: chunk.lineEnd,

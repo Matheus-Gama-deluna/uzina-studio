@@ -37,6 +37,7 @@ import Link from "next/link";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type FormEvent,
@@ -144,6 +145,7 @@ export function AgencyCommandCenter({
 
   const activeThreadId = threadIdByKey[storageKey] ?? null;
   const effectiveSessionId = controllerSessionId ?? activeThreadId;
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!bootReady || !isHydrated) return;
@@ -181,15 +183,35 @@ export function AgencyCommandCenter({
             agentRole: m.agentRole,
             executionMode: m.executionMode,
             boundModelId: m.boundModelId,
+            llmLatencyMs: m.llmLatencyMs ?? null,
+            cycleNumber: m.cycleNumber ?? undefined,
             toolsUsed: m.toolsUsed,
             actionsExecuted: m.actionsExecuted,
           }));
           setTurnsByKey((prev) => {
-            if (prev[storageKey] && prev[storageKey]!.length > 0) {
+            const existing = prev[storageKey];
+            const onlyInitialGreeting =
+              Boolean(existing) &&
+              existing!.length === 1 &&
+              existing![0]?.id === INITIAL_GREETING_TURN.id;
+            if (
+              existing &&
+              existing.length > 0 &&
+              !onlyInitialGreeting &&
+              serverTurns.length <= existing.length
+            ) {
               return prev;
             }
             return { ...prev, [storageKey]: serverTurns };
           });
+          try {
+            window.localStorage.setItem(
+              storageKey,
+              JSON.stringify(serverTurns.slice(-30))
+            );
+          } catch {
+            // ignore storage errors
+          }
         }
       } catch {
         // Ignora falha silenciosa de hidratação (ex.: offline ou boot inicial)
@@ -482,6 +504,12 @@ export function AgencyCommandCenter({
         queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
       ]);
     },
+    onError: (err: Error, variables) => {
+      setChatInput((prev) => prev || variables.message);
+      setControllerNotice(
+        err.message || "Falha ao enviar mensagem para a equipe."
+      );
+    },
   });
 
   const readiness = agencyQuery.data?.readiness;
@@ -621,6 +649,15 @@ export function AgencyCommandCenter({
     },
   });
 
+  const lastTurnContentLen =
+    chatTurns[chatTurns.length - 1]?.content.length ?? 0;
+
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatTurns.length, lastTurnContentLen]);
+
   // Se o boot terminou e não há nenhum projeto cadastrado ainda, exibe diretamente a tela ampla de Ideias & Novo Projeto (Decisão A2)
   if (bootReady && !hasAnyProjects && !projectState) {
     return <IdeasHub embedded />;
@@ -628,11 +665,12 @@ export function AgencyCommandCenter({
 
   function submitCurrentChat() {
     const trimmedMsg = chatInput.trim();
-    if (!trimmedMsg) return;
+    if (!trimmedMsg || chatMutation.isPending) return;
 
     const chosenRole =
       selectedAgentRole === "auto" ? undefined : selectedAgentRole;
 
+    setChatInput("");
     chatMutation.mutate({
       message: trimmedMsg,
       intent: "general_chat",
@@ -924,6 +962,7 @@ export function AgencyCommandCenter({
         className="uzina-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface"
       >
         <div
+          ref={chatScrollRef}
           data-testid="agency-chat-history"
           className="min-h-[260px] flex-1 space-y-4 overflow-y-auto p-4 sm:p-6 select-text"
         >

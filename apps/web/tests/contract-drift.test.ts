@@ -21,6 +21,7 @@ import {
   ProvenanceListResponseSchema,
   SymbolGraphResponseSchema,
   DeliverableListResponseSchema,
+  DeliverableSchema,
   DeliverableWorkflowStateSchema,
   DesignAssetListResponseSchema,
   DesignAssetSchema,
@@ -1336,6 +1337,7 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
         aborted: true,
         deliverableId: mswDeliverableId,
         mastraRunId: "mock-run-id",
+        status: "paused",
       });
 
       const realAbortDelivCreate = await createDeliverable(
@@ -1811,6 +1813,102 @@ describe("Contract Drift Check — MSW vs Rotas REST Reais", () => {
       );
       expect(realCleanWtRes.status).toBe(200);
       CleanupDeliverableWorktreeResponseSchema.parse(await realCleanWtRes.json());
+
+      // Slice 21: deliverable sem UI não herda frontend_first_msw, abort persiste status="paused" e QMD reindex é isolado
+      const backendDelivRes = await createDeliverable(
+        new Request(`http://localhost:3000/api/projects/${projectId}/deliverables`, {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            title: "API Contrato Backend S21",
+            description: "Endpoint de faturamento sem UI.",
+            hasUi: false,
+          }),
+        }),
+        { params: Promise.resolve({ id: projectId }) }
+      );
+      expect(backendDelivRes.status).toBe(201);
+      const backendDeliv = DeliverableSchema.parse(await backendDelivRes.json());
+      expect(backendDeliv.hasUi).toBe(false);
+      expect(backendDeliv.developmentStrategy).toBe("api_contract_first");
+
+      expect(
+        (
+          await postWorkflowAbortRoute(
+            new Request(
+              `http://localhost:3000/api/deliverables/${backendDeliv.id}/workflow/abort`,
+              { method: "POST" }
+            ),
+            { params: Promise.resolve({ id: backendDeliv.id }) }
+          )
+        ).status
+      ).toBe(401);
+      expect(
+        (
+          await postWorkflowAbortRoute(
+            new Request(
+              "http://localhost:3000/api/deliverables/not-uuid/workflow/abort",
+              { method: "POST", headers: { cookie } }
+            ),
+            { params: Promise.resolve({ id: "not-uuid" }) }
+          )
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await postWorkflowAbortRoute(
+            new Request(
+              `http://localhost:3000/api/deliverables/${backendDeliv.id}/workflow/abort`,
+              { method: "POST", headers: { cookie: thirdCookie } }
+            ),
+            { params: Promise.resolve({ id: backendDeliv.id }) }
+          )
+        ).status
+      ).toBe(404);
+
+      const realAbortS21Res = await postWorkflowAbortRoute(
+        new Request(
+          `http://localhost:3000/api/deliverables/${backendDeliv.id}/workflow/abort`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", cookie },
+            body: JSON.stringify({ reason: "Pausa via rota HTTP S21" }),
+          }
+        ),
+        { params: Promise.resolve({ id: backendDeliv.id }) }
+      );
+      expect(realAbortS21Res.status).toBe(200);
+      const parsedAbortS21 = WorkflowAbortResponseSchema.parse(
+        await realAbortS21Res.json()
+      );
+      expect(parsedAbortS21.aborted).toBe(true);
+      expect(parsedAbortS21.status).toBe("paused");
+
+      const isolatedQmdRes = await reindexQmdRoute(
+        new Request("http://localhost:3000/api/qmd/reindex", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({ includeDocs: true, force: false }),
+        })
+      );
+      expect(isolatedQmdRes.status).toBe(200);
+      const parsedQmdS21 = QmdReindexResponseSchema.parse(
+        await isolatedQmdRes.json()
+      );
+      expect(parsedQmdS21.indexedDocFiles).toBe(0);
+
+      const crossOrgQmdRes = await reindexQmdRoute(
+        new Request("http://localhost:3000/api/qmd/reindex", {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie: thirdCookie },
+          body: JSON.stringify({
+            includeDocs: true,
+            force: false,
+            projectId,
+          }),
+        })
+      );
+      expect(crossOrgQmdRes.status).toBe(404);
     } finally {
       fs.rmSync(tempRepo, { recursive: true, force: true });
     }

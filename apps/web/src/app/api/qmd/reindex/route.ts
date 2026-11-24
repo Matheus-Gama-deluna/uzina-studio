@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { QmdReindexRequestSchema } from "@uzina/contracts";
 import { getDb } from "@uzina/db";
-import { reindexWorkspaceQmd } from "@uzina/mastra-runtime";
+import { WorkflowRuntimeError, reindexWorkspaceQmd } from "@uzina/mastra-runtime";
 import { NextResponse } from "next/server";
 import { jsonError, parseJsonBody } from "@/lib/api-utils";
 import { VAULT_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -37,11 +37,20 @@ export async function POST(request: Request): Promise<Response> {
     const { db } = await getDb();
     const result = await reindexWorkspaceQmd(db, {
       organizationId: guard.actor.organizationId,
-      rootDir: resolveDocsWorkspaceRoot(),
+      allowDirectRootDocs: false,
+      rootDir: parsed.data.includePlatformDocs
+        ? resolveDocsWorkspaceRoot()
+        : undefined,
       request: parsed.data,
     });
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof WorkflowRuntimeError) {
+      return jsonError(error.statusCode, {
+        error: error.message,
+        code: error.code,
+      });
+    }
     console.error("[POST /api/qmd/reindex] falha:", error);
     return jsonError(500, {
       error: "Erro interno ao reindexar memórias e documentos QMD.",

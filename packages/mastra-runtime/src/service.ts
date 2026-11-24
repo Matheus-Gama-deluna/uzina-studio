@@ -130,6 +130,7 @@ export interface MastraWorkflowService {
     aborted: boolean;
     deliverableId: string;
     mastraRunId: string | null;
+    status: DeliverableStatus;
   }>;
   runProjectAutonomousCycle(params: {
     projectId: string;
@@ -1074,10 +1075,49 @@ export async function createMastraRuntime(
         activeAborter.abort(effectiveReason);
         activeAborted = true;
       }
+
+      const NON_PAUSABLE = new Set<DeliverableStatus>([
+        "merged",
+        "approved",
+        "failed",
+        "paused",
+        "decision_pending",
+      ]);
+      const currentStatus = row.status as DeliverableStatus;
+      let transitionedToPaused = false;
+
+      if (!NON_PAUSABLE.has(currentStatus)) {
+        await options.db
+          .update(deliverables)
+          .set({
+            status: "paused",
+            pausedFromStatus: currentStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, row.id));
+
+        await recordExecutionEvent(options.db, {
+          deliverableId: row.id,
+          stage: "paused",
+          actorRole: "operator",
+          eventType: "stage_change",
+          payload: {
+            eventKind: "aborted",
+            reason: effectiveReason,
+            previousStatus: currentStatus,
+            newStatus: "paused",
+            backgroundAborted: bgAborted,
+            activeAborted,
+          },
+        });
+        transitionedToPaused = true;
+      }
+
       return {
-        aborted: bgAborted || activeAborted,
+        aborted: bgAborted || activeAborted || transitionedToPaused,
         deliverableId: row.id,
         mastraRunId: row.mastraRunId ?? null,
+        status: transitionedToPaused ? "paused" : currentStatus,
       };
     },
 

@@ -38,26 +38,31 @@ export function sanitizePrototypeHtml(
 
   let html = rawHtml;
 
-  // Remove comentários condicionais IE ou comentários que escondem scripts
-  html = html.replace(/<!--[\s\S]*?-->/g, "");
+  // Remove comentários condicionais IE ou comentários que escondem scripts e repete stripping até ponto fixo para bloquear aninhamento (<scr<script/>ipt>)
+  for (let pass = 0; pass < 5; pass += 1) {
+    const beforePass = html;
+    html = html.replace(/<!--[\s\S]*?-->/g, "");
 
-  for (const tag of DANGEROUS_PAIRED_TAGS) {
-    const pairedRe = new RegExp(
-      `<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`,
-      "gi"
-    );
-    const selfClosingRe = new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi");
-    html = html.replace(pairedRe, "").replace(selfClosingRe, "");
+    for (const tag of DANGEROUS_PAIRED_TAGS) {
+      const pairedRe = new RegExp(
+        `<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`,
+        "gi"
+      );
+      const selfClosingRe = new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi");
+      html = html.replace(pairedRe, "").replace(selfClosingRe, "");
+    }
+
+    for (const tag of DANGEROUS_VOID_TAGS) {
+      const voidRe = new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi");
+      html = html.replace(voidRe, "");
+    }
+
+    if (html === beforePass) break;
   }
 
-  for (const tag of DANGEROUS_VOID_TAGS) {
-    const voidRe = new RegExp(`<${tag}\\b[^>]*\\/?>`, "gi");
-    html = html.replace(voidRe, "");
-  }
-
-  // Remove atributos inline de eventos (onClick, onerror, onload, etc.)
+  // Remove atributos inline de eventos incluindo separador '/' em HTML5 (<svg/onload=...>)
   html = html.replace(
-    /\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+    /(?:[\s/])+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
     ""
   );
 

@@ -41,6 +41,7 @@ import { StitchPrototypesPanel } from "./stitch-prototypes-panel";
 interface ProjectStudioProps {
   projectId: string;
   initialProjectName?: string;
+  embedded?: boolean;
 }
 
 const GATE_LABELS: Record<string, string> = {
@@ -78,6 +79,7 @@ const WORKFLOW_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 export function ProjectStudio({
   projectId,
   initialProjectName,
+  embedded = false,
 }: ProjectStudioProps) {
   const queryClient = useQueryClient();
 
@@ -458,9 +460,15 @@ export function ProjectStudio({
               Estúdio Visual &amp; Orquestrador
             </span>
           </div>
-          <h1 className="text-lg font-semibold tracking-tight text-fg-primary">
-            {projectName}
-          </h1>
+          {embedded ? (
+            <h2 className="text-lg font-semibold tracking-tight text-fg-primary">
+              {projectName}
+            </h2>
+          ) : (
+            <h1 className="text-lg font-semibold tracking-tight text-fg-primary">
+              {projectName}
+            </h1>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

@@ -20,6 +20,7 @@ import {
   assertPathInsideWorkspace,
   extractW3CDesignTokens,
   generateMermaidWireframeFromSpec,
+  redactSensitiveText,
   renderTokensToDesignMdSection,
   sanitizePrototypeHtml,
 } from "@uzina/core";
@@ -129,10 +130,11 @@ export async function createOrImportPrototypeScoped(
       ? `<main class="p-6 rounded-xl bg-slate-950 text-slate-100"><h1>${parsed.title}</h1><pre>${wireframeMermaid ?? ""}</pre></main>`
       : `<main class="p-6 rounded-xl bg-slate-950 text-slate-100"><h1>${parsed.title}</h1><p>Direção Visual Nível ${parsed.level}</p></main>`;
 
+  const safeTitle = redactSensitiveText(parsed.title);
   const rawHtml = parsed.html?.trim() ? parsed.html : defaultHtml;
   let sanitizedHtml = "";
   try {
-    sanitizedHtml = sanitizePrototypeHtml(rawHtml, {
+    sanitizedHtml = sanitizePrototypeHtml(redactSensitiveText(rawHtml), {
       maxBytes: MAX_PROTOTYPE_HTML_BYTES,
     });
   } catch (err) {
@@ -162,7 +164,7 @@ export async function createOrImportPrototypeScoped(
       deliverableId: parsed.deliverableId ?? null,
       level: parsed.level,
       source: parsed.source,
-      title: parsed.title,
+      title: safeTitle,
       htmlStoragePath: fileName,
       tokensJson,
       wireframeMermaid,

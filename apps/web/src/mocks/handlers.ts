@@ -1339,6 +1339,7 @@ export const handlers = [
         aborted: true,
         deliverableId,
         mastraRunId: "mock-run-id",
+        status: "paused",
       })
     );
   }),

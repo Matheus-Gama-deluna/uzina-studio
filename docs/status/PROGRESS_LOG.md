@@ -366,3 +366,19 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * Playwright `pnpm test:e2e`: `2 passed (23.7s)`.
   * Revisores independentes: `test-critic` (bordas incorporadas e retestadas), `appsec-auditor` (**PASS** + redação `commitRes.stderr`) e `factory-verifier` (**PASS**).
 * **Próximo passo:** Iniciar execução do **Slice 21 (P1 — Estúdio Visual LLM, QMD Isolado, Co-piloto Executivo & Chat)**.
+
+---
+
+## 2026-11-24 — Slice 21: P1 — Estúdio Visual LLM, Isolamento QMD, Entregas Agnósticas, Co-piloto, Abortar & Chat (`feat/slice-21-p1-visual-llm-qmd-isolation-copilot-chat`)
+
+* **Entregue:**
+  * **P1.1 Estúdio Visual Generativo Real & H1 Único (`agency.ts`, `core/prototypes.ts`, `prototypes.ts`, `project-studio.tsx`, `visual-studio-workspace.tsx`):** `generateVisualPrototypeHtmlWithLlm` com agente Mastra `uzina-visual-prototyper`, fallback determinístico seguro, rótulos amigáveis via `formatDevelopmentStrategyLabel`, sanitização XSS reforçada (ponto fixo contra `<scr<script/>ipt>` + atributos com separador `/`) + `redactSensitiveText` em título/HTML importado, e `<h1>` único via prop `embedded`.
+  * **P1.2 Isolamento Multi-Tenant QMD & Deliverables Agnósticos (`contracts/qmd.ts`, `qmd.ts`, `/api/qmd/reindex`, `agency.ts`, `/api/projects/[id]/deliverables`, `ideas-hub.tsx`):** `allowDirectRootDocs: false` na rota HTTP (zero vazamento da plataforma Uzina Studio), reindexação por `projectId` restrita a `projectRepositories` com `scopeType = "project"` e *skip* resiliente de `WorkspaceBoundaryError`, remoção de boilerplate `@uzina/*`/`PGlite`/`ee/` dos dossiês e blueprints, detecção headless (`sem UI`) sem falso positivo de `\bui\b` e estratégia padrão `api_contract_first` quando `hasUi: false`.
+  * **P1.3 Co-piloto Executivo Real (`executive-copilot.ts`, `copilot-drawer.tsx`):** `readWorkspaceOverviewScoped` retorna lista nominal de projetos e clientes (`projects`, `activeProject`) com redação estendida, badge `copilot-execution-mode-badge` com status real de provedores no boot e renderização via `<MarkdownProse>`.
+  * **P1.4 `Abortar` -> `paused`, Fidelidade de Chat & Seletor de Cliente (`service.ts`, `memory-runtime.ts`, `agency.ts`, `agency-command-center.tsx`, `ideas-hub.tsx`, `handlers.ts`):** `abortDeliverableRun` persiste `status = "paused"`, `pausedFromStatus` e evento `stage_change` respeitando estados protegidos; `listAgencyThreadsScoped` e `AgencyCommandCenter` preservam `llmLatencyMs` e `cycleNumber` com auto-scroll e restauração segura no erro; seletor `ideas-client-select` e label `"Cadastro Direto"` no Greenfield.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`72` arquivos, `234` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`@uzina/mastra-runtime` `13` arquivos / `54 passed`, `@uzina/web` `11` arquivos / `28 passed` incluindo `contract-drift.test.ts`).
+  * Playwright `pnpm test:e2e`: `2 passed (25.4s)`.
+  * Revisores independentes: `test-critic` (bordas incorporadas e retestadas), `appsec-auditor` (**PASS** + hardening XSS/QMD/redação aplicado) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 22 (P2 — Mobile 390px Zero-Overflow, A11y WCAG, Kanban/PRD/Presets & Zero Warnings Turbopack)**.

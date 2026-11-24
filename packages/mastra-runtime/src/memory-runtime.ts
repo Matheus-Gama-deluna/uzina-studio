@@ -361,6 +361,12 @@ function mapMastraMessageToThreadItem(
   if (typeof meta.boundModelId === "string" && meta.boundModelId.trim()) {
     item.boundModelId = meta.boundModelId.trim().slice(0, 160);
   }
+  if (typeof meta.llmLatencyMs === "number" && Number.isFinite(meta.llmLatencyMs) && meta.llmLatencyMs >= 0) {
+    item.llmLatencyMs = Math.round(meta.llmLatencyMs);
+  }
+  if (typeof meta.cycleNumber === "number" && Number.isInteger(meta.cycleNumber) && meta.cycleNumber >= 1) {
+    item.cycleNumber = meta.cycleNumber;
+  }
   if (Array.isArray(meta.toolsUsed)) {
     item.toolsUsed = meta.toolsUsed.filter(
       (t): t is string => typeof t === "string"
