@@ -3136,7 +3136,7 @@ export async function* streamAgencyChatScoped(
                 .updateMessages({
                   messages: [
                     {
-                      ...lastAssistant,
+                      id: lastAssistant.id,
                       content: {
                         ...lastAssistant.content,
                         format: 2,

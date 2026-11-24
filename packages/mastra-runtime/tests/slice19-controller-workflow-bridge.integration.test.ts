@@ -15,6 +15,7 @@ import {
   closeDb,
   decisions,
   deliverables,
+  engineConfigs,
   ensureDefaultOrgAndInternalClient,
   executionEvents,
   getDb,
@@ -1127,6 +1128,170 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
           .where(eq(executionEvents.deliverableId, deliv!.id));
         expect(evs.length).toBeGreaterThan(0);
       } finally {
+        await runtime.close();
+      }
+    });
+
+    test("com codingExecutorMode=mastra_coding_agent, stage_verify usa MastraWorkspaceExecutorAdapter sem chamar OpenCode CLI", async () => {
+      const repoDir = initTempGitRepo();
+      const wtRoot = fs.mkdtempSync(path.join(os.tmpdir(), "uzina-s19-mastra-vrf-wt-"));
+      cleanupDirs.push(wtRoot);
+
+      const suffix = crypto.randomUUID().slice(0, 8);
+      const [proj] = await db
+        .insert(projects)
+        .values({
+          clientId: internalClientId,
+          name: `Proj MastraVerify ${suffix}`,
+          slug: `proj-mv-${suffix}`,
+          stageAutomationJson: {
+            ...DEFAULT_PROJECT_STAGE_AUTOMATION,
+            discovery: "auto",
+            spec_review: "auto",
+            contract_tests: "auto",
+            building: "auto",
+            verifying: "auto",
+            decision_pending: "manual",
+          },
+        })
+        .returning();
+
+      const [repo] = await db
+        .insert(projectRepositories)
+        .values({
+          projectId: proj!.id,
+          name: "repo-mv",
+          localPath: repoDir,
+          defaultBranch: "main",
+        })
+        .returning();
+
+      const [deliv] = await db
+        .insert(deliverables)
+        .values({
+          projectId: proj!.id,
+          repositoryId: repo!.id,
+          title: "Slice Verify Mastra Executor",
+          hasUi: false,
+          status: "discovery",
+        })
+        .returning();
+
+      await db
+        .insert(engineConfigs)
+        .values({
+          organizationId,
+          codingExecutorMode: "mastra_coding_agent",
+        })
+        .onConflictDoUpdate({
+          target: engineConfigs.organizationId,
+          set: { codingExecutorMode: "mastra_coding_agent", updatedAt: new Date() },
+        });
+
+      const failingOpenCodeTransport: OpenCodeTransport = {
+        async run(): Promise<never> {
+          throw new Error("OPENCODE_SHOULD_NOT_BE_CALLED_WHEN_MASTRA_CODING_AGENT");
+        },
+        async abort() {
+          return;
+        },
+        async close() {
+          return;
+        },
+      };
+
+      const codingMock = new MastraLanguageModelV2Mock({
+        doGenerate: async () => ({
+          content: [
+            {
+              type: "text" as const,
+              text: "Implementação concluída com sucesso.",
+            },
+          ],
+          finishReason: "stop" as const,
+          usage: {
+            inputTokens: { total: 40, noCache: 40, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 15, text: 15, reasoning: 0 },
+          },
+          warnings: [],
+        }),
+      });
+
+      const verifierMock = new MastraLanguageModelV2Mock({
+        doGenerate: async () => ({
+          content: [
+            {
+              type: "text" as const,
+              text: '```json\n{"verdict":"approved","summary":"Aprovado via Mastra Verifier independente.","issues":[]}\n```',
+            },
+          ],
+          finishReason: "stop" as const,
+          usage: {
+            inputTokens: { total: 50, noCache: 50, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 20, text: 20, reasoning: 0 },
+          },
+          warnings: [],
+        }),
+      });
+
+      const runtime = await createMastraRuntime({
+        db,
+        masterKey,
+        dataDir: ":memory:",
+        worktreesRootDir: wtRoot,
+        transportFactory: () => failingOpenCodeTransport,
+        codingModelOverride: codingMock,
+        verifierModelOverride: verifierMock,
+        verifyRunner: async () => [
+          { name: "typecheck", passed: true, durationMs: 5, summary: "ok" },
+        ],
+        securityRunnerDeps: {
+          scanRunner: async () => ({
+            findings: [],
+            scannersRun: ["semgrep"],
+            skippedScanners: [],
+          }),
+        },
+        finalizeRunner: async () => ({
+          mode: "local_branch_ready",
+          commitSha: "abc1234",
+          prUrl: null,
+          shouldDeleteBranchOnCleanup: false,
+        }),
+      });
+
+      try {
+        const finalState = await runtime.startDeliverableWorkflow({
+          deliverableId: deliv!.id,
+          organizationId,
+          input: {},
+        });
+
+        expect(finalState.workflowStatus).toBe("suspended");
+        expect(finalState.deliverableStatus).toBe("decision_pending");
+        expect(finalState.gate).toBe("pr_evidence_approve");
+        const [verifiedDelivRow] = await db
+          .select()
+          .from(deliverables)
+          .where(eq(deliverables.id, deliv!.id));
+        const storedPack = verifiedDelivRow?.evidencePackJson as
+          | { verifyPassed?: boolean; verifierNotes?: string }
+          | null;
+        expect(storedPack?.verifyPassed).toBe(true);
+        expect(storedPack?.verifierNotes).toContain(
+          "Aprovado via Mastra Verifier independente"
+        );
+      } finally {
+        await db
+          .insert(engineConfigs)
+          .values({
+            organizationId,
+            codingExecutorMode: "opencode",
+          })
+          .onConflictDoUpdate({
+            target: engineConfigs.organizationId,
+            set: { codingExecutorMode: "opencode", updatedAt: new Date() },
+          });
         await runtime.close();
       }
     });

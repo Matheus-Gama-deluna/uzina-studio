@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import type { MastraModelConfig } from "@mastra/core/llm";
 import {
   DEFAULT_PROJECT_STAGE_AUTOMATION,
   DeliverableStatusSchema,
@@ -192,6 +193,8 @@ export interface DeliverableWorkflowDeps {
   finalizeRunner?: FinalizeRunner;
   worktreesRootDir?: string;
   skillsDir?: string;
+  codingModelOverride?: MastraModelConfig;
+  verifierModelOverride?: MastraModelConfig;
 }
 
 export interface LockWorkerContextValue {
@@ -2301,6 +2304,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           projectId: row.projectId,
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
+          ...(deps.codingModelOverride
+            ? { modelOverride: deps.codingModelOverride }
+            : {}),
           providerConfig: {
             organizationId: currentState.organizationId,
             providerType: provider.providerType,
@@ -2683,6 +2689,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           projectId: row.projectId,
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
+          ...(deps.codingModelOverride
+            ? { modelOverride: deps.codingModelOverride }
+            : {}),
           providerConfig: {
             organizationId: currentState.organizationId,
             providerType: provider.providerType,
@@ -3266,6 +3275,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             transport,
             masterKey: deps.masterKey,
           });
+          const verifyEngineCfg = await getEngineConfigScoped(db, {
+            organizationId: currentState.organizationId,
+          });
+          const verifierExecutor = createCodingExecutorAdapter({
+            mode: verifyEngineCfg.config.codingExecutorMode,
+            runner: verifierRunner,
+            masterKey: deps.masterKey,
+          });
 
           const truncatedDiffForPrompt = redactSensitiveText(rawDiff).slice(
             0,
@@ -3280,13 +3297,20 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             'Retorne JSON estrito no formato { "verdict": "approved" | "changes_required", "summary": string, "issues": [...] }.',
           ].join("\n\n");
 
-          const verifierSession = await verifierRunner.runSession({
+          const verifierSession = await verifierExecutor.runSession({
             workspacePath: worktreeHandle.workspacePath,
             mode: "plan",
             role: "verifier",
             skillsDir: deps.skillsDir,
             signal: heartbeat.signal,
             outputSchema: VerifierVerdictOutputSchema,
+            db,
+            projectId: row.projectId,
+            budgetCapUsd: budgetCapUsd ?? undefined,
+            workspaceKind: verifyEngineCfg.config.workspaceKind,
+            ...(deps.verifierModelOverride
+              ? { modelOverride: deps.verifierModelOverride }
+              : {}),
             providerConfig: {
               organizationId: currentState.organizationId,
               providerType: verifierProvider.providerType,

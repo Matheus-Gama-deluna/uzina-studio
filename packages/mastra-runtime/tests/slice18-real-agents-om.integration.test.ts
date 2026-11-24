@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { MessageList } from "@mastra/core/agent";
 import { ChunkFrom } from "@mastra/core/stream";
 import {
@@ -367,10 +370,15 @@ describe("@uzina/mastra-runtime — Slice 18 (Agentes Reais, Observational Memor
     });
   });
 
+  const tempDirsToClean: string[] = [];
+
   afterAll(async () => {
     await settleAllUzinaMemories();
     await resetMastraStorageForTests();
     await closeDb();
+    for (const dir of tempDirsToClean) {
+      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    }
   });
 
   test("resolveOrganizationModelConfig descriptografa credencial por tenant sem mutar process.env, omite url para Google nativo e normaliza /v1 para Ollama", async () => {
@@ -1041,6 +1049,83 @@ describe("@uzina/mastra-runtime — Slice 18 (Agentes Reais, Observational Memor
         )
       ).toHaveLength(1);
       expect(txDone.response.toolsUsed).not.toContain("create_qmd_memory");
+    }
+
+    // Regressão: Turno 2 consecutivo (general_chat) na mesma thread com LibSQL em disco NÃO pode corromper createdAt em updateMessages
+    const fsTempLibsql = fs.mkdtempSync(
+      path.join(os.tmpdir(), "uzina-s18-om-repro-")
+    );
+    tempDirsToClean.push(fsTempLibsql);
+    try {
+      const turn1Events = [];
+      for await (const ev of streamAgencyChatScoped(db, {
+        actor: {
+          organizationId: orgAId,
+          userId: userAId,
+          role: "admin",
+        },
+        request: {
+          message: "Resumo breve em 1 frase.",
+          projectId: projectAId,
+          intent: "general_chat",
+        },
+        masterKey,
+        dataDir: fsTempLibsql,
+        modelOverride: createMockModel({
+          version: "v2",
+          mockText: "Turno 1 concluído pelo Arquiteto.",
+        }),
+      })) {
+        turn1Events.push(ev);
+      }
+      const t1Done = turn1Events.find((e) => e.type === "done");
+      expect(t1Done?.type).toBe("done");
+      const persistedThreadId =
+        t1Done?.type === "done" ? (t1Done.response.threadId ?? "") : "";
+      expect(persistedThreadId.length).toBeGreaterThan(5);
+
+      const turn2Events = [];
+      for await (const ev of streamAgencyChatScoped(db, {
+        actor: {
+          organizationId: orgAId,
+          userId: userAId,
+          role: "admin",
+        },
+        request: {
+          message: "Agora continue na mesma thread trocando para software_architect.",
+          projectId: projectAId,
+          threadId: persistedThreadId,
+          targetAgentRole: "software_architect",
+          intent: "general_chat",
+        },
+        masterKey,
+        dataDir: fsTempLibsql,
+        modelOverride: createMockModel({
+          version: "v2",
+          mockText: "Turno 2 concluído sem RangeError.",
+        }),
+      })) {
+        turn2Events.push(ev);
+      }
+      const t2Done = turn2Events.find((e) => e.type === "done");
+      expect(t2Done?.type).toBe("done");
+      if (t2Done?.type === "done") {
+        expect(t2Done.response.executionMode).toBe("live_llm");
+        expect(t2Done.response.reply).toContain("Turno 2 concluído sem RangeError.");
+      }
+      const msgsAfterTurn2 = await getAgencyThreadMessagesScoped(db, {
+        organizationId: orgAId,
+        projectId: projectAId,
+        threadId: persistedThreadId,
+        dataDir: fsTempLibsql,
+      });
+      expect(msgsAfterTurn2.length).toBeGreaterThanOrEqual(4);
+      for (const m of msgsAfterTurn2) {
+        expect(Number.isNaN(new Date(m.createdAt).getTime())).toBe(false);
+      }
+    } finally {
+      await settleAllUzinaMemories();
+      await resetMastraStorageForTests();
     }
 
     // Fallback determinístico quando sem chave (masterKey ausente)
