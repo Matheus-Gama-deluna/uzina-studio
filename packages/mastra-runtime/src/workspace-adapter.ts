@@ -495,11 +495,13 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
       let structuredOutput: unknown = undefined;
       if (options.outputSchema && genResult.text) {
         try {
-          const jsonMatch = /\{[\s\S]*\}/.exec(genResult.text);
-          if (jsonMatch) {
-            structuredOutput = options.outputSchema.parse(
-              JSON.parse(jsonMatch[0])
-            );
+          const fencedMatch = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i.exec(
+            genResult.text
+          );
+          const rawJson =
+            fencedMatch?.[1] ?? /\{[\s\S]*\}/.exec(genResult.text)?.[0];
+          if (rawJson) {
+            structuredOutput = options.outputSchema.parse(JSON.parse(rawJson));
           }
         } catch {
           structuredOutput = undefined;

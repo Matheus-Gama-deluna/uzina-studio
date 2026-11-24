@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Mastra } from "@mastra/core";
+import type { MastraModelConfig } from "@mastra/core/llm";
 import {
   createWorkflowStateReader,
   type WorkflowState,
@@ -70,6 +71,8 @@ export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
   finalizeRunner?: FinalizeRunner;
   worktreesRootDir?: string;
   skillsDir?: string;
+  codingModelOverride?: MastraModelConfig;
+  verifierModelOverride?: MastraModelConfig;
 }
 
 export interface MastraWorkflowService {
@@ -304,6 +307,8 @@ export async function createMastraRuntime(
     finalizeRunner: options.finalizeRunner,
     worktreesRootDir: options.worktreesRootDir,
     skillsDir: options.skillsDir,
+    codingModelOverride: options.codingModelOverride,
+    verifierModelOverride: options.verifierModelOverride,
   });
 
   const executiveCopilot = createExecutiveCopilotAgent({
