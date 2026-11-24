@@ -1,6 +1,6 @@
 # Painel de Status & Roadmap — Uzina Studio (Fase 1 MVP concluída · Fase 2 em planejamento)
 
-> **Estado Atual:** ★ **Slice 20 (P0 Crítico) concluído e integrado na `main`** (`mergeBranchIntoBaseSafe` com `finalizePolicy` + `.git/info/exclude`, `handleSelectProject` sincronizado com URL, `/api/projects/[id]/autonomous-cycle` + diagnóstico real em Evidências, precificação `customPricing`, freio `budgetCapTokens`, telemetria LLM real em `/app/finops` e remoção do escape `\$`; `pnpm verify` `34/34` tasks, `audit:tests` `71` arquivos / `228` testes / `0` violações, Playwright `2 passed`, revisores `test-critic`, `appsec-auditor` e `factory-verifier` **PASS**). → **Próximo passo:** Iniciar **Slice 21 (P1 — Estúdio Visual LLM, QMD Isolado, Co-piloto & Chat)**.
+> **Estado Atual:** ★ **Slice 21 (P1) concluído e integrado na `main`** (`generateVisualPrototypeHtmlWithLlm` + sanitização reforçada XSS + rótulos amigáveis + `<h1>` único em `ProjectStudio` via `embedded`, isolamento multi-tenant QMD por `projectId` + `allowDirectRootDocs: false` na API, deliverables agnósticos sem `@uzina/*` + `hasUi: false -> api_contract_first`, Co-piloto nominal com badge LLM Real + `MarkdownProse`, `abortDeliverableRun` persistindo `status = "paused"`, hidratação/auto-scroll de chat com `cycleNumber`/`llmLatencyMs` e seletor `ideas-client-select`; `pnpm verify` `34/34` tasks, `audit:tests` `72` arquivos / `234` testes / `0` violações, Playwright `2 passed`, revisores `test-critic`, `appsec-auditor` e `factory-verifier` **PASS**). → **Próximo passo:** Executar **Slice 22 (P2 — Mobile 390px Zero-Overflow, A11y WCAG, Kanban/PRD/Presets & Zero Warnings Turbopack)**.
 
 ---
 
@@ -27,7 +27,9 @@ flowchart LR
     S15 --> S16["Slice 16: Redesign Visual Calmo (90/10), Tipografia A-|A|A+ & 4 Momentos Dedicados (CONCLUÍDO)"]
     S16 --> S17["Slice 17: Sistema Visual Warm Stone (4 Degraus), Project Switcher & Coesão Global (CONCLUÍDO)"]
     S17 --> S18["Slice 18: Cérebro Agêntico Real, Observational Memory & Guardrails Processors (CONCLUÍDO)"]
-    S18 --> S19["Slice 19: Ponte Chat↔Workflow, AgentController & Kanban Manual|Auto (CONCLUÍDO NA BRANCH)"]
+    S18 --> S19["Slice 19: Ponte Chat↔Workflow, AgentController & Kanban Manual|Auto (CONCLUÍDO)"]
+    S19 --> S20["Slice 20 (P0): Finalize Git, Switcher, Ciclo & FinOps LLM (CONCLUÍDO)"]
+    S20 --> S21["Slice 21 (P1): Estúdio Visual LLM, QMD Isolado, Co-piloto & Chat (CONCLUÍDO)"]
 ```
 
 ### Portão Padrão de Cada Slice (Skill `execute-slice`)
@@ -64,6 +66,7 @@ flowchart LR
 | **Slice 18 — Cérebro Agêntico Real, Observational Memory & Guardrails Processors** | *Contract-First + Domain-First + Vertical Slice* | Ponte Cofre AES-256-GCM → `@mastra/memory@1.41.2` (`ObservationalMemory`), `SecretRedactionProcessor` + `ToolSearchProcessor` + `TokenLimiterProcessor`, `Agent.stream()` no Co-piloto & Central da Agência, SSE `/api/agency/chat/stream`, threads isoladas `/api/agency/threads` e proteção anti-SSRF | **Sim** (`readiness` + `design` + `appsec` + `details` + `test-critic`) | [slice-18](docs/slices/slice-18-real-agents-observational-memory-processors.md) | 🟢 Concluído (`main`) |
 | **Slice 19 — Ponte Real Chat ↔ Workflow, `AgentController` & Kanban `Manual \| Auto`** | *Contract-First + Domain-First + Vertical Slice* | `UzinaAgentController` (`steer`/`abort`/`plan`, 5 modos), `BackgroundTasksRegistry`, `AgentsMDInjector` + `UzinaContainedFilesystem`, `MastraWorkspaceExecutorAdapter`, ponte `advance_cycle` ↔ `deliverableLifecycleWorkflow`, Kanban `Manual \| Auto` + trava HITL + `budget_cap_pause` | **Sim** (`readiness` + `design` + `appsec` + `details` + `test-critic`) | [slice-19](docs/slices/slice-19-agent-controller-workflow-bridge-kanban-auto.md) | 🟢 Concluído (`main`) |
 | **Slice 20 — P0 Crítico (Finalize Git Real, Switcher, Ciclo Autônomo & FinOps LLM)** | *Contract-First + P0 Stabilization* | `mergeBranchIntoBaseSafe` sem `--` + `--untracked-files=no`, `finalizePolicy` (`local_merge`/`branch_only`/`draft_pr`), `.worktrees/` em `.git/info/exclude`, `POST /api/deliverables/[id]/merge` (`VAULT_WRITE_ROLES` + guard `409`), `DELETE /api/deliverables/[id]/worktree`, `handleSelectProject` sincronizado com URL, `POST /api/projects/[id]/autonomous-cycle`, correção `\$`, `customPricing`, freio `budgetCapTokens` e consumo LLM real em `/app/finops` | Seletiva (`appsec` + `test-critic` + `factory-verifier`) | [plano-mestre](docs/planos/plano-mestre-p0-p3-slices-20-25.md) | 🟢 Concluído (`main`) |
+| **Slice 21 — P1 (Estúdio Visual LLM, QMD Isolado, Co-piloto, Abortar & Chat)** | *Contract-First + Multi-Tenant Isolation* | `generateVisualPrototypeHtmlWithLlm` + sanitizador anti-aninhamento/`<svg/onload>` + `formatDevelopmentStrategyLabel` + `<h1>` único, QMD isolado por `projectId` (`allowDirectRootDocs: false` na API), deliverables agnósticos sem `@uzina/*`, Co-piloto nominal (`readWorkspaceOverviewScoped`) + `MarkdownProse`, `abortDeliverableRun` persistindo `paused`, chat reload/auto-scroll/`cycleNumber` e seletor `ideas-client-select` | Seletiva (`appsec` + `test-critic` + `factory-verifier`) | [plano-mestre](docs/planos/plano-mestre-p0-p3-slices-20-25.md) | 🟢 Concluído (`main`) |
 
 ---
 

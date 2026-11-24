@@ -329,6 +329,8 @@ export const AgencyThreadMessageItemSchema = z
     agentName: z.string().min(1).max(120).optional(),
     executionMode: LlmExecutionModeSchema.optional(),
     boundModelId: z.string().min(1).max(160).optional(),
+    llmLatencyMs: z.number().int().nonnegative().nullable().optional(),
+    cycleNumber: z.number().int().positive().nullable().optional(),
     toolsUsed: z.array(z.string()).optional(),
     actionsExecuted: z.array(AgencyActionExecutedSchema).optional(),
   })

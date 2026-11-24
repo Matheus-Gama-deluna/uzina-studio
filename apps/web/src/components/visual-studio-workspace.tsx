@@ -352,6 +352,7 @@ export function VisualStudioWorkspace() {
         <ProjectStudio
           projectId={activeProject.id}
           initialProjectName={activeProject.name}
+          embedded
         />
       )}
 

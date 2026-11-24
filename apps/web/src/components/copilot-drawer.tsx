@@ -3,6 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import type {
+  AgencyOverviewResponse,
   CopilotActionRequest,
   CopilotStreamEvent,
   LlmExecutionMode,
@@ -20,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { MarkdownProse } from "./markdown-prose";
 
 interface ChatEntry {
   id: string;
@@ -66,6 +68,21 @@ export function CopilotDrawer({
     queryFn: fetchProjects,
     enabled: open,
   });
+
+  const readinessQuery = useQuery({
+    queryKey: ["agency-readiness-copilot"],
+    queryFn: async () => {
+      const res = await fetch("/api/agency/status");
+      if (!res.ok) throw new Error("Falha ao consultar prontidão LLM");
+      return (await res.json()) as AgencyOverviewResponse;
+    },
+    enabled: open,
+  });
+
+  const readiness = readinessQuery.data?.readiness;
+  const isLiveLlm =
+    executionMode === "live_llm" ||
+    (executionMode === null && Boolean(readiness?.llmProviderConfigured));
 
   const projects = projectsQuery.data?.items ?? [];
   const effectiveProjectId =
@@ -237,15 +254,20 @@ export function CopilotDrawer({
             </select>
 
             <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-fg-muted">
-              <span className="inline-flex items-center gap-1.5">
+              <span
+                data-testid="copilot-execution-mode-badge"
+                className="inline-flex items-center gap-1.5"
+              >
                 <span
                   className={`size-1.5 rounded-full ${
-                    executionMode === "live_llm" ? "bg-status-ok" : "bg-status-warn"
+                    isLiveLlm ? "bg-status-ok" : "bg-status-warn"
                   }`}
                 />
                 <span>
-                  {executionMode === "live_llm"
-                    ? "LLM Real"
+                  {isLiveLlm
+                    ? readiness?.activeProviderNames?.length
+                      ? `LLM Real (${readiness.activeProviderNames.join(", ")})`
+                      : "LLM Real"
                     : "Assistido Local"}
                 </span>
               </span>
@@ -333,9 +355,13 @@ export function CopilotDrawer({
                     : "mr-4 border-border-subtle bg-inset text-fg-secondary"
                 }`}
               >
-                <p className="whitespace-pre-wrap">
-                  {msg.content || (streaming ? "Processando..." : "")}
-                </p>
+                {msg.role === "assistant" ? (
+                  <MarkdownProse
+                    content={msg.content || (streaming ? "Processando..." : "")}
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                )}
                 {msg.toolsUsed && msg.toolsUsed.length > 0 && (
                   <p className="mt-2 font-mono text-[10px] text-fg-muted">
                     Tools: {msg.toolsUsed.join(", ")}

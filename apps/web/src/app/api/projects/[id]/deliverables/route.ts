@@ -124,6 +124,13 @@ export async function POST(
     }
   }
 
+  const resolvedStrategy =
+    body.data.developmentStrategy ??
+    (!body.data.hasUi &&
+    project.defaultDevelopmentStrategy === "frontend_first_msw"
+      ? "api_contract_first"
+      : project.defaultDevelopmentStrategy);
+
   const [created] = await db
     .insert(deliverables)
     .values({
@@ -133,8 +140,7 @@ export async function POST(
       description: body.data.description ?? null,
       status: "discovery",
       hasUi: body.data.hasUi,
-      developmentStrategy:
-        body.data.developmentStrategy ?? project.defaultDevelopmentStrategy,
+      developmentStrategy: resolvedStrategy,
       tacticalPattern: body.data.tacticalPattern,
       riskLevel: body.data.riskLevel,
     })

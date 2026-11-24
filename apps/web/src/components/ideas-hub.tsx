@@ -44,6 +44,14 @@ async function fetchJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+const STRATEGY_FRIENDLY_LABELS: Record<string, string> = {
+  frontend_first_msw: "Frontend-First + MSW",
+  api_contract_first: "API Contract-First",
+  domain_first: "Domain-First (DDD)",
+  characterization_strangler: "Characterization + Strangler",
+  spike_prototype: "Spike / Protótipo",
+};
+
 const INSPIRATION_CHIPS = [
   {
     label: "SaaS de Faturamento & Métricas",
@@ -72,6 +80,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
   );
   const [ideaPrompt, setIdeaPrompt] = useState("");
   const [ideaName, setIdeaName] = useState("");
+  const [ideaClientId, setIdeaClientId] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [ideaError, setIdeaError] = useState<string | null>(null);
 
@@ -127,7 +136,11 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
       intent: AgencyChatIntent;
       projectName?: string;
       gitUrl?: string;
+      clientId?: string;
     }) => {
+      const targetClientId =
+        payload.clientId ||
+        (selectedClientId !== "all" ? selectedClientId : undefined);
       const res = await fetch("/api/agency/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -136,7 +149,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
           intent: payload.intent,
           teamTopology: "lean_mvp",
           autonomyMode: "semi_autonomous",
-          ...(selectedClientId !== "all" ? { clientId: selectedClientId } : {}),
+          ...(targetClientId ? { clientId: targetClientId } : {}),
           ...(payload.projectName ? { projectName: payload.projectName } : {}),
           ...(payload.gitUrl ? { gitUrl: payload.gitUrl } : {}),
           targetAgentRole:
@@ -293,6 +306,9 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
     e.preventDefault();
     setIdeaError(null);
 
+    const effectiveClientId =
+      ideaClientId || (selectedClientId !== "all" ? selectedClientId : "");
+
     if (originMode === "brownfield") {
       if (!gitUrl.trim() && ideaPrompt.trim().length < 5) {
         setIdeaError(
@@ -308,6 +324,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
         intent: "import_git_or_repo",
         projectName: ideaName.trim() || undefined,
         gitUrl: gitUrl.trim() || undefined,
+        clientId: effectiveClientId || undefined,
       });
       return;
     }
@@ -325,6 +342,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
       message,
       intent: "start_greenfield",
       projectName: ideaName.trim() || undefined,
+      clientId: effectiveClientId || undefined,
     });
   }
 
@@ -431,14 +449,34 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
 
-            <input
-              aria-label="Nome sugerido do projeto (opcional)"
-              data-testid="ideas-project-name"
-              value={ideaName}
-              onChange={(e) => setIdeaName(e.target.value)}
-              placeholder="Nome do projeto (opcional)"
-              className="min-h-9 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none sm:w-56"
-            />
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <select
+                aria-label="Cliente de destino"
+                data-testid="ideas-client-select"
+                value={
+                  ideaClientId ||
+                  (selectedClientId !== "all" ? selectedClientId : "")
+                }
+                onChange={(e) => setIdeaClientId(e.target.value)}
+                className="min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-sm text-fg-primary focus:border-border-strong focus:outline-none sm:w-48"
+              >
+                <option value="">Cliente automático (Internos)</option>
+                {clientsList.map((cli) => (
+                  <option key={cli.id} value={cli.id}>
+                    {cli.name}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                aria-label="Nome sugerido do projeto (opcional)"
+                data-testid="ideas-project-name"
+                value={ideaName}
+                onChange={(e) => setIdeaName(e.target.value)}
+                placeholder="Nome do projeto (opcional)"
+                className="min-h-9 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none sm:w-52"
+              />
+            </div>
           </div>
 
           {originMode === "brownfield" && (
@@ -606,7 +644,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
               Nenhum projeto criado ainda.
             </p>
             <p className="mt-1 text-sm text-fg-secondary">
-              Use a caixa acima para descrever sua primeira ideia ou clique em Cadastro Rápido.
+              Use a caixa acima para descrever sua primeira ideia ou clique em Cadastro Direto.
             </p>
           </div>
         ) : (
@@ -654,6 +692,7 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
                       Estratégia:{" "}
                       <span className="font-mono text-fg-secondary">
                         {st?.architectDecision?.strategyLabel ??
+                          STRATEGY_FRIENDLY_LABELS[proj.defaultDevelopmentStrategy] ??
                           proj.defaultDevelopmentStrategy}
                       </span>
                     </p>

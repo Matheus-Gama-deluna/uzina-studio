@@ -82,6 +82,15 @@ export interface CopilotExecutionActor {
   role: OrgRole;
 }
 
+export interface WorkspaceProjectOverviewItem {
+  id: string;
+  name: string;
+  clientName: string;
+  description: string | null;
+  strategy: string;
+  deliverablesCount: number;
+}
+
 export interface WorkspaceOverviewSummary {
   clientsCount: number;
   projectsCount: number;
@@ -89,6 +98,8 @@ export interface WorkspaceOverviewSummary {
   pendingDecisionsCount: number;
   scansCount: number;
   memoriesCount: number;
+  projects: WorkspaceProjectOverviewItem[];
+  activeProject: WorkspaceProjectOverviewItem | null;
   recentDeliverables: Array<{
     id: string;
     title: string;
@@ -125,6 +136,7 @@ export async function readWorkspaceOverviewScoped(
     ? orgClients.filter((c) => c.id === params.clientId)
     : orgClients;
 
+  const clientNameById = new Map(orgClients.map((c) => [c.id, c.name]));
   const clientIds = filteredClients.map((c) => c.id);
   const orgProjects =
     clientIds.length > 0
@@ -146,8 +158,32 @@ export async function readWorkspaceOverviewScoped(
           .from(deliverables)
           .where(inArray(deliverables.projectId, projectIds))
           .orderBy(desc(deliverables.updatedAt))
-          .limit(20)
+          .limit(50)
       : [];
+
+  const delivCountByProject = new Map<string, number>();
+  for (const d of delivs) {
+    delivCountByProject.set(
+      d.projectId,
+      (delivCountByProject.get(d.projectId) ?? 0) + 1
+    );
+  }
+
+  const projectItems: WorkspaceProjectOverviewItem[] = filteredProjects
+    .slice(0, 15)
+    .map((p) => ({
+      id: p.id,
+      name: redactSensitiveText(p.name),
+      clientName: redactSensitiveText(clientNameById.get(p.clientId) ?? "Internos"),
+      description: p.description
+        ? redactSensitiveText(p.description).slice(0, 180)
+        : null,
+      strategy: p.defaultDevelopmentStrategy,
+      deliverablesCount: delivCountByProject.get(p.id) ?? 0,
+    }));
+
+  const activeProject =
+    params.projectId && projectItems.length > 0 ? projectItems[0]! : null;
 
   const delivIds = delivs.map((d) => d.id);
   const pendingDecs =
@@ -186,9 +222,11 @@ export async function readWorkspaceOverviewScoped(
     pendingDecisionsCount: pendingDecs.length,
     scansCount: scans.length,
     memoriesCount: scopedMemories.length,
+    projects: projectItems,
+    activeProject,
     recentDeliverables: delivs.slice(0, 5).map((d) => ({
       id: d.id,
-      title: d.title,
+      title: redactSensitiveText(d.title),
       status: d.status,
       projectId: d.projectId,
     })),
@@ -486,7 +524,8 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
     name: "Co-piloto Executivo Uzina Studio",
     instructions: [
       "Você é o Co-piloto Executivo da Uzina Studio.",
-      "Responda sempre em português do Brasil com base objetiva nos dados do workspace.",
+      "Responda sempre em português do Brasil com Markdown limpo e objetivo.",
+      "Antes de responder sobre o status do workspace, chame read_workspace_overview e cite nominalmente os projetos reais, clientes, contagens de entregas e pendências HITL retornados.",
       "Você só possui acesso de leitura ao workspace, criação de rascunho de entrega ('discovery') e disparo de scan de segurança.",
       "Você NÃO escreve arquivos em disco, NÃO executa comandos shell/git e NÃO altera status para 'merged'.",
     ].join("\n"),
@@ -891,6 +930,8 @@ export async function* streamExecutiveCopilot(params: {
         pendingDecisionsCount: overview.pendingDecisionsCount,
         scansCount: overview.scansCount,
         memoriesCount: overview.memoriesCount,
+        projects: overview.projects,
+        activeProject: overview.activeProject,
         recentDeliverables: overview.recentDeliverables,
         pendingDecisions: overview.pendingDecisions,
         memories: overview.memories,
@@ -900,6 +941,17 @@ export async function* streamExecutiveCopilot(params: {
     const chunks: string[] = [
       `Resumo Executivo: ${overview.clientsCount} cliente(s), ${overview.projectsCount} projeto(s), ${overview.deliverablesCount} entrega(s), ${overview.pendingDecisionsCount} decisão(ões) pendente(s), ${overview.scansCount} scan(s) AppSec e ${overview.memoriesCount} memória(s) ativa(s) no escopo.`,
     ];
+
+    if (overview.projects.length > 0) {
+      chunks.push(
+        `\nProjetos no escopo:\n${overview.projects
+          .map(
+            (p) =>
+              `- **${p.name}** (${p.clientName}) — ${p.deliverablesCount} entrega(s) · \`${p.strategy}\``
+          )
+          .join("\n")}`
+      );
+    }
 
     if (overview.pendingDecisions.length > 0) {
       chunks.push(

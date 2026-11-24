@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Agent } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import { RequestContext } from "@mastra/core/request-context";
 import {
@@ -32,9 +33,11 @@ import {
   type SystemReadinessStatus,
 } from "@uzina/contracts";
 import {
+  MAX_PROTOTYPE_HTML_BYTES,
   getAllowedNextStatuses,
   redactSensitiveText,
   redactSensitiveValue,
+  sanitizePrototypeHtml,
 } from "@uzina/core";
 import {
   clients,
@@ -82,6 +85,7 @@ import {
 import {
   approvePrototypeScoped,
   createOrImportPrototypeScoped,
+  readPrototypePreviewHtmlScoped,
 } from "./prototypes.js";
 import {
   AGENCY_ROLE_TO_CONTROLLER_MODE,
@@ -524,6 +528,176 @@ function buildGeneratedVisualPrototypeHtml(params: {
 </main>`;
 }
 
+const DEVELOPMENT_STRATEGY_FRIENDLY_LABELS: Record<string, string> = {
+  frontend_first_msw: "Frontend-First + MSW",
+  api_contract_first: "API Contract-First",
+  domain_first: "Domain-First (DDD)",
+  characterization_strangler: "Characterization + Strangler",
+  spike_prototype: "Spike / Protótipo",
+};
+
+export function formatDevelopmentStrategyLabel(strategy: string): string {
+  return DEVELOPMENT_STRATEGY_FRIENDLY_LABELS[strategy] ?? strategy;
+}
+
+function extractHtmlFragmentFromLlmResponse(raw: string): string {
+  const fenced = /```(?:html)?\s*([\s\S]*?)```/i.exec(raw);
+  const candidate = (fenced?.[1] ?? raw).trim();
+  const rootMatch =
+    /<(main|div|section|article)\b[\s\S]*<\/\1\s*>/i.exec(candidate);
+  return (rootMatch?.[0] ?? candidate).trim();
+}
+
+export async function generateVisualPrototypeHtmlWithLlm(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    projectName: string;
+    summaryText: string;
+    strategyLabel: string;
+    revisionFeedback?: string;
+    previousHtml?: string;
+    masterKey?: Buffer | string | null;
+    modelOverride?: MastraModelConfig;
+    fetchImpl?: typeof fetch;
+    signal?: AbortSignal;
+    knownSecrets?: readonly string[];
+  }
+): Promise<{ html: string; generatedByLlm: boolean; modelId: string | null }> {
+  const secrets =
+    params.knownSecrets ??
+    (await collectOrganizationKnownSecrets(db, {
+      organizationId: params.organizationId,
+      masterKey: params.masterKey,
+    }));
+
+  const resolvedModel =
+    params.modelOverride || params.fetchImpl
+      ? null
+      : await resolveOrganizationModelConfig(db, {
+          organizationId: params.organizationId,
+          agentRole: "ux_designer",
+          masterKey: params.masterKey,
+        });
+
+  const activeModel = params.modelOverride ?? resolvedModel?.mastraModel.model;
+  if (!activeModel) {
+    return {
+      html: sanitizePrototypeHtml(
+        redactSensitiveText(
+          buildGeneratedVisualPrototypeHtml({
+            projectName: params.projectName,
+            summaryText: params.summaryText,
+            strategyLabel: params.strategyLabel,
+            revisionFeedback: params.revisionFeedback,
+          }),
+          secrets
+        ),
+        { maxBytes: MAX_PROTOTYPE_HTML_BYTES }
+      ),
+      generatedByLlm: false,
+      modelId: null,
+    };
+  }
+
+  const allSecrets = Array.from(
+    new Set([...secrets, ...(resolvedModel?.knownSecrets ?? [])])
+  );
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort("VISUAL_LLM_TIMEOUT"), 45_000);
+  const combinedSignal = params.signal
+    ? AbortSignal.any([params.signal, timeoutController.signal])
+    : timeoutController.signal;
+
+  try {
+    const visualAgent = new Agent({
+      id: "uzina-visual-prototyper",
+      name: "Agente de Design & Prototipação Visual",
+      instructions: [
+        "Você é um Product Designer Sênior gerando um protótipo HTML+CSS de alta fidelidade.",
+        "Retorne APENAS um fragmento HTML autocontido começando com <main> e terminando com </main> (sem markdown explicativo).",
+        "O layout deve ser fiel ao domínio de negócio solicitado (navegação, métricas, formulários, tabelas ou fluxos reais do produto, nunca boilerplate genérico).",
+        "Use CSS inline ou uma tag <style> escopada para ser 100% responsivo em desktop, tablet e celular (390px) sem overflow horizontal.",
+        "NUNCA inclua <script>, <iframe>, atributos onClick/on* ou dependências de CDN externas.",
+        "Todo texto de interface deve estar em Português do Brasil claro e profissional.",
+      ].join("\n"),
+      model: activeModel,
+    });
+
+    const safeProject = redactSensitiveText(params.projectName, allSecrets);
+    const safeSummary = redactSensitiveText(
+      params.summaryText.slice(0, 1500),
+      allSecrets
+    );
+    const safeStrategy = redactSensitiveText(params.strategyLabel, allSecrets);
+    const safeRevision = params.revisionFeedback
+      ? redactSensitiveText(params.revisionFeedback.slice(0, 1500), allSecrets)
+      : null;
+    const safePrev = params.previousHtml
+      ? redactSensitiveText(params.previousHtml.slice(0, 3500), allSecrets)
+      : null;
+
+    const promptParts = [
+      `Projeto: ${safeProject}`,
+      `Estratégia de Engenharia: ${safeStrategy}`,
+      `Objetivo / Domínio do Sistema: ${safeSummary}`,
+    ];
+    if (safePrev) {
+      promptParts.push(
+        `HTML do Protótipo Anterior (use como referência e evolua diretamente):\n${safePrev}`
+      );
+    }
+    if (safeRevision) {
+      promptParts.push(
+        `Ajuste Visual Solicitado (aplique integralmente no layout, sem colar apenas um banner de aviso): ${safeRevision}`
+      );
+    }
+    promptParts.push("Gere agora o fragmento <main>...</main> completo.");
+
+    const result = await visualAgent.generate(promptParts.join("\n\n"), {
+      abortSignal: combinedSignal,
+    });
+
+    const extracted = extractHtmlFragmentFromLlmResponse(result.text ?? "");
+    const redacted = redactSensitiveText(extracted, allSecrets);
+    const sanitized = sanitizePrototypeHtml(redacted, {
+      maxBytes: MAX_PROTOTYPE_HTML_BYTES,
+    });
+
+    if (
+      sanitized.length >= 120 &&
+      /<(main|section|div|article|header)\b/i.test(sanitized)
+    ) {
+      return {
+        html: sanitized,
+        generatedByLlm: true,
+        modelId: resolvedModel?.rawModelName ?? "custom-visual-model",
+      };
+    }
+  } catch {
+    // Fallback determinístico seguro abaixo se o provedor falhar ou retornar saída inválida
+  } finally {
+    clearTimeout(timer);
+  }
+
+  return {
+    html: sanitizePrototypeHtml(
+      redactSensitiveText(
+        buildGeneratedVisualPrototypeHtml({
+          projectName: params.projectName,
+          summaryText: params.summaryText,
+          strategyLabel: params.strategyLabel,
+          revisionFeedback: params.revisionFeedback,
+        }),
+        allSecrets
+      ),
+      { maxBytes: MAX_PROTOTYPE_HTML_BYTES }
+    ),
+    generatedByLlm: false,
+    modelId: null,
+  };
+}
+
 export async function resolveAgencyTeamWithTieringScoped(
   db: UzinaDb,
   organizationId: string
@@ -797,19 +971,19 @@ function buildDefaultSliceSpecMarkdown(params: {
     `- **Nível de Risco:** \`${params.riskLevel}\``,
     ``,
     `## 1. Objetivo e Escopo Estrito`,
-    params.description ??
-      `Implementar ${params.title} respeitando fronteiras de contrato Zod, isolamento de tenant e testes automatizados antes do código produtivo.`,
+    params.description?.trim() ||
+      `Implementar ${params.title} com fronteiras de entrada/saída tipadas, isolamento de dados e testes automatizados antes do código produtivo.`,
     ``,
     `## 2. Contratos & Invariantes (Contract-First)`,
-    `- Definir schemas Zod estritos (\`.strict()\`) em \`@uzina/contracts\` para todas as entradas e saídas.`,
-    `- Validar RBAC por \`organizationId\` e redigir segredos com \`redactSensitiveText\`.`,
+    `- Definir schemas de contrato e validação estrita nas fronteiras públicas do módulo.`,
+    `- Validar autorização por escopo e evitar exposição de segredos ou credenciais em logs e respostas.`,
     ``,
     `## 3. Critérios de Pronto (DoD do Slice)`,
-    `- [ ] Testes derivados da especificação passando sem mocks de banco (PGlite / Postgres real).`,
-    `- [ ] Zero violações no auditor de testes (\`audit:tests\`) e zero módulos comerciais \`ee/\`.`,
+    `- [ ] Suíte de testes automatizados cobrindo os cenários críticos sem mocks artificiais de persistência.`,
+    `- [ ] Build, typecheck e verificação estática do repositório alvo aprovados sem regressões.`,
     params.hasUi
-      ? `- [ ] Validação visual nos 5 estados de dados e conformidade com \`.uzina/DESIGN.md\`.`
-      : `- [ ] Cobertura de casos de borda consolidada com \`test.each\`.`,
+      ? `- [ ] Interface validada nos estados de carregamento, erro, vazio, parcial e populado.`
+      : `- [ ] Casos de borda, validação de entradas inválidas e idempotência cobertos por testes.`,
   ].join("\n");
 }
 
@@ -829,16 +1003,16 @@ function buildDefaultBlueprintJson(params: {
       contextTier: "tier1_context_local",
     },
     plannedSteps: [
-      "1. Definir schemas Zod e DTOs compartilhados (Contract-First)",
-      "2. Escrever testes de aceitação e integração em PGlite (RED)",
+      "1. Definir contratos e tipos de entrada/saída do módulo (Contract-First)",
+      "2. Escrever testes automatizados de aceitação e borda (RED)",
       params.hasUi
-        ? "3. Consolidar tokens W3C / protótipo no Estúdio Visual e componentes com MSW"
-        : "3. Implementar regras de domínio e persistência transacional (GREEN)",
-      "4. Executar Verify Gate + Auditoria AppSec SARIF + Pacote de Evidências",
+        ? "3. Consolidar protótipo visual aprovado e construir componentes com dados isolados (GREEN)"
+        : "3. Implementar regras de domínio, API e persistência transacional (GREEN)",
+      "4. Executar Verify Gate, auditoria de segurança e consolidar Pacote de Evidências",
     ],
     targetLayers: params.hasUi
-      ? ["@uzina/contracts", "@uzina/mastra-runtime", "apps/web"]
-      : ["@uzina/contracts", "@uzina/core", "@uzina/db", "@uzina/mastra-runtime"],
+      ? ["contracts", "domain", "api", "ui"]
+      : ["contracts", "domain", "persistence", "tests"],
     ...(params.revisionNotes ? { lastRevisionFeedback: params.revisionNotes } : {}),
   };
 }
@@ -1469,6 +1643,22 @@ function inferProjectNameFromMessage(
   return words.length >= 3 ? words.slice(0, 80) : "Novo Sistema Uzina";
 }
 
+function isHeadlessOrBackendOnlyPrompt(message: string): boolean {
+  const headlessMatch =
+    /\b(cli|biblioteca|library|sdk|backend[\s-]?only|sem\s+(?:ui|interface)|without\s+ui|apenas\s+api|headless|worker)\b/i.test(
+      message
+    );
+  const withoutNegatedUi = message.replace(
+    /\b(sem|without|no|nao|não|zero)\s+(ui|interface)\b/gi,
+    ""
+  );
+  const explicitUiMatch =
+    /\b(dashboard|painel|tela|frontend|interface|web\s*app|portal|ui)\b/i.test(
+      withoutNegatedUi
+    );
+  return headlessMatch && !explicitUiMatch;
+}
+
 function deriveDeliverableWaveFromPrompt(params: {
   projectName: string;
   message: string;
@@ -1482,35 +1672,45 @@ function deriveDeliverableWaveFromPrompt(params: {
   strategy: DevelopmentStrategy;
   riskLevel: RiskLevel;
 }> {
+  const headlessOnly = isHeadlessOrBackendOnlyPrompt(params.message);
+
   if (params.originKind === "brownfield") {
     return [
       {
         title: `Slice 1 (Ciclo #${params.cycleNumber}) — Mapeamento Arquitetural, Contratos & Testes de Caracterização`,
-        description: `Consolidar contratos Zod e testes de caracterização sobre o repositório de ${params.projectName} (${params.message.slice(0, 220)}).`,
+        description: `Consolidar contratos de validação e testes de caracterização sobre o repositório de ${params.projectName} (${params.message.slice(0, 220)}).`,
         hasUi: false,
         strategy: "characterization_strangler",
         riskLevel: "medium",
       },
       {
-        title: `Slice 2 (Ciclo #${params.cycleNumber}) — Evolução de Domínio & Isolamento Segura`,
-        description: `Implementar a evolução principal solicitada no repositório mantendo compatibilidade regressiva e auditoria AppSec.`,
+        title: `Slice 2 (Ciclo #${params.cycleNumber}) — Evolução de Domínio & Isolamento Seguro`,
+        description: `Implementar a evolução principal solicitada no repositório mantendo compatibilidade regressiva e auditoria de segurança.`,
         hasUi: false,
         strategy: params.strategy,
         riskLevel: "medium",
       },
-      {
-        title: `Slice 3 (Ciclo #${params.cycleNumber}) — Superfície Operacional & Validação Ponta a Ponta`,
-        description: `Integrar interface e fluxos de usuário de ${params.projectName} com validação nos 5 estados e contrato visual.`,
-        hasUi: true,
-        strategy: "frontend_first_msw",
-        riskLevel: "low",
-      },
+      headlessOnly
+        ? {
+            title: `Slice 3 (Ciclo #${params.cycleNumber}) — Integração, Observabilidade & End-to-End API/CLI`,
+            description: `Consolidar fluxos de integração, tratamento de falhas e testes ponta a ponta da API/CLI de ${params.projectName}.`,
+            hasUi: false,
+            strategy: "api_contract_first",
+            riskLevel: "low",
+          }
+        : {
+            title: `Slice 3 (Ciclo #${params.cycleNumber}) — Superfície Operacional & Validação Ponta a Ponta`,
+            description: `Integrar interface e fluxos de usuário de ${params.projectName} com validação visual nos principais estados de dados.`,
+            hasUi: true,
+            strategy: "frontend_first_msw",
+            riskLevel: "low",
+          },
     ];
   }
 
   return [
     {
-      title: `Slice 1 (Ciclo #${params.cycleNumber}) — Fundação de Contratos Zod, Schema & Autenticação`,
+      title: `Slice 1 (Ciclo #${params.cycleNumber}) — Fundação de Contratos, Entidades & Fronteiras Tipadas`,
       description: `Modelar entidades centrais, regras de negócio e fronteiras tipadas para ${params.projectName}: ${params.message.slice(0, 220)}.`,
       hasUi: false,
       strategy: "api_contract_first",
@@ -1518,18 +1718,26 @@ function deriveDeliverableWaveFromPrompt(params: {
     },
     {
       title: `Slice 2 (Ciclo #${params.cycleNumber}) — Motor de Regras de Negócio & Persistência TDD`,
-      description: `Implementar os fluxos de domínio, integrações e persistência transacional de ${params.projectName} com testes reais.`,
+      description: `Implementar os fluxos de domínio, integrações e persistência transacional de ${params.projectName} com testes automatizados reais.`,
       hasUi: false,
       strategy: "domain_first",
       riskLevel: "medium",
     },
-    {
-      title: `Slice 3 (Ciclo #${params.cycleNumber}) — Interface Web, Design System & Experiência do Usuário`,
-      description: `Construir as telas principais de ${params.projectName} seguindo .uzina/DESIGN.md, MSW na borda de rede e validação visual.`,
-      hasUi: true,
-      strategy: "frontend_first_msw",
-      riskLevel: "low",
-    },
+    headlessOnly
+      ? {
+          title: `Slice 3 (Ciclo #${params.cycleNumber}) — Integração API/CLI, Telemetria & Confiabilidade`,
+          description: `Consolidar comandos/endpoints de ${params.projectName}, observabilidade estruturada e testes ponta a ponta sem superfície gráfica.`,
+          hasUi: false,
+          strategy: "api_contract_first",
+          riskLevel: "low",
+        }
+      : {
+          title: `Slice 3 (Ciclo #${params.cycleNumber}) — Interface Web, Design System & Experiência do Usuário`,
+          description: `Construir as telas principais de ${params.projectName} com design system consistente, estados de dados completos e validação visual.`,
+          hasUi: true,
+          strategy: "frontend_first_msw",
+          riskLevel: "low",
+        },
   ];
 }
 
@@ -1784,19 +1992,27 @@ async function executeDeterministicAgencyMutations(
       label: `${wave.length} Slices criados automaticamente em 'Spec & Arquitetura' com Dossiê e Blueprint`,
     });
 
+    const initialVisualProto = await generateVisualPrototypeHtmlWithLlm(db, {
+      organizationId: params.actor.organizationId,
+      projectName,
+      summaryText: parsed.message,
+      strategyLabel: archDecision.strategyLabel,
+      masterKey: params.masterKey,
+      modelOverride: params.modelOverride,
+      fetchImpl: params.fetchImpl,
+      signal: params.signal,
+    });
+
     const createdProto = await createOrImportPrototypeScoped(db, {
       organizationId: params.actor.organizationId,
       projectId: targetProjectId,
+      dataDir: params.dataDir,
       input: {
         level: 3,
         source: "native",
         title: `Fluxo Visual Inicial — ${projectName}`,
         specSummary: parsed.message.slice(0, 400),
-        html: buildGeneratedVisualPrototypeHtml({
-          projectName,
-          summaryText: parsed.message,
-          strategyLabel: archDecision.strategyLabel,
-        }),
+        html: initialVisualProto.html,
       },
     });
 
@@ -1930,19 +2146,27 @@ async function executeDeterministicAgencyMutations(
       label: `${wave.length} Slices gerados com Dossiê (specMarkdown) e Blueprint Técnico`,
     });
 
+    const initialVisualProto = await generateVisualPrototypeHtmlWithLlm(db, {
+      organizationId: params.actor.organizationId,
+      projectName,
+      summaryText: parsed.message,
+      strategyLabel: archDecision.strategyLabel,
+      masterKey: params.masterKey,
+      modelOverride: params.modelOverride,
+      fetchImpl: params.fetchImpl,
+      signal: params.signal,
+    });
+
     const createdProto = await createOrImportPrototypeScoped(db, {
       organizationId: params.actor.organizationId,
       projectId: targetProjectId,
+      dataDir: params.dataDir,
       input: {
         level: 3,
         source: "native",
         title: `Fluxo Visual Inicial — ${projectName}`,
         specSummary: parsed.message.slice(0, 400),
-        html: buildGeneratedVisualPrototypeHtml({
-          projectName,
-          summaryText: parsed.message,
-          strategyLabel: archDecision.strategyLabel,
-        }),
+        html: initialVisualProto.html,
       },
     });
 
@@ -2279,27 +2503,49 @@ async function executeDeterministicAgencyMutations(
         organizationId: params.actor.organizationId,
         projectId: targetProjectId,
         prototypeId: latestProto.id,
+        dataDir: params.dataDir,
         input: { approved: true, syncDesignMd: true },
       });
     } else {
+      const [projRow] = await db
+        .select({
+          name: projects.name,
+          description: projects.description,
+          defaultDevelopmentStrategy: projects.defaultDevelopmentStrategy,
+        })
+        .from(projects)
+        .where(eq(projects.id, targetProjectId))
+        .limit(1);
+      const projName = projRow?.name ?? "Sistema Uzina";
+      const strategyLabel = formatDevelopmentStrategyLabel(
+        projRow?.defaultDevelopmentStrategy ?? "frontend_first_msw"
+      );
+      const generatedVisual = await generateVisualPrototypeHtmlWithLlm(db, {
+        organizationId: params.actor.organizationId,
+        projectName: projName,
+        summaryText: projRow?.description ?? parsed.message,
+        strategyLabel,
+        masterKey: params.masterKey,
+        modelOverride: params.modelOverride,
+        fetchImpl: params.fetchImpl,
+        signal: params.signal,
+      });
       const createdProto = await createOrImportPrototypeScoped(db, {
         organizationId: params.actor.organizationId,
         projectId: targetProjectId,
+        dataDir: params.dataDir,
         input: {
           level: 3,
           source: "native",
-          title: "Fluxo Visual Aprovado",
-          html: buildGeneratedVisualPrototypeHtml({
-            projectName: "Sistema Uzina",
-            summaryText: parsed.message,
-            strategyLabel: "Frontend-First + MSW",
-          }),
+          title: `Fluxo Visual Aprovado — ${projName}`,
+          html: generatedVisual.html,
         },
       });
       await approvePrototypeScoped(db, {
         organizationId: params.actor.organizationId,
         projectId: targetProjectId,
         prototypeId: createdProto.id,
+        dataDir: params.dataDir,
         input: { approved: true, syncDesignMd: true },
       });
     }
@@ -2352,31 +2598,67 @@ async function executeDeterministicAgencyMutations(
       .limit(1);
 
     const projName = proj?.name ?? "Sistema Uzina";
+    const friendlyStrategy = formatDevelopmentStrategyLabel(
+      proj?.defaultDevelopmentStrategy ?? "frontend_first_msw"
+    );
+
+    const [latestProto] = await db
+      .select({ id: designPrototypes.id })
+      .from(designPrototypes)
+      .where(eq(designPrototypes.projectId, targetProjectId))
+      .orderBy(desc(designPrototypes.createdAt))
+      .limit(1);
+
+    let previousHtml: string | undefined;
+    if (latestProto) {
+      const prevPreview = await readPrototypePreviewHtmlScoped(db, {
+        organizationId: params.actor.organizationId,
+        prototypeId: latestProto.id,
+        dataDir: params.dataDir,
+      }).catch(() => null);
+      previousHtml = prevPreview?.html;
+    }
+
+    const generatedVisual = await generateVisualPrototypeHtmlWithLlm(db, {
+      organizationId: params.actor.organizationId,
+      projectName: projName,
+      summaryText: proj?.description ?? projName,
+      strategyLabel: friendlyStrategy,
+      revisionFeedback: parsed.message,
+      previousHtml,
+      masterKey: params.masterKey,
+      modelOverride: params.modelOverride,
+      fetchImpl: params.fetchImpl,
+      signal: params.signal,
+    });
+
     const updatedProto = await createOrImportPrototypeScoped(db, {
       organizationId: params.actor.organizationId,
       projectId: targetProjectId,
+      dataDir: params.dataDir,
       input: {
         level: 3,
         source: "native",
         title: `Fluxo Visual Revisado — ${projName}`,
         specSummary: parsed.message.slice(0, 400),
-        html: buildGeneratedVisualPrototypeHtml({
-          projectName: projName,
-          summaryText: proj?.description ?? projName,
-          strategyLabel: proj?.defaultDevelopmentStrategy ?? "frontend_first_msw",
-          revisionFeedback: parsed.message,
-        }),
+        html: generatedVisual.html,
       },
     });
 
     actionsExecuted.push({
       type: "generated_visual_prototype",
-      label: `Nova revisão de protótipo visual gerada (${updatedProto.title})`,
+      label: generatedVisual.generatedByLlm
+        ? `Nova revisão de protótipo gerada por LLM (${updatedProto.title})`
+        : `Nova revisão de protótipo visual gerada (${updatedProto.title})`,
       targetId: updatedProto.id,
     });
 
     replyLines = [
-      `Atualizei o protótipo visual como **${activeAgent.name}** incorporando seu direcionamento:`,
+      `Atualizei o protótipo visual como **${activeAgent.name}** (${
+        generatedVisual.generatedByLlm
+          ? `LLM Real · \`${generatedVisual.modelId ?? activeAgent.boundModelId}\``
+          : "Modo Assistido Local"
+      }) incorporando seu direcionamento:`,
       `- **Ajuste aplicado:** ${redactSensitiveText(parsed.message)}`,
       `- Confira o preview atualizado na aba **Estúdio & Protótipo** ao lado e clique em **Aprovar Fluxo Visual** quando estiver de acordo.`,
     ];
@@ -2875,6 +3157,9 @@ export async function* streamAgencyChatScoped(
                 agentName: activeAgent.name,
                 executionMode,
                 boundModelId: activeAgent.boundModelId,
+                llmLatencyMs,
+                cycleNumber: projectState?.cycleNumber ?? 1,
+                toolsUsed,
                 actionsExecuted,
               },
             },
@@ -3156,6 +3441,8 @@ export async function* streamAgencyChatScoped(
                           agentName: activeAgent.name,
                           executionMode,
                           boundModelId: activeAgent.boundModelId,
+                          llmLatencyMs,
+                          cycleNumber: projectState?.cycleNumber ?? 1,
                           toolsUsed,
                           actionsExecuted,
                         },
@@ -3244,6 +3531,8 @@ export async function* streamAgencyChatScoped(
               agentName: activeAgent.name,
               executionMode: "local_assisted",
               boundModelId: activeAgent.boundModelId,
+              cycleNumber: projectState?.cycleNumber ?? 1,
+              toolsUsed,
               actionsExecuted,
             },
           },

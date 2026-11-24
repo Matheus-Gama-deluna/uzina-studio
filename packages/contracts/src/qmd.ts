@@ -63,6 +63,8 @@ export const QmdReindexRequestSchema = z
   .object({
     includeDocs: z.boolean().default(true),
     force: z.boolean().default(false),
+    projectId: z.uuid().optional(),
+    includePlatformDocs: z.boolean().default(false),
   })
   .strict();
 export type QmdReindexRequest = z.input<typeof QmdReindexRequestSchema>;

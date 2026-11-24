@@ -331,6 +331,7 @@ export const WorkflowAbortResponseSchema = z
     aborted: z.boolean(),
     deliverableId: z.uuid(),
     mastraRunId: z.string().min(1).max(160).nullable(),
+    status: DeliverableStatusSchema.optional(),
   })
   .strict();
 export type WorkflowAbortResponse = z.infer<typeof WorkflowAbortResponseSchema>;
