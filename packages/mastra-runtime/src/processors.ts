@@ -336,7 +336,7 @@ export function createUzinaErrorProcessors(): ErrorProcessorOrWorkflow[] {
 }
 
 const SENSITIVE_FILE_SEGMENT_RE =
-  /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.master-key|\.git[\\/](?:config|hooks)|[^\\/]+\.(?:pem|key))$/i;
+  /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.master-key|\.git[\\/](?:config|hooks)(?:$|[\\/])|[^\\/]+\.(?:pem|key)$)/i;
 
 export function isSensitiveWorkspaceFile(filePath: string): boolean {
   const normalized = filePath.trim();

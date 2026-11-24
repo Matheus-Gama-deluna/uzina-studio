@@ -63,11 +63,7 @@ export async function POST(request: Request) {
       });
     }
     return jsonError(500, {
-      error: redactSensitiveText(
-        err instanceof Error
-          ? err.message
-          : "Erro ao processar orquestração de agentes."
-      ),
+      error: "Erro ao processar orquestração de agentes.",
       code: "INTERNAL_ERROR",
     });
   }

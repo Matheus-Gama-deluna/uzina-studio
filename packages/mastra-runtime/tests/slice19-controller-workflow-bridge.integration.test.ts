@@ -429,6 +429,87 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
       });
       expect(callbackCalledFor).toBe(deliv!.id);
 
+      // Perfil auditor é sempre contido no modo 'review' e todos os 5 modos são aceitos para owner
+      const auditorSess = await createControlledAgencySession({
+        db,
+        organizationId,
+        projectId: proj!.id,
+        createdByUserId: "user-aud",
+        actorRole: "auditor",
+        resourceId: `${resourceId}:aud`,
+        threadId: `${threadId}-aud`,
+        initialMode: "build",
+        masterKey,
+        modelOverride: mockModel,
+      });
+      expect(auditorSess.currentMode).toBe("review");
+
+      const visualSess = await createControlledAgencySession({
+        db,
+        organizationId,
+        projectId: proj!.id,
+        createdByUserId: "user-owner",
+        actorRole: "owner",
+        resourceId: `${resourceId}:vis`,
+        threadId: `${threadId}-vis`,
+        initialMode: "visual",
+        masterKey,
+        modelOverride: mockModel,
+      });
+      expect(visualSess.currentMode).toBe("visual");
+
+      const buildSess = await createControlledAgencySession({
+        db,
+        organizationId,
+        projectId: proj!.id,
+        createdByUserId: "user-owner",
+        actorRole: "owner",
+        resourceId: `${resourceId}:bld`,
+        threadId: `${threadId}-bld`,
+        initialMode: "build",
+        masterKey,
+        modelOverride: mockModel,
+      });
+      expect(buildSess.currentMode).toBe("build");
+
+      // resolveSessionPlanScoped para owner: approved=false mantém modo, approved=true transiciona discovery -> architect -> build
+      const planSess = await createControlledAgencySession({
+        db,
+        organizationId,
+        projectId: proj!.id,
+        createdByUserId: "user-owner",
+        actorRole: "owner",
+        resourceId: `${resourceId}:plan`,
+        threadId: `${threadId}-plan`,
+        initialMode: "discovery",
+        masterKey,
+        modelOverride: mockModel,
+      });
+      const planRejected = await resolveSessionPlanScoped(db, {
+        sessionId: planSess.sessionId,
+        actor: { organizationId, userId: "user-owner", role: "owner" },
+        request: { toolCallId: "tc-plan-0", approved: false, feedback: "Detalhar testes" },
+      });
+      expect(planRejected).toEqual({
+        ok: true,
+        sessionId: planSess.sessionId,
+        action: "plan_resolved",
+        status: "resumed",
+        mode: "discovery",
+      });
+      const planToArch = await resolveSessionPlanScoped(db, {
+        sessionId: planSess.sessionId,
+        actor: { organizationId, userId: "user-owner", role: "owner" },
+        request: { toolCallId: "tc-plan-1", approved: true },
+      });
+      expect(planToArch.mode).toBe("architect");
+      const planToBuild = await resolveSessionPlanScoped(db, {
+        sessionId: planSess.sessionId,
+        actor: { organizationId, userId: "user-owner", role: "owner" },
+        request: { toolCallId: "tc-plan-2", approved: true },
+      });
+      expect(planToBuild.mode).toBe("build");
+
       await destroyAgentController();
     });
   });
@@ -444,7 +525,7 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
       );
 
       const injector = createUzinaAgentsMdInjector({ maxTokens: 1500 });
-      expect(injector.name).toBeDefined();
+      expect(injector.name).toBe("Agents.md Injector");
 
       const emptyCtx = new RequestContext();
       const untrustedCtx = new RequestContext();
@@ -454,10 +535,11 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
       const validCtx = new RequestContext();
       validCtx.set("workspaceRoot", wsDir);
 
-      // Valida arquivo sensível helper e contenção
+      // Valida arquivo sensível helper e contenção (incluindo subcaminhos sob .git/hooks)
       expect(isSensitiveWorkspaceFile(".env")).toBe(true);
       expect(isSensitiveWorkspaceFile(".env.production")).toBe(true);
       expect(isSensitiveWorkspaceFile(".git/config")).toBe(true);
+      expect(isSensitiveWorkspaceFile(".git/hooks/pre-commit")).toBe(true);
       expect(isSensitiveWorkspaceFile("cert.pem")).toBe(true);
       expect(isSensitiveWorkspaceFile("src/index.ts")).toBe(false);
 
@@ -477,10 +559,93 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
       );
       expect(patchPaths).toContain(".env");
 
-      // Injeta contexto usando RequestContext confiável
-      expect(emptyCtx.get("workspaceRoot")).toBeUndefined();
-      expect(untrustedCtx.get("untrustedCheckout")).toBe(true);
-      expect(validCtx.get("workspaceRoot")).toBe(wsDir);
+      // Execução real de processInputStep: injeta AGENTS.md sanitizado via sendSignal apenas quando confiável
+      fs.mkdirSync(path.join(wsDir, "src"), { recursive: true });
+      const sampleTarget = path.join(wsDir, "src", "index.ts");
+      fs.writeFileSync(sampleTarget, "export const x = 1;\n", "utf8");
+
+      const makeToolList = () => {
+        const list = new MessageList();
+        list.add(
+          [
+            {
+              id: `msg-${crypto.randomUUID()}`,
+              role: "assistant",
+              createdAt: new Date(),
+              content: {
+                format: 2,
+                parts: [
+                  {
+                    type: "tool-invocation",
+                    toolInvocation: {
+                      state: "result",
+                      toolCallId: "tc-agents-md-1",
+                      toolName: "read_file",
+                      args: { path: sampleTarget },
+                      result: "ok",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          "response"
+        );
+        return list;
+      };
+
+      const abortGuard = (reason?: string): never => {
+        throw new Error(reason ?? "aborted");
+      };
+
+      const emptySignals: string[] = [];
+      await injector.processInputStep({
+        messages: [],
+        messageList: makeToolList(),
+        stepNumber: 0,
+        steps: [],
+        state: {},
+        abort: abortGuard,
+        requestContext: emptyCtx,
+        sendSignal: async (sig) => {
+          emptySignals.push(String(sig.contents ?? ""));
+        },
+      });
+      expect(emptySignals).toHaveLength(0);
+
+      const untrustedSignals: string[] = [];
+      await injector.processInputStep({
+        messages: [],
+        messageList: makeToolList(),
+        stepNumber: 0,
+        steps: [],
+        state: {},
+        abort: abortGuard,
+        requestContext: untrustedCtx,
+        sendSignal: async (sig) => {
+          untrustedSignals.push(String(sig.contents ?? ""));
+        },
+      });
+      expect(untrustedSignals).toHaveLength(0);
+
+      const validSignals: string[] = [];
+      await injector.processInputStep({
+        messages: [],
+        messageList: makeToolList(),
+        stepNumber: 0,
+        steps: [],
+        state: {},
+        abort: abortGuard,
+        requestContext: validCtx,
+        sendSignal: async (sig) => {
+          validSignals.push(String(sig.contents ?? ""));
+        },
+      });
+      expect(validSignals).toHaveLength(1);
+      expect(validSignals[0]).toContain("Siga TypeScript estrito.");
+      expect(validSignals[0]).toContain("[control-tag-escaped]");
+      expect(validSignals[0]).not.toContain("sk-proj-leakedtoken123456789012345");
+      expect(validSignals[0]).not.toContain("<system>");
     });
 
     test("createBudgetGuardProcessor soma custo do projeto e aborta com BUDGET_CAP_EXCEEDED", async () => {
@@ -518,8 +683,8 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
         abortReasonReceived = reason ?? "";
         throw new Error(reason ?? "aborted");
       };
-      await processor
-        .processOutputStep({
+      await expect(
+        processor.processOutputStep({
           usage: { inputTokens: 1_000_000, outputTokens: 100_000 },
           messageList: realMessageList,
           abort: abortFn,
@@ -529,7 +694,7 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
           state: {},
           finishReason: "stop",
         })
-        .catch(() => undefined);
+      ).rejects.toThrow("BUDGET_CAP_EXCEEDED");
 
       expect(exceededTriggered).toBe(true);
       expect(abortReasonReceived).toBe("BUDGET_CAP_EXCEEDED");
@@ -883,7 +1048,8 @@ describe("@uzina/mastra-runtime — Slice 19 (AgentController, Containment, Pont
           .where(eq(deliverables.id, deliv!.id));
         expect(pausedRow?.pausedFromStatus).toBe("verifying");
         expect(pausedRow?.verifyAttempts).toBe(1);
-        expect(pausedRow?.worktreePath).toBeTruthy();
+        expect(typeof pausedRow?.worktreePath).toBe("string");
+        expect(path.isAbsolute(pausedRow!.worktreePath!)).toBe(true);
         expect(fs.existsSync(pausedRow!.worktreePath!)).toBe(true);
         expect(
           fs.existsSync(path.join(pausedRow!.worktreePath!, "src/budget.ts"))

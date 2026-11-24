@@ -73,6 +73,16 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
       page.getByText(`Entrega E2E ${suffix}`).first()
     ).toBeVisible();
 
+    await page.getByTestId("view-kanban").click();
+    await expect(page.getByTestId("kanban-board")).toBeVisible();
+    await expect(
+      page.getByTestId("kanban-stage-lock-decision_pending")
+    ).toContainText("Manual (HITL)");
+    const discoverySwitch = page.getByTestId("kanban-stage-mode-discovery");
+    await expect(discoverySwitch).toHaveAttribute("aria-checked", "false");
+    await discoverySwitch.click();
+    await expect(discoverySwitch).toHaveAttribute("aria-checked", "true");
+
     await page.goto("/app/ideas");
     await expect(page.getByTestId("ideas-hub-root")).toBeVisible();
 
@@ -108,6 +118,11 @@ test.describe("Uzina Studio — Smoke E2E Fase 1", () => {
         page.getByRole("heading", { name: route.heading })
       ).toBeVisible();
     }
+
+    const codingSelect = page.getByTestId("engine-coding-executor-select");
+    await expect(codingSelect).toBeVisible();
+    await codingSelect.selectOption("mastra_coding_agent");
+    await expect(codingSelect).toHaveValue("mastra_coding_agent");
 
     await page.getByTestId("open-copilot-drawer").click();
     await page.getByRole("button", { name: "Resumo Executivo" }).click();

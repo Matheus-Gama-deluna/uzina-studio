@@ -326,6 +326,15 @@ export const WorkflowAbortInputSchema = z
   .strict();
 export type WorkflowAbortInput = z.infer<typeof WorkflowAbortInputSchema>;
 
+export const WorkflowAbortResponseSchema = z
+  .object({
+    aborted: z.boolean(),
+    deliverableId: z.uuid(),
+    mastraRunId: z.string().min(1).max(160).nullable(),
+  })
+  .strict();
+export type WorkflowAbortResponse = z.infer<typeof WorkflowAbortResponseSchema>;
+
 export const DeliverableWorkflowStatusSchema = z.enum([
   "not_started",
   "running",

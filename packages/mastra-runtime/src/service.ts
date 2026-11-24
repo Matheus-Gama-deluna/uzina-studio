@@ -424,9 +424,8 @@ export async function createMastraRuntime(
     newBudgetCapUsd?: number;
   }): Promise<void> => {
     if (
-      params.actorRole &&
-      params.actorRole !== "owner" &&
-      params.actorRole !== "admin"
+      !params.actorRole ||
+      (params.actorRole !== "owner" && params.actorRole !== "admin")
     ) {
       throw new WorkflowRuntimeError({
         statusCode: 403,

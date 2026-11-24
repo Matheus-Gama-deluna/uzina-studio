@@ -1,6 +1,6 @@
 # Dossiê do Slice 19 — Ponte Real Chat ↔ Workflow Durável, `AgentController` & Kanban `Manual | Auto`
 
-* **Status:** `Aprovado no Plan Gate EGM (Aguardando Autorização do Usuário)`
+* **Status:** `Concluído na branch feat/slice-19-agent-controller-workflow-bridge-kanban-auto (Pronto para revisão e merge)`
 * **Branch:** `feat/slice-19-agent-controller-workflow-bridge-kanban-auto`
 * **Estratégia Aplicada:** `Contract-First + Domain-First + Vertical Slice` (TDD estrito sobre `@uzina/contracts`, `@uzina/db`, `@uzina/mastra-runtime` e `apps/web`)
 * **Spec de Referência:** `docs/especificacao-produto-arquitetura-v2.10.md` (Seções 4, 5.2, 5.4, 5.6, 5.11, 5.12), `docs/especificacao-tecnica-fase-2-v1.0.md` e plano aprovado da Fase 3 (`implementation_plan.md`).
@@ -210,12 +210,12 @@ Respeito integral às fronteiras de importação (`@uzina/contracts` → `@uzina
 
 ## 6. Critérios de Pronto (DoD)
 
-- [ ] `node scripts/check-no-ee.mjs` retorna `exit 0` (zero imports `ee/` no código do monorepo).
-- [ ] Migração Drizzle `0011_*.sql` gerada via `drizzle-kit generate`, aplicada automaticamente em PGlite e testada.
-- [ ] `pnpm verify` verde sem violações de `audit:tests`, zero erros TS/ESLint, build Next.js completo (`+ UZINA_STANDALONE=1`) passando.
-- [ ] `pnpm test:e2e` (Playwright) verde contra build de produção.
-- [ ] QA Visual (`browser`) em `/app`, `/app/deliverables` (Kanban `Manual | Auto` + `budgetCapUsd` + Kill Switch), `/app/decisions` (`budget_cap_pause` + `newBudgetCapUsd`) e `/app/finops` (Dark/Light Stone `1440×900` e Mobile `390×844`) com `0` erros de console, `0` HTTP `>= 500` e `0` overflow horizontal.
-- [ ] Revisões independentes aprovadas (`test-critic`, `appsec-auditor`, `egm-codebase-details`, `factory-verifier`).
+- [x] `node scripts/check-no-ee.mjs` retorna `exit 0` (zero imports `ee/` no código do monorepo).
+- [x] Migração Drizzle `0011_*.sql` (`0011_flimsy_menace.sql`) gerada via `drizzle-kit generate`, aplicada automaticamente em PGlite e testada.
+- [x] `pnpm verify` verde sem violações de `audit:tests`, zero erros TS/ESLint, build Next.js completo (`+ UZINA_STANDALONE=1`) passando.
+- [x] `pnpm test:e2e` (Playwright) verde contra build de produção.
+- [x] QA Visual (`browser`) em `/app`, `/app/deliverables` (Kanban `Manual | Auto` + `budgetCapUsd` + Kill Switch), `/app/decisions` (`budget_cap_pause` + `newBudgetCapUsd`) e `/app/finops` (Dark/Light Stone `1440×900` e Mobile `390×844`) com `0` erros de console, `0` HTTP `>= 500` e `0` overflow horizontal.
+- [x] Revisões independentes executadas e apontamentos bloqueantes endereçados e revalidados no gate final (`test-critic`, `appsec-auditor`, `egm-codebase-details`, `factory-verifier`).
 
 ---
 
@@ -231,4 +231,19 @@ Respeito integral às fronteiras de importação (`@uzina/contracts` → `@uzina
 
 ## 8. Evidências Reais Pós-Código (Verify Gate)
 
-*(A preencher somente após executar os comandos ao final do Slice.)*
+* **`node scripts/check-no-ee.mjs`:** `OK [check-no-ee]: Nenhuma dependência ou importação comercial Mastra ee/ encontrada.` (`exit 0`).
+* **`node scripts/audit-tests.mjs`:** `Arquivos: 70 | Testes: 224 | Suprimidos: 2 | Violações: 0` (`exit 0`).
+* **`pnpm verify` (sem erros TS/ESLint, 34/34 tasks Turbo PASS):**
+  * `@uzina/contracts`: `13` arquivos · `203 passed` (`slice19-controller-automation.test.ts` `23/23`)
+  * `@uzina/core`: `13` arquivos · `157 passed`
+  * `@uzina/db`: `12 passed | 1 skipped` · `39 passed | 1 skipped` (`postgres-live.test.ts` sem `TEST_DATABASE_URL`; inclui `slice19-schema-migration.test.ts`)
+  * `@uzina/codebase-intel`: `1` arquivo · `13 passed`
+  * `@uzina/opencode-bridge`: `4` arquivos · `51 passed`
+  * `@uzina/security-engine`: `3` arquivos · `19 passed`
+  * `@uzina/cli`: `1` arquivo · `13 passed`
+  * `@uzina/mastra-runtime`: `11` arquivos · `35 passed` (`slice19-controller-workflow-bridge.integration.test.ts` `7/7`, incluindo execução reativa real de `AgentsMDInjector` + `sendSignal`, fluxos `resolveSessionPlanScoped`, 5 modos, `advance_cycle` ↔ `deliverableLifecycleWorkflow` + Kanban `Manual | Auto` e `budget_cap_pause`)
+  * `@uzina/web`: `11` arquivos · `28 passed` (`contract-drift.test.ts` com `PATCH /api/projects/[id]`, RBAC `401`/`403`/`404`, `WorkflowAbortResponseSchema`, `GET /api/projects/[id]/background-tasks`, `PUT /api/finops/config` e `/api/agency/sessions/[id]/{steer,abort,plan}`)
+  * **Total Vitest:** `558 passed | 1 skipped` (`postgres-live.test.ts` sem `TEST_DATABASE_URL`).
+* **Builds & E2E:** `UZINA_STANDALONE=1` + build padrão `@uzina/web` aprovados (`exit 0`); `pnpm test:e2e` (`Playwright` contra servidor de produção PGlite): `2 passed (22.1s)` cobrindo Kanban `Manual | Auto` + trava `Manual (HITL)` e `engine-coding-executor-select`.
+* **QA Visual (`browser`, `Model: "flash"`, `http://127.0.0.1:3019`):** **PASS** em `/app` (`controller-mode-badge`, `Intervir (Steer)`, `Abortar`), `/app/deliverables` (Kanban switches + `Manual (HITL)` + `Teto Orçamento (USD)` + badge de tarefas em 2º plano), `/app/decisions` e `/app/finops` (`Executor de Codificação`) em Dark/Light Stone `1440×900` e Mobile `390×844` (`0` erros de console, `0` HTTP `>= 500` em 130 requisições, `0` overflow horizontal).
+* **Revisores Independentes & Remediação Final:** após apontamentos iniciais de `test-critic`, `appsec-auditor`, `egm-codebase-details` e `factory-verifier`, foram corrigidos o drift `WorkflowAbortResponseSchema` entre `@uzina/contracts`, `workflow/abort/route.ts`, MSW e `contract-drift.test.ts`, endurecimentos AppSec em `service.ts` (`validateAndApplyBudgetCapOnResume` fail-closed), `controller.ts` (bloqueio incondicional de `auditor` em `steer`), `background-tasks.ts` (join multi-tenant + redação), `processors.ts` (regex `.git/(config|hooks)` com subcaminhos) e erros genéricos `500` em chat/stream, além da execução reativa real de `AgentsMDInjector` e `resolveSessionPlanScoped` — todos revalidados no gate final após a última edição.

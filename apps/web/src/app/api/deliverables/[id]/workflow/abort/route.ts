@@ -1,4 +1,7 @@
-import { WorkflowAbortInputSchema } from "@uzina/contracts";
+import {
+  WorkflowAbortInputSchema,
+  WorkflowAbortResponseSchema,
+} from "@uzina/contracts";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError } from "@/lib/api-utils";
 import { WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -53,7 +56,10 @@ export async function POST(
       organizationId: auth.actor.organizationId,
       reason: parsed.data.reason,
     });
-    return NextResponse.json(result, { status: 200 });
+    return NextResponse.json(
+      WorkflowAbortResponseSchema.parse(result),
+      { status: 200 }
+    );
   } catch (err) {
     return handleWorkflowRouteError(err);
   }

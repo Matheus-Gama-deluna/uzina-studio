@@ -32,7 +32,7 @@ export async function GET(
       projectId,
     });
     return NextResponse.json(
-      BackgroundTaskListResponseSchema.parse({ items }),
+      BackgroundTaskListResponseSchema.parse({ projectId, items }),
       { status: 200 }
     );
   } catch (err) {

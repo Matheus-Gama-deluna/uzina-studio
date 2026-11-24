@@ -6,8 +6,8 @@ import {
   type BackgroundTaskSummary,
 } from "@uzina/contracts";
 import { redactSensitiveText } from "@uzina/core";
-import { deliverables, type UzinaDb } from "@uzina/db";
-import { desc, eq, inArray } from "drizzle-orm";
+import { clients, deliverables, projects, type UzinaDb } from "@uzina/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 interface ManagedBackgroundTask {
   summary: BackgroundTaskSummary;
@@ -183,16 +183,21 @@ export class BackgroundTasksRegistry {
     );
 
     const activeDeliverables = await db
-      .select()
+      .select({ deliv: deliverables })
       .from(deliverables)
+      .innerJoin(projects, eq(deliverables.projectId, projects.id))
+      .innerJoin(clients, eq(projects.clientId, clients.id))
       .where(
-        eq(deliverables.projectId, params.projectId)
+        and(
+          eq(deliverables.projectId, params.projectId),
+          eq(clients.organizationId, params.organizationId)
+        )
       )
       .orderBy(desc(deliverables.updatedAt))
       .limit(15);
 
     const recovered: BackgroundTaskSummary[] = [];
-    for (const deliv of activeDeliverables) {
+    for (const { deliv } of activeDeliverables) {
       if (
         !deliv.mastraRunId ||
         knownDeliverableIds.has(deliv.id) ||
@@ -218,7 +223,7 @@ export class BackgroundTasksRegistry {
           deliverableId: deliv.id,
           kind: "workflow_cycle",
           status: derivedStatus,
-          summary: `${deliv.title} (${deliv.status})`,
+          summary: `${redactSensitiveText(deliv.title)} (${deliv.status})`,
           mastraRunId: deliv.mastraRunId,
           startedAt: deliv.createdAt.toISOString(),
           updatedAt: deliv.updatedAt.toISOString(),

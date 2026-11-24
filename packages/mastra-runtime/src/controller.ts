@@ -96,12 +96,6 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
   ],
 };
 
-const MUTATING_MODES = new Set<AgencyControllerModeId>([
-  "architect",
-  "visual",
-  "build",
-]);
-
 interface ThreadLockEntry {
   ownerSessionId: string;
   acquiredAt: number;
@@ -447,14 +441,11 @@ export async function steerSessionScoped(
     params.request.projectId
   );
 
-  if (
-    params.actor.role === "auditor" &&
-    (!params.request.targetMode || MUTATING_MODES.has(params.request.targetMode))
-  ) {
+  if (params.actor.role === "auditor") {
     throw new WorkflowRuntimeError({
       statusCode: 403,
       code: "FORBIDDEN_SESSION_ACCESS",
-      message: "Perfil 'auditor' não pode intervir em modos mutantes ou redirecionar build.",
+      message: "Perfil 'auditor' possui acesso somente leitura e não pode intervir em sessões.",
     });
   }
 

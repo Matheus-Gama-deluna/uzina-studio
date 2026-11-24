@@ -1,5 +1,4 @@
 import { AgencyChatRequestSchema } from "@uzina/contracts";
-import { redactSensitiveText } from "@uzina/core";
 import { getDb } from "@uzina/db";
 import { streamAgencyChatScoped } from "@uzina/mastra-runtime/agency";
 import { parseJsonBody } from "@/lib/api-utils";
@@ -67,16 +66,12 @@ export async function POST(request: Request): Promise<Response> {
           const chunk = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
           controller.enqueue(encoder.encode(chunk));
         }
-      } catch (err) {
+      } catch {
         if (!closed && !abortController.signal.aborted) {
           const errFrame = {
             type: "error",
             code: "AGENCY_STREAM_ERROR",
-            message: redactSensitiveText(
-              err instanceof Error
-                ? err.message
-                : "Erro ao transmitir orquestração de agentes."
-            ),
+            message: "Erro ao transmitir orquestração de agentes.",
           };
           controller.enqueue(
             encoder.encode(

@@ -333,3 +333,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * QA Visual (`browser` em `http://localhost:3000/app`): **PASS** em Dark/Light Stone `1440×900` e Mobile `390×844` + `CopilotDrawer` (`0` erros de console/hidratação, `0` HTTP `>= 500`, `0` overflow horizontal).
   * Auditores: `appsec-auditor` (**PASS**), `egm-codebase-details` (**PASS**) e `test-critic` (**PASS**).
 * **Próximo passo:** Revisão final / merge da branch `feat/slice-18-real-agents-observational-memory-processors` para `main` e início do **Slice 19** (`AgentController`, `steer()`, `BackgroundTasks`).
+
+---
+
+## 2026-11-24 — Slice 19: Ponte Real Chat ↔ Workflow Durável, `AgentController` & Kanban `Manual | Auto` (`feat/slice-19-agent-controller-workflow-bridge-kanban-auto`)
+
+* **Entregue:**
+  * **Contratos & Migração (`@uzina/contracts`, `@uzina/db`):** `ProjectStageAutomationSchema` (`decision_pending: z.literal("manual")`), `DEFAULT_PROJECT_STAGE_AUTOMATION`, `budgetCapUsd` (`numeric(12,6)`), `CodingExecutorModeSchema` (`opencode` | `mastra_coding_agent`), `BackgroundTaskSummarySchema`, `AgencySessionSteerRequestSchema`/`Abort`/`PlanDecision`, `WorkflowAbortResponseSchema`, novas variantes SSE (`controller_mode`, `workflow_started`, `background_task`, `plan_approval_required`) e migração `0011_flimsy_menace.sql`.
+  * **`UzinaAgentController`, `BackgroundTasksRegistry` & Contenção (`@uzina/mastra-runtime`):** controlador com 5 modos (`discovery`, `architect`, `visual`, `build`, `review`) e `availableTools` literais, `auditor` bloqueado em intervenções e contido em `review`, `steerSessionScoped`, `abortSessionScoped`, `resolveSessionPlanScoped`, `BackgroundTasksRegistry` (execução/recuperação multi-tenant com join em `clients`), `AgentsMDInjector` reativo (`sendSignal`) + `SkillsProcessor` + `UzinaContainedFilesystem` anti-traversal/symlink/arquivos sensíveis e `MastraWorkspaceExecutorAdapter`.
+  * **Ponte Chat ↔ Workflow & Pausa por Orçamento (`agency.ts`, `deliverable-lifecycle.ts`, `service.ts`):** `advance_cycle` despacha `deliverableLifecycleWorkflow` em background quando `workflowService` + repo + `builder` estão presentes, respeitando colunas `Manual | Auto` (`stage_gate_approve` vs auto-avanço sem pular `decision_pending`), guarda `createBudgetGuardProcessor` (`BUDGET_CAP_EXCEEDED`) e pausa inteligente `budget_cap_pause` preservando worktree, `verifyAttempts` único e retomada `newBudgetCapUsd` restrita a `owner`/`admin`.
+  * **Rotas REST, MSW, Contract Drift & UI Warm Stone (`apps/web`):** `PATCH /api/projects/[id]`, `GET /api/projects/[id]/background-tasks`, `POST /api/deliverables/[id]/workflow/abort`, `POST /api/agency/sessions/[id]/{steer,abort,plan}`, MSW/drift checks + RBAC (`401`/`403`/`404`/`409`/`422`), switches `Manual | Auto` + trava `Manual (HITL)` + `Teto Orçamento (USD)` + badge BG + `Abortar` em `DeliverablesDocsHub`, `budget_cap_pause` + `newBudgetCapUsd` em `DecisionsWorkbench`, controles `Steer`/`Abortar`/`Plan` em `AgencyCommandCenter` e seletor `Executor de Codificação` em `EngineConfigPanel`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`70` arquivos, `224` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`558 passed | 1 skipped`, apenas `postgres-live.test.ts` em `@uzina/db` sem `TEST_DATABASE_URL`).
+  * Builds `UZINA_STANDALONE=1` + padrão `@uzina/web` (`exit 0`) e Playwright `pnpm test:e2e` (`2 passed (22.1s)`).
+  * QA Visual (`browser` em `http://127.0.0.1:3019`): **PASS** em `/app`, `/app/deliverables`, `/app/decisions` e `/app/finops` (Dark/Light Stone `1440×900` e Mobile `390×844`, `0` erros de console, `0` HTTP `>= 500`, `0` overflow horizontal).
+  * Revisores independentes (`test-critic`, `appsec-auditor`, `egm-codebase-details`, `factory-verifier`) executados; achados de contrato/AppSec/testes corrigidos e revalidados integralmente no gate final.
+* **Próximo passo:** Aguardar revisão e autorização explícita do usuário para merge da branch `feat/slice-19-agent-controller-workflow-bridge-kanban-auto` na `main`.
