@@ -8,7 +8,6 @@ import {
   DEFAULT_PROJECT_STAGE_AUTOMATION,
   DecisionRiskBriefingSchema,
   DeliverableStatusSchema,
-  DesignAssetSchema,
   DevelopmentStrategySchema,
   DiscoveryAnswerSchema,
   DiscoveryRoundSchema,
@@ -29,11 +28,9 @@ import {
   type ArchitectBlueprintV2,
   type BddScenario,
   type CustomModelPricingMap,
-  type DecisionRiskBriefing,
   type DecisionStatus,
   type DecisionType,
   type DeliverableStatus,
-  type DesignAsset,
   type DevelopmentStrategy,
   type DiscoveryAnswer,
   type DiscoveryRound,
@@ -41,12 +38,10 @@ import {
   type EvidencePack,
   type ProjectFinalizePolicy,
   type ProjectStageAutomation,
-  type PrototypeComponentManifest,
   type ProviderType,
   type RoleBindings,
   type ShapeSpec,
   type StrategyRouterOutput,
-  type VerifierTwoStageOutput,
   type VerifyCheckSummary,
   type WorktreeHandle,
 } from "@uzina/contracts";
@@ -60,7 +55,6 @@ import {
   generateDesignMdContract,
   parseUnifiedDiffSemantic,
   redactSensitiveText,
-  routeDevelopmentStrategy,
   scanRepositoryBrownfield,
 } from "@uzina/core";
 import {
@@ -124,6 +118,10 @@ import {
   evaluateTwoStageVerifier,
   syncOpenSpecArchive,
 } from "../stages/two-stage-verifier.js";
+import {
+  runVisualA11yVerify,
+  type VisualA11yViewportRunner,
+} from "../stages/visual-a11y-verify.js";
 import { SymbolLockManager } from "../symbol-locks.js";
 import { createCodingExecutorAdapter } from "../workspace-adapter.js";
 
@@ -241,6 +239,8 @@ export interface DeliverableWorkflowDeps {
   githubFetchImpl?: typeof fetch;
   transportFactory?: () => OpenCodeTransport;
   verifyRunner?: VerifyRunner;
+  visualA11yVerifyRunner?: VisualA11yViewportRunner;
+  visualPreviewUrl?: string;
   securityRunnerDeps?: RunSecurityScanDeps;
   finalizeRunner?: FinalizeRunner;
   worktreesRootDir?: string;
@@ -1373,25 +1373,6 @@ function runWithLockHeartbeat(
       }
     },
   };
-}
-
-function mapDesignAssetRow(row: typeof designAssets.$inferSelect): DesignAsset {
-  return DesignAssetSchema.parse({
-    id: row.id,
-    projectId: row.projectId,
-    deliverableId: row.deliverableId,
-    assetType: row.assetType,
-    title: row.title,
-    sourceUrl: row.sourceUrl,
-    assetUrl: row.storagePath ? `/api/assets/${row.id}` : null,
-    mimeType: row.mimeType,
-    sizeBytes: row.sizeBytes,
-    intentionTags: row.intentionTags,
-    notes: row.notes,
-    approved: row.approved,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  });
 }
 
 function extractContractTestFiles(
@@ -4109,6 +4090,78 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
               failureReasons.push(
                 `Verify runner falhou em '${failedCmd.name}': ${failedCmd.summary}`
               );
+            }
+          }
+        }
+
+        // 2B) QA Visual & A11y automatizado (quando hasUi === true e preview/runner configurado)
+        if (failureReasons.length === 0 && currentState.hasUi) {
+          let repoPreviewUrl: string | null = null;
+          let repoPreviewCommand: string | null = null;
+          if (row.repositoryId) {
+            const [repoRow] = await db
+              .select({ stackMetadataJson: projectRepositories.stackMetadataJson })
+              .from(projectRepositories)
+              .where(eq(projectRepositories.id, row.repositoryId))
+              .limit(1);
+            const meta = repoRow?.stackMetadataJson;
+            if (meta && typeof meta.previewUrl === "string") {
+              repoPreviewUrl = meta.previewUrl;
+            }
+            if (meta && typeof meta.previewCommand === "string") {
+              repoPreviewCommand = meta.previewCommand;
+            }
+          }
+
+          const configuredPreviewUrl =
+            deps.visualPreviewUrl?.trim() ||
+            process.env.UZINA_PREVIEW_URL?.trim() ||
+            repoPreviewUrl ||
+            (deps.visualA11yVerifyRunner ? "http://127.0.0.1:3000" : null);
+
+          if (
+            configuredPreviewUrl ||
+            repoPreviewCommand ||
+            deps.visualA11yVerifyRunner
+          ) {
+            const a11yStarted = Date.now();
+            await emitVerifyToolTrace({
+              phase: "start",
+              toolName: "visual:a11y",
+              targetPath: configuredPreviewUrl ?? worktreeHandle.workspacePath,
+              status: "running",
+            });
+            const a11yReport = await runVisualA11yVerify({
+              previewUrl: configuredPreviewUrl,
+              previewCommand: repoPreviewCommand,
+              workspacePath: worktreeHandle.workspacePath,
+              runner: deps.visualA11yVerifyRunner,
+              signal: heartbeat.signal,
+            });
+            const a11yDurationMs = Math.max(1, Date.now() - a11yStarted);
+            const a11yPassed = a11yReport.status !== "failed";
+            const a11ySummary =
+              a11yReport.status === "skipped_missing_binary"
+                ? "skipped_missing_binary: Playwright/Chromium indisponível no ambiente."
+                : a11yReport.status === "passed"
+                  ? `Aprovado nos viewports ${a11yReport.viewports.join(", ")} (0 overflow, 0 erros de console, 0 violações críticas/sérias).`
+                  : `Reprovado: overflow=${a11yReport.horizontalOverflowPx}px, consoleErrors=${a11yReport.consoleErrors.length}, axeViolations=${a11yReport.axeViolations.map((v) => `${v.id}(${v.impact})`).join(",")}`;
+            verifyChecks.push({
+              name: "visual:a11y",
+              passed: a11yPassed,
+              durationMs: a11yDurationMs,
+              summary: a11ySummary.slice(0, 4000),
+            });
+            await emitVerifyToolTrace({
+              phase: "result",
+              toolName: "visual:a11y",
+              targetPath: configuredPreviewUrl ?? worktreeHandle.workspacePath,
+              durationMs: a11yDurationMs,
+              status: a11yPassed ? "ok" : "error",
+              summary: a11ySummary,
+            });
+            if (!a11yPassed) {
+              failureReasons.push(`Visual/A11y gate reprovou: ${a11ySummary}`);
             }
           }
         }

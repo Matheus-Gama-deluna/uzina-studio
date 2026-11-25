@@ -15,7 +15,9 @@ import {
   TrendingDown,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { AgentEffectivenessPanel } from "./agent-effectiveness-panel";
 import { EngineConfigPanel } from "./engine-config-panel";
+import { SkillsCatalogPanel } from "./skills-catalog-panel";
 
 const TECHNIQUE_LABELS: Record<TokenSavingsTechnique, string> = {
   prompt_cache: "Prompt Cache",
@@ -412,6 +414,10 @@ export function FinopsDashboard() {
           </div>
         )}
       </section>
+
+      <AgentEffectivenessPanel />
+
+      <SkillsCatalogPanel />
 
       <EngineConfigPanel />
     </div>

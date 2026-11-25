@@ -8,7 +8,9 @@ import {
   scanCodebaseWorkspace,
 } from "@uzina/codebase-intel";
 import {
+  EntropyAuditReportSchema,
   QmdSearchModeSchema,
+  type EntropyAuditReport,
   type QmdSearchMode,
 } from "@uzina/contracts";
 import {
@@ -61,6 +63,8 @@ const DoctorOptionsSchema = z
   .object({
     command: z.literal("doctor"),
     json: z.boolean().default(false),
+    entropy: z.boolean().default(false),
+    rootDir: z.string().trim().min(1).optional(),
     dataDir: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -124,6 +128,7 @@ export interface UzinaCliDependencies {
   migrateImpl?: (options: MigrateDatabaseOptions) => Promise<MigrationReport>;
   checkGitAvailable?: () => { ok: boolean; version?: string };
   spawnServer?: (plan: SpawnServerPlan) => Promise<number>;
+  entropyAudit?: (rootDir: string) => Promise<EntropyAuditReport>;
   cwd?: string;
 }
 
@@ -229,12 +234,19 @@ export function parseCliCommand(argv: string[]): ParsedCliCommand {
 
   if (first === "doctor") {
     let json = false;
+    let entropy = false;
+    let rootDir: string | undefined;
     let dataDir: string | undefined;
 
     for (let i = 1; i < argv.length; i += 1) {
       const arg = argv[i]!;
       if (arg === "--json") {
         json = true;
+      } else if (arg === "--entropy") {
+        entropy = true;
+      } else if (arg === "--root") {
+        rootDir = readNextFlagValue(argv, i, arg);
+        i += 1;
       } else if (arg === "--data-dir") {
         dataDir = readNextFlagValue(argv, i, arg);
         i += 1;
@@ -246,6 +258,8 @@ export function parseCliCommand(argv: string[]): ParsedCliCommand {
     return DoctorOptionsSchema.parse({
       command: "doctor",
       json,
+      entropy,
+      rootDir,
       dataDir,
     });
   }
@@ -470,6 +484,119 @@ function defaultCheckGit(): { ok: boolean; version?: string } {
   return { ok: false };
 }
 
+const CLI_SPEC_REF_RE =
+  /`((?:packages|apps|scripts)\/[A-Za-z0-9_.\-\/]+\.(?:ts|tsx|js|mjs|cjs|json|md|sql))`/g;
+const CLI_ENTRYPOINT_RE =
+  /(?:^|\/)(?:index|main|cli|server|page|layout|route|loading|error|middleware|globals)\.[cm]?[jt]sx?$/i;
+
+export async function defaultCliEntropyAudit(
+  rootDir: string
+): Promise<EntropyAuditReport> {
+  const resolvedRoot = path.resolve(rootDir);
+  const safeRoot = fs.existsSync(resolvedRoot)
+    ? assertPathInsideWorkspace(resolvedRoot, resolvedRoot, { allowRoot: true })
+    : resolvedRoot;
+
+  const docSpecDrifts: EntropyAuditReport["docSpecDrifts"] = [];
+  for (const relDir of ["docs/slices", ".uzina"]) {
+    const dirAbs = path.join(safeRoot, relDir);
+    if (!fs.existsSync(dirAbs)) continue;
+    const walkMd = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walkMd(full);
+        else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+          const relSpec = path.relative(safeRoot, full).replace(/\\/g, "/");
+          const md = fs.readFileSync(full, "utf8");
+          CLI_SPEC_REF_RE.lastIndex = 0;
+          let match: RegExpExecArray | null;
+          while ((match = CLI_SPEC_REF_RE.exec(md)) !== null) {
+            const target = match[1]?.trim();
+            if (!target || target.includes("*") || target.includes("<")) continue;
+            const targetAbs = path.join(safeRoot, target);
+            if (!fs.existsSync(targetAbs)) {
+              docSpecDrifts.push({
+                specPath: relSpec,
+                missingTarget: target,
+                detail: `Referência '${target}' em ${relSpec} não existe no workspace.`,
+              });
+            }
+          }
+        }
+      }
+    };
+    walkMd(dirAbs);
+  }
+
+  const deadCodeCandidates: EntropyAuditReport["deadCodeCandidates"] = [];
+  if (fs.existsSync(safeRoot)) {
+    const scan = scanCodebaseWorkspace(safeRoot);
+    const targetedKeys = new Set(
+      scan.edges.map(
+        (e) => `${e.toFilePath.replace(/\\/g, "/")}::${e.toSymbolName}`
+      )
+    );
+    const targetedNames = new Set(scan.edges.map((e) => e.toSymbolName));
+    for (const file of scan.files) {
+      for (const sym of file.symbols) {
+        const normalizedPath = sym.filePath.replace(/\\/g, "/");
+        if (!sym.exported) continue;
+        if (normalizedPath.startsWith("packages/contracts/")) continue;
+        if (CLI_ENTRYPOINT_RE.test(normalizedPath)) continue;
+        const symKey = `${normalizedPath}::${sym.name}`;
+        if (!targetedKeys.has(symKey) && !targetedNames.has(sym.name)) {
+          deadCodeCandidates.push({
+            symbol: sym.name,
+            filePath: normalizedPath,
+            line: Math.max(1, sym.lineStart),
+          });
+        }
+        if (deadCodeCandidates.length >= 100) break;
+      }
+      if (deadCodeCandidates.length >= 100) break;
+    }
+  }
+
+  const orphanWorktrees: EntropyAuditReport["orphanWorktrees"] = [];
+  const wtDir = path.join(safeRoot, ".worktrees");
+  if (fs.existsSync(wtDir)) {
+    const wtList = spawnSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: safeRoot,
+      encoding: "utf8",
+      shell: false,
+      windowsHide: true,
+    });
+    const registered = new Set<string>();
+    if (wtList.status === 0) {
+      for (const line of wtList.stdout.split(/\r?\n/)) {
+        if (line.startsWith("worktree ")) {
+          registered.add(
+            path.resolve(line.slice("worktree ".length).trim()).toLowerCase()
+          );
+        }
+      }
+    }
+    for (const entry of fs.readdirSync(wtDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const abs = path.resolve(wtDir, entry.name);
+      if (!registered.has(abs.toLowerCase())) {
+        orphanWorktrees.push({
+          workspacePath: abs.replace(/\\/g, "/"),
+          branchName: entry.name,
+          deliverableId: null,
+        });
+      }
+    }
+  }
+
+  return EntropyAuditReportSchema.parse({
+    deadCodeCandidates,
+    docSpecDrifts,
+    orphanWorktrees,
+    unusedDependencies: [],
+  });
+}
+
 function getHelpText(): string {
   return [
     `Uzina Studio CLI v${UZINA_CLI_VERSION}`,
@@ -480,7 +607,7 @@ function getHelpText(): string {
     "  uzina sec <scan [dir] | doctor | install-tools> [...]",
     "  uzina memory search <consulta> [--mode hybrid|lexical|vector] [--limit 5] [--root <dir>]",
     "  uzina db migrate-to-postgres --from <dataDir> --to <DATABASE_URL> [--dry-run]",
-    "  uzina doctor [--json] [--data-dir ./data]",
+    "  uzina doctor [--json] [--entropy] [--root <dir>] [--data-dir ./data]",
     "  uzina --version | --help",
   ].join("\n");
 }
@@ -618,6 +745,12 @@ export async function runCli(
         ? "docker"
         : "worktree";
 
+    const entropyReport = parsed.entropy
+      ? await (deps.entropyAudit ?? defaultCliEntropyAudit)(
+          parsed.rootDir ?? cwd
+        )
+      : undefined;
+
     const payload = {
       cliVersion: UZINA_CLI_VERSION,
       nodeVersion: process.versions.node,
@@ -629,6 +762,7 @@ export async function runCli(
       dataDir,
       securityDoctorExit: secExit,
       scanners: scannerLines,
+      ...(entropyReport ? { entropy: entropyReport } : {}),
     };
 
     if (parsed.json) {
@@ -639,6 +773,11 @@ export async function runCli(
       );
       for (const line of scannerLines) {
         stdout(line);
+      }
+      if (entropyReport) {
+        stdout(
+          `[uzina doctor --entropy] deadCode=${entropyReport.deadCodeCandidates.length} | docDrifts=${entropyReport.docSpecDrifts.length} | orphanWorktrees=${entropyReport.orphanWorktrees.length} | unusedDeps=${entropyReport.unusedDependencies.length}`
+        );
       }
     }
 
