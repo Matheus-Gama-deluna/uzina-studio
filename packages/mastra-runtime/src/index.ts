@@ -21,4 +21,6 @@ export * from "./agents/executive-copilot.js";
 export * from "./workflows/deliverable-lifecycle.js";
 export * from "./service.js";
 export * from "./github-pr.js";
+export * from "./stages/structured-handoffs.js";
+export * from "./stages/two-stage-verifier.js";
 export { probeDockerDaemon, type DockerProbeResult } from "@uzina/opencode-bridge";
