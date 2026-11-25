@@ -151,3 +151,39 @@
   - [x] Playbooks Sênior (`getRolePlaybookInstructions`) + `createUzinaSkillsCatalogProcessor` + tool `load_uzina_skill`
   - [x] `WorkingMemory` tipada (`AgencyWorkingMemorySchema`) + `SemanticRecall` QMD multi-tenant + `PromptInjectionGuardProcessor` (`NFKC`/zero-width, `processInput`, `processInputStep`, `processToolResult` preservando redação)
   - [x] Verify Gate verde: `check-no-ee` (`0`), `audit-tests` (`84` arquivos, `275` testes, `0` violações), `pnpm verify` (`34/34` tasks), `test-critic`, `appsec-auditor` e `factory-verifier` (**PASS**) (`fix/slice-26-controller-model-resolver-skills-loader-v2`)
+
+---
+
+## Evolução Agêntica v2 — Slices 27 a 34 (`feat/slices-27-34-agentic-evolution-v2`)
+> Plano Mestre: `docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md` · Retomada da Onda 3: `docs/status/HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md`
+
+- [x] **Contratos Zod Consolidados (Slices 27–34)** (`ff08845`)
+  - [x] `packages/contracts/src/{role-tools,handoffs-v2,agent-evals,security-v2,governance-v2}.ts` + `tests/slices-27-34-contracts.test.ts` (`14 files, 269 tests passed`)
+
+- [x] **Slice 27 — Biblioteca de 16 Skills Autorais `Apache-2.0` (`docs/slices/slice-27-skills-library-v2-iron-laws-16-skills.md`)** (`4cf36b1`)
+  - [x] 8 skills evoluídas + 8 novas skills autorais com Iron Laws, tabelas Red Flags, `references/`, `templates/` e `scripts/check-migration-ddl.mjs`
+  - [x] `slice27-skills-catalog-integrity.test.ts` + atualização de `skills-loader.test.ts` (`34 tests passed`)
+
+- [x] **Slice 28 — 14 Tools Especializadas por Papel & RBAC (`docs/slices/slice-28-role-workspace-tools-codebase-design-appsec.md`)** (`4b3ea02`)
+  - [x] `role-specialized-tools.ts`, `workspace-tools.ts`, `executive-copilot.ts`, `engineering-agents.ts`, `controller.ts` (`review` read-only + `ToolSearchProcessor`), `processors.ts` (`selectNonConflictingSkillsForStage`)
+  - [x] `slice28-workspace-tools-rbac.test.ts` (`49 tests passed`)
+
+- [x] **Slice 33 (Onda 2) — AppSec v2 (`docs/slices/slice-33-appsec-v2-dast-reachability-sbom-agentic-guard.md`)** (`0961fee`)
+  - [x] `dast-passive.ts` (+ Nuclei opcional), `reachability.ts` nativo, `sbom.ts` (CycloneDX 1.5 + `syft`), `scanAgenticPromptInjectionNative` (`14/14 passed`)
+
+- [x] **Slice 29 — Handoffs Imutáveis Fases 1, 2 & 2.5 (`docs/slices/slice-29-discovery-architect-ux-structured-handoffs.md`)** (`769d943`)
+  - [x] `structured-handoffs.ts` (`ShapeSpec`, `ArchitectBlueprintV2`, UX 3 estágios + `PrototypeComponentManifest`) + `agency.ts` LLM + fallback + wiring `deliverable-lifecycle.ts` (`8/8 passed`)
+
+- [x] **Slice 30 — Builder Harness (`docs/slices/slice-30-builder-harness-test-lock-micro-loop-debug.md`)** (`36fe585`)
+  - [x] `migration-safety.ts`, 3-Strikes (`stuck-detector.ts` + `runner.ts`), `Test Lock` + micro-loop allowlisted (`workspace-adapter.ts`) + wiring `deliverable-lifecycle.ts` (`28/28 passed`)
+
+- [ ] **Slice 31 — Two-Stage Verifier, Risk Briefing & Retro QMD (`docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md`)** *(Backend concluído · UI pendente na Onda 3)*
+  - [x] `two-stage-verifier.ts`, `github-pr.ts`, retro QMD, `syncOpenSpecArchive` e wiring completo em `deliverable-lifecycle.ts` (`71cad82`, `9/9 passed`)
+  - [ ] UI em `/app/decisions` (`DecisionRiskBriefingCard` em `decisions-workbench.tsx` + testes `apps/web`)
+
+- [ ] **Slice 32 — CI Evals de Trajetória & Efetividade Agêntica** *(Contratos prontos · Onda 3)*
+  - [ ] `evals/trajectory-evals.ts`, `computeAgentEffectivenessMetricsScoped` (`finops.ts`), `scripts/audit-agent-trajectories.mjs`, API `/api/finops/effectiveness` + `AgentEffectivenessPanel` em `/app/finops` + testes
+
+- [ ] **Slice 34 — QA Visual A11y, Mutation/PBT, `skills-lock.json` & Entropia** *(Contratos prontos · Onda 3)*
+  - [ ] `skills-lock.ts` (SHA-256), `mutation-pbt.ts`, `visual-a11y-verify.ts` + hook `stageVerify`, `entropy.ts`, CLI `uzina doctor --entropy`, APIs `/api/skills/catalog` e `/api/projects/[id]/entropy` + `SkillsCatalogPanel` + testes
+  - [ ] Gate Final Onda 4: `pnpm verify` completo + `audit-agent-trajectories.mjs` + auditoria consolidada + atualização dos dossiês 31/32/34 e `docs/planos/dossie-agentes-por-fase-v2.md`

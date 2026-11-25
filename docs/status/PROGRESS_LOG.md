@@ -459,3 +459,23 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm verify`: `34/34` tasks Turbo PASS (`@uzina/contracts` `203/203`, `@uzina/core` `193/193`, `@uzina/db` `39 passed | 1 skipped`, `@uzina/codebase-intel` `13/13`, `@uzina/security-engine` `19/19`, `@uzina/cli` `13/13`, `@uzina/opencode-bridge` `58/58`, `@uzina/mastra-runtime` `93/93`, `@uzina/web` `36/36` + Next.js `16.4.6` Turbopack build).
   * Revisores independentes: `test-critic` (8 ajustes incorporados), `appsec-auditor` (achados `CRITICAL`/`HIGH`/`MEDIUM`/`LOW` corrigidos e revalidados) e `factory-verifier` (**PASS**).
 * **Próximo passo:** Iniciar execução do **Slice 27** (Upgrade das 8 skills existentes + 8 novas skills autorais com Iron Laws, tabelas Anti-Racionalização e orquestração Lead → Reference → Critique).
+
+---
+
+## 2026-11-25 — Execução em Swarm (Ondas 1 & 2): Contratos 27–34 + Slices 27, 28, 29, 30, 31 (Backend) e 33 (`feat/slices-27-34-agentic-evolution-v2`)
+
+* **Entregue (Onda 0 + Onda 1 + Onda 2 — 7 commits verificados por pacote):**
+  * **Contratos Zod Consolidados (`ff08845`):** `packages/contracts/src/{role-tools,handoffs-v2,agent-evals,security-v2,governance-v2}.ts` e `tests/slices-27-34-contracts.test.ts` (`14 files, 269 tests passed`).
+  * **Slice 27 (`4cf36b1` — [dossiê](docs/slices/slice-27-skills-library-v2-iron-laws-16-skills.md)):** 16 skills autorais `Apache-2.0` em `packages/skills/` (8 evoluídas + 8 novas) com sub-recursos em `references/`, `templates/` e `scripts/check-migration-ddl.mjs`, mais `slice27-skills-catalog-integrity.test.ts` (`@uzina/core`: `2 files, 34 tests passed`).
+  * **Slice 28 (`4b3ea02` — [dossiê](docs/slices/slice-28-role-workspace-tools-codebase-design-appsec.md)):** 14 tools especializadas em `role-specialized-tools.ts`, integração RBAC/multi-tenant no `controller.ts` (`review` read-only), `ToolSearchProcessor`, `executive-copilot.ts`, `engineering-agents.ts` e `selectNonConflictingSkillsForStage` em `processors.ts` (`@uzina/mastra-runtime`: `2 files, 49 tests passed`).
+  * **Slice 33 (`0961fee` — [dossiê](docs/slices/slice-33-appsec-v2-dast-reachability-sbom-agentic-guard.md)):** AppSec v2 em `@uzina/security-engine` (`dast-passive.ts` + `nuclei` opcional, `reachability.ts` nativo sem acoplar `@uzina/codebase-intel`, `sbom.ts` CycloneDX 1.5 e `scanAgenticPromptInjectionNative`; `1 file, 14 tests passed`).
+  * **Slice 29 (`769d943` — [dossiê](docs/slices/slice-29-discovery-architect-ux-structured-handoffs.md)):** `stages/structured-handoffs.ts` (`ShapeSpec`, `ArchitectBlueprintV2`, pipeline UX 3 estágios + `PrototypeComponentManifest`) e `agency.ts` (`decideOptimalAiStrategyWithAgent` + `buildVisualPrototypeBlueprintWithAgent` com fallback offline; `8/8 passed`).
+  * **Slice 30 (`36fe585` — [dossiê](docs/slices/slice-30-builder-harness-test-lock-micro-loop-debug.md)):** `migration-safety.ts`, 3-Strikes em `stuck-detector.ts` + `runner.ts`, `Test Lock` (`lockedReadOnlyPaths`, incluindo `APPLY_PATCH`) e micro-loop allowlisted (`run_scoped_typecheck`, `run_scoped_unit_test`, `validate_migration_safety`) em `workspace-adapter.ts` (`@uzina/core` `220/220`, `@uzina/opencode-bridge` `58/58`, `slice30` `28/28`).
+  * **Slice 31 Backend/Workflow + Wiring Onda 2 (`71cad82` — [dossiê](docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md)):** `stages/two-stage-verifier.ts`, `github-pr.ts` com `DecisionRiskBriefing`, retrospectiva automática QMD, `syncOpenSpecArchive` e conexão consolidada dos Slices 29–31 em `workflows/deliverable-lifecycle.ts` (`slice31` `9/9`, `slice19` `8/8`).
+* **Verificação Real Até Este Checkpoint:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * `node scripts/audit-tests.mjs`: `91` arquivos, `322` testes, `0` violações.
+  * Builds aprovados incrementalmente para `@uzina/contracts`, `@uzina/core`, `@uzina/security-engine`, `@uzina/opencode-bridge` e `@uzina/mastra-runtime`.
+* **Ponto de Parada & Retomada (`Onda 3 + Onda 4`):**
+  * Execução pausada por limite de cota (`429 RESOURCE_EXHAUSTED`) no início da Onda 3.
+  * Restam: UI do Slice 31 em `/app/decisions`, Slice 32 completo, Slice 34 completo e o `pnpm verify` final único + auditoria consolidada. Guia passo a passo e prompt de retomada em [HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md](docs/status/HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md).
