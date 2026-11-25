@@ -10,6 +10,7 @@ export * from "./model-resolver.js";
 export * from "./processors.js";
 export * from "./memory-runtime.js";
 export * from "./background-tasks.js";
+export * from "./symbol-locks.js";
 export * from "./workspace-adapter.js";
 export * from "./tools/workspace-tools.js";
 export * from "./agents/engineering-agents.js";

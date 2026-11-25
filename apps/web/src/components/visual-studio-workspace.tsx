@@ -5,6 +5,7 @@ import type {
   AgencyChatIntent,
   AgencyChatResponse,
   AgencyOverviewResponse,
+  DesignPrototypeListResponse,
   ProjectListResponse,
 } from "@uzina/contracts";
 import {
@@ -49,6 +50,9 @@ export function VisualStudioWorkspace() {
   const [studioTab, setStudioTab] = useState<StudioTopTab>("live_preview");
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [selectedPrototypeId, setSelectedPrototypeId] = useState<string | null>(
+    null
+  );
   const [revisionText, setRevisionText] = useState("");
   const [actionBanner, setActionBanner] = useState<string | null>(null);
 
@@ -81,6 +85,29 @@ export function VisualStudioWorkspace() {
         )}&projectId=${encodeURIComponent(activeProject?.id ?? "")}`
       ),
   });
+
+  const prototypesQuery = useQuery({
+    queryKey: ["prototypes", activeProject?.id ?? "none"],
+    enabled: Boolean(activeProject?.id),
+    queryFn: () =>
+      fetchJson<DesignPrototypeListResponse>(
+        `/api/projects/${activeProject?.id}/prototypes`
+      ),
+  });
+
+  const prototypeVersions = useMemo(() => {
+    const raw = prototypesQuery.data?.items ?? [];
+    return [...raw].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [prototypesQuery.data?.items]);
+
+  const activePrototype = useMemo(() => {
+    if (prototypeVersions.length === 0) return null;
+    if (selectedPrototypeId) {
+      const match = prototypeVersions.find((p) => p.id === selectedPrototypeId);
+      if (match) return match;
+    }
+    return prototypeVersions[prototypeVersions.length - 1] ?? null;
+  }, [prototypeVersions, selectedPrototypeId]);
 
   const studioMutation = useMutation({
     mutationFn: async (payload: {
@@ -123,6 +150,7 @@ export function VisualStudioWorkspace() {
         queryClient.invalidateQueries({ queryKey: ["agency-status"] }),
         queryClient.invalidateQueries({ queryKey: ["deliverables"] }),
         queryClient.invalidateQueries({ queryKey: ["design-assets"] }),
+        queryClient.invalidateQueries({ queryKey: ["prototypes"] }),
       ]);
     },
   });
@@ -377,7 +405,8 @@ export function VisualStudioWorkspace() {
                 <span className="inline-flex items-center gap-2 font-medium text-fg-primary">
                   <Eye className="size-4 text-fg-secondary" />
                   <span>
-                    {visualFlow?.latestPrototypeTitle ??
+                    {activePrototype?.title ??
+                      visualFlow?.latestPrototypeTitle ??
                       `Protótipo Visual — ${activeProject.name}`}
                   </span>
                 </span>
@@ -387,20 +416,74 @@ export function VisualStudioWorkspace() {
                 >
                   <span
                     className={`size-2 rounded-full ${
+                      activePrototype?.approved ||
                       visualFlow?.approvedForCodeHandoff
                         ? "bg-status-ok"
                         : "bg-status-warn"
                     }`}
                   />
                   <span>
-                    {visualFlow?.approvedForCodeHandoff
+                    {activePrototype?.approved ||
+                    visualFlow?.approvedForCodeHandoff
                       ? "Fluxo Visual Aprovado p/ Código"
                       : "Aguardando Aprovação Visual"}
                   </span>
                 </span>
               </div>
 
-              {visualFlow?.previewUrl ? (
+              {prototypeVersions.length > 0 && (
+                <div
+                  data-testid="studio-version-selector"
+                  className="mb-3 flex w-full flex-wrap items-center gap-1.5"
+                >
+                  <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
+                    Versões:
+                  </span>
+                  {prototypeVersions.map((proto, idx) => {
+                    const isSelected = activePrototype?.id === proto.id;
+                    const versionLabel = `v${idx + 1}`;
+                    return (
+                      <button
+                        key={proto.id}
+                        type="button"
+                        data-testid={`studio-version-${versionLabel}`}
+                        onClick={() => setSelectedPrototypeId(proto.id)}
+                        className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium tabular-nums transition-colors ${
+                          isSelected
+                            ? "border-accent bg-accent-subtle text-accent"
+                            : "border-border-subtle bg-surface text-fg-secondary hover:border-border-default"
+                        }`}
+                      >
+                        <span className="font-mono">{versionLabel}</span>
+                        <span className="text-fg-muted">
+                          {new Date(proto.createdAt).toLocaleTimeString(
+                            "pt-BR",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}
+                        </span>
+                        {proto.approved && (
+                          <span className="rounded bg-status-ok/15 px-1 text-[10px] text-status-ok">
+                            Homologado
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {(() => {
+                const rawPreviewUrl =
+                  activePrototype?.previewUrl ?? visualFlow?.previewUrl ?? "";
+                const safePreviewUrl =
+                  rawPreviewUrl.startsWith("/api/prototypes/") ||
+                  rawPreviewUrl.startsWith("https://")
+                    ? rawPreviewUrl
+                    : null;
+                return safePreviewUrl ? (
                 <div
                   data-testid="visual-prototype-frame"
                   style={{ width: iframeFrameWidth, maxWidth: "100%" }}
@@ -409,7 +492,7 @@ export function VisualStudioWorkspace() {
                   <iframe
                     title="Preview em Tela Ampla do Protótipo Visual"
                     data-testid="visual-prototype-iframe"
-                    src={visualFlow.previewUrl}
+                    src={safePreviewUrl}
                     sandbox=""
                     className="block h-[520px] w-full border-0 bg-canvas lg:h-[calc(100vh-18rem)]"
                   />
@@ -440,7 +523,8 @@ export function VisualStudioWorkspace() {
                     <span>Gerar Protótipo Inicial</span>
                   </button>
                 </div>
-              )}
+              );
+              })()}
             </div>
 
             {/* Fluxo de Telas Planejado (Legível em 14px) */}

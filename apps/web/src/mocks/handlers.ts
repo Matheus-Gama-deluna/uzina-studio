@@ -11,6 +11,8 @@ import {
   ApiErrorSchema,
   BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
+  CleanupProjectWorktreesRequestSchema,
+  CleanupProjectWorktreesResponseSchema,
   ClientListResponseSchema,
   ClientSchema,
   CodebaseReindexRequestSchema,
@@ -44,6 +46,7 @@ import {
   ProjectListResponseSchema,
   ProjectSchema,
   ProjectStageAutomationSchema,
+  ProjectWorktreeListResponseSchema,
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
   ProvenanceListResponseSchema,
@@ -81,10 +84,12 @@ import { generateDesignMdContract } from "@uzina/core/design-md";
 import { http, HttpResponse } from "msw";
 import {
   MOCK_DECISION_ID,
+  MOCK_DELIVERABLE_ID,
   MOCK_FINDING_ID,
   MOCK_MEMORY_ID,
   MOCK_ORG_ID,
   MOCK_PROJECT_ID,
+  MOCK_REPO_ID,
   MOCK_SCAN_ID,
   mockAgencyChatResponse,
   mockAgencyOverviewResponse,
@@ -286,6 +291,79 @@ export const handlers = [
       BackgroundTaskListResponseSchema.parse({
         projectId: id,
         items: mockBackgroundTasksResponse.items,
+      })
+    );
+  }),
+
+  http.get("*/api/projects/:id/worktrees", ({ params, request }) => {
+    const err = checkSimulatedState(new URL(request.url));
+    if (err) return err;
+    const id = String(params.id ?? "");
+    if (!mockProjects.items.some((p) => p.id === id)) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Projeto não encontrado", code: "NOT_FOUND" }),
+        { status: 404 }
+      );
+    }
+    return HttpResponse.json(
+      ProjectWorktreeListResponseSchema.parse({
+        projectId: id,
+        orphanCount: 1,
+        items: [
+          {
+            repositoryId: MOCK_REPO_ID,
+            repositoryName: "uzina-studio",
+            worktreePath: "/workspaces/uzina-studio",
+            branchName: "main",
+            headSha: "1234567890abcdef",
+            isMain: true,
+            isBare: false,
+            isOrphan: false,
+            hasActiveTask: false,
+            deliverableId: null,
+            deliverableTitle: null,
+            deliverableStatus: null,
+            canMerge: false,
+          },
+          {
+            repositoryId: MOCK_REPO_ID,
+            repositoryName: "uzina-studio",
+            worktreePath: "/workspaces/uzina-studio/.worktrees/task-01",
+            branchName: "uzina/slice-01",
+            headSha: "abcdef1234567890",
+            isMain: false,
+            isBare: false,
+            isOrphan: true,
+            hasActiveTask: false,
+            deliverableId: MOCK_DELIVERABLE_ID,
+            deliverableTitle: mockDeliverables.items[0]?.title ?? "Slice 01",
+            deliverableStatus: "merged",
+            canMerge: false,
+          },
+        ],
+      })
+    );
+  }),
+
+  http.delete("*/api/projects/:id/worktrees", async ({ params, request }) => {
+    const id = String(params.id ?? "");
+    const parsed = CleanupProjectWorktreesRequestSchema.safeParse(
+      await request.json().catch(() => ({ pruneAllOrphans: true }))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      CleanupProjectWorktreesResponseSchema.parse({
+        projectId: id,
+        removedPaths: parsed.data.worktreePath
+          ? [parsed.data.worktreePath]
+          : ["/workspaces/uzina-studio/.worktrees/task-01"],
+        skippedActivePaths: [],
+        message: "1 worktree(s) removido(s) com segurança.",
       })
     );
   }),

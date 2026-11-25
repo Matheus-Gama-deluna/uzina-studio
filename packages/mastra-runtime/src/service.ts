@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { Mastra } from "@mastra/core";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import {
@@ -8,11 +10,14 @@ import {
 import {
   AutonomousCycleResponseSchema,
   CleanupDeliverableWorktreeResponseSchema,
+  CleanupProjectWorktreesRequestSchema,
+  CleanupProjectWorktreesResponseSchema,
   DecisionSchema,
   DeliverableStatusSchema,
   DeliverableWorkflowStateSchema,
   EvidencePackSchema,
   MergeDeliverableBranchResponseSchema,
+  ProjectWorktreeListResponseSchema,
   ResolveDecisionSchema,
   StrategyRouterOutputSchema,
   WorkflowGateTypeSchema,
@@ -21,12 +26,16 @@ import {
   type AutonomousCycleResponse,
   type BackgroundTaskSummary,
   type CleanupDeliverableWorktreeResponse,
+  type CleanupProjectWorktreesRequest,
+  type CleanupProjectWorktreesResponse,
   type Decision,
   type DeliverableStatus,
   type DeliverableWorkflowState,
   type DeliverableWorkflowStatus,
   type MergeDeliverableBranchResponse,
   type OrgRole,
+  type ProjectWorktreeItem,
+  type ProjectWorktreeListResponse,
   type ResolveDecisionInput,
   type ResolveDecisionResponse,
   type StrategyRouterOutput,
@@ -50,6 +59,8 @@ import {
 } from "@uzina/db";
 import {
   LocalGitWorktreeWorkspace,
+  listProjectWorktrees,
+  removeWorktreeByPathSafe,
   type ExecutionWorkspace,
   type OpenCodeTransport,
 } from "@uzina/opencode-bridge";
@@ -61,6 +72,10 @@ import { BackgroundTasksRegistry } from "./background-tasks.js";
 import { destroyAgentController } from "./controller.js";
 import { recordExecutionEvent } from "./event-bus.js";
 import { getProjectAccumulatedCostUsd } from "./finops.js";
+import {
+  SymbolLockManager,
+  resolveDeliverableTargetSymbols,
+} from "./symbol-locks.js";
 import {
   closeMastraStorage,
   getMastraStorageSingleton,
@@ -93,6 +108,7 @@ export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
 export interface MastraWorkflowService {
   mastra: Mastra;
   backgroundTasks: BackgroundTasksRegistry;
+  symbolLockManager: SymbolLockManager;
   getWorkflowState(params: {
     deliverableId: string;
     organizationId: string;
@@ -144,6 +160,15 @@ export interface MastraWorkflowService {
     deliverableId: string;
     organizationId: string;
   }): Promise<CleanupDeliverableWorktreeResponse>;
+  listProjectWorktrees(params: {
+    projectId: string;
+    organizationId: string;
+  }): Promise<ProjectWorktreeListResponse>;
+  cleanupProjectWorktrees(params: {
+    projectId: string;
+    organizationId: string;
+    input: CleanupProjectWorktreesRequest;
+  }): Promise<CleanupProjectWorktreesResponse>;
   close(): Promise<void>;
 }
 
@@ -448,7 +473,16 @@ export async function createMastraRuntime(
   };
 
   const backgroundTasks = new BackgroundTasksRegistry();
+  const symbolLockManager = new SymbolLockManager();
   const activeRunAborters = new Map<string, AbortController>();
+
+  const normalizeWorktreePathForMatch = (p: string): string => {
+    const resolved = fs.existsSync(p)
+      ? fs.realpathSync.native(p).replace(/^\\\\\?\\/, "")
+      : path.resolve(p);
+    const unixified = resolved.replace(/\\/g, "/");
+    return process.platform === "win32" ? unixified.toLowerCase() : unixified;
+  };
 
   const validateAndApplyBudgetCapOnResume = async (params: {
     projectId: string;
@@ -557,6 +591,7 @@ export async function createMastraRuntime(
   const service: MastraWorkflowService = {
     mastra,
     backgroundTasks,
+    symbolLockManager,
 
     async getWorkflowState({ deliverableId, organizationId }) {
       return buildWorkflowState(deliverableId, organizationId);
@@ -1296,22 +1331,61 @@ export async function createMastraRuntime(
         summary: `Ciclo autônomo em execução para '${eligible.title}'`,
         mastraRunId: eligible.mastraRunId ?? null,
         work: async ({ signal, updateTask }) => {
-          const state = await service.startDeliverableWorkflow({
+          const targetSymbols = await resolveDeliverableTargetSymbols(
+            options.db,
+            {
+              projectId,
+              title: eligible.title,
+              description: eligible.description,
+              specMarkdown: eligible.specMarkdown,
+            }
+          );
+
+          const lockResult = await symbolLockManager.acquireOrWait({
+            projectId,
             deliverableId: eligible.id,
-            organizationId,
-            input: {},
+            symbols: targetSymbols,
             signal,
+            onWaiting: (conflictingSymbols) => {
+              updateTask({
+                status: "queued_waiting_lock",
+                summary: `Aguardando Lock AST em: ${conflictingSymbols.slice(0, 3).join(", ")}`,
+              });
+            },
           });
+
+          if (!lockResult.acquired) {
+            return;
+          }
+
           updateTask({
-            mastraRunId: state.runId,
-            status:
-              state.workflowStatus === "suspended"
-                ? "suspended"
-                : state.workflowStatus === "failed"
-                  ? "failed"
-                  : "completed",
-            summary: `${eligible.title}: ${state.deliverableStatus} (${state.workflowStatus})`,
+            status: "running",
+            summary: `Ciclo autônomo em execução para '${eligible.title}'`,
           });
+
+          try {
+            const state = await service.startDeliverableWorkflow({
+              deliverableId: eligible.id,
+              organizationId,
+              input: {},
+              signal,
+            });
+            updateTask({
+              mastraRunId: state.runId,
+              status:
+                state.workflowStatus === "suspended"
+                  ? "suspended"
+                  : state.workflowStatus === "failed"
+                    ? "failed"
+                    : "completed",
+              summary: `${eligible.title}: ${state.deliverableStatus} (${state.workflowStatus})`,
+            });
+          } finally {
+            symbolLockManager.release({
+              projectId,
+              deliverableId: eligible.id,
+            });
+          }
         },
       });
 
@@ -1449,7 +1523,9 @@ export async function createMastraRuntime(
       const activeForDeliverable = projTasks.some(
         (t) =>
           t.deliverableId === row.id &&
-          (t.status === "running" || t.status === "queued")
+          (t.status === "running" ||
+            t.status === "queued" ||
+            t.status === "queued_waiting_lock")
       );
       if (activeForDeliverable || activeRunAborters.has(row.id)) {
         throw new WorkflowRuntimeError({
@@ -1510,8 +1586,207 @@ export async function createMastraRuntime(
       });
     },
 
+    async listProjectWorktrees({ projectId, organizationId }) {
+      const [scopedProject] = await options.db
+        .select({ id: projects.id })
+        .from(projects)
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(
+          and(
+            eq(projects.id, projectId),
+            eq(clients.organizationId, organizationId)
+          )
+        )
+        .limit(1);
+
+      if (!scopedProject) {
+        throw new WorkflowRuntimeError({
+          statusCode: 404,
+          code: "DELIVERABLE_NOT_FOUND",
+          message: `Projeto '${projectId}' não encontrado na organização.`,
+        });
+      }
+
+      const [repos, projectDelivs, projTasks] = await Promise.all([
+        options.db
+          .select()
+          .from(projectRepositories)
+          .where(eq(projectRepositories.projectId, projectId)),
+        options.db
+          .select()
+          .from(deliverables)
+          .where(eq(deliverables.projectId, projectId)),
+        backgroundTasks.listForProject(options.db, {
+          organizationId,
+          projectId,
+        }),
+      ]);
+
+      const activeDeliverableIds = new Set(
+        projTasks
+          .filter(
+            (t) =>
+              t.deliverableId &&
+              (t.status === "running" ||
+                t.status === "queued" ||
+                t.status === "queued_waiting_lock")
+          )
+          .map((t) => t.deliverableId!)
+      );
+      for (const delivId of activeRunAborters.keys()) {
+        activeDeliverableIds.add(delivId);
+      }
+
+      const items: ProjectWorktreeItem[] = [];
+      for (const repo of repos) {
+        const entries = await listProjectWorktrees(repo.localPath);
+        for (const entry of entries) {
+          const entryNorm = normalizeWorktreePathForMatch(entry.worktreePath);
+          const matchedDeliv =
+            projectDelivs.find(
+              (d) =>
+                (d.worktreePath &&
+                  normalizeWorktreePathForMatch(d.worktreePath) ===
+                    entryNorm) ||
+                (!entry.isMain &&
+                  entry.branchName &&
+                  d.branchName === entry.branchName)
+            ) ?? null;
+
+          const hasActiveTask = matchedDeliv
+            ? activeDeliverableIds.has(matchedDeliv.id)
+            : false;
+          const isOrphan =
+            !entry.isMain &&
+            !hasActiveTask &&
+            (!matchedDeliv ||
+              matchedDeliv.status === "merged" ||
+              matchedDeliv.status === "failed" ||
+              matchedDeliv.status === "approved");
+          const canMerge = Boolean(
+            !entry.isMain &&
+              matchedDeliv &&
+              entry.branchName &&
+              matchedDeliv.branchName &&
+              matchedDeliv.status === "approved"
+          );
+
+          items.push({
+            repositoryId: repo.id,
+            repositoryName: repo.name,
+            worktreePath: entry.worktreePath,
+            branchName: entry.branchName,
+            headSha: entry.headSha,
+            isMain: entry.isMain,
+            isBare: entry.isBare,
+            isOrphan,
+            hasActiveTask,
+            deliverableId: matchedDeliv?.id ?? null,
+            deliverableTitle: matchedDeliv?.title ?? null,
+            deliverableStatus: matchedDeliv?.status ?? null,
+            canMerge,
+          });
+        }
+      }
+
+      const orphanCount = items.filter((item) => item.isOrphan).length;
+      return ProjectWorktreeListResponseSchema.parse({
+        projectId,
+        items,
+        orphanCount,
+      });
+    },
+
+    async cleanupProjectWorktrees({ projectId, organizationId, input }) {
+      const parsed = CleanupProjectWorktreesRequestSchema.parse(input);
+      const listed = await service.listProjectWorktrees({
+        projectId,
+        organizationId,
+      });
+
+      const repos = await options.db
+        .select()
+        .from(projectRepositories)
+        .where(eq(projectRepositories.projectId, projectId));
+      const repoById = new Map(repos.map((r) => [r.id, r]));
+
+      const removedPaths: string[] = [];
+      const skippedActivePaths: string[] = [];
+
+      const removeOne = async (item: ProjectWorktreeItem) => {
+        const repo = repoById.get(item.repositoryId);
+        if (!repo) return;
+        await removeWorktreeByPathSafe({
+          repoPath: repo.localPath,
+          worktreePath: item.worktreePath,
+          deleteBranch:
+            Boolean(item.branchName) &&
+            item.deliverableStatus !== "approved",
+          branchName: item.branchName,
+        });
+        removedPaths.push(item.worktreePath);
+        if (item.deliverableId) {
+          await options.db
+            .update(deliverables)
+            .set({ worktreePath: null, updatedAt: new Date() })
+            .where(
+              and(
+                eq(deliverables.id, item.deliverableId),
+                eq(deliverables.projectId, projectId)
+              )
+            );
+        }
+      };
+
+      if (parsed.worktreePath) {
+        const targetNorm = normalizeWorktreePathForMatch(parsed.worktreePath);
+        const target = listed.items.find(
+          (i) => normalizeWorktreePathForMatch(i.worktreePath) === targetNorm
+        );
+        if (!target) {
+          throw new WorkflowRuntimeError({
+            statusCode: 404,
+            code: "DELIVERABLE_NOT_FOUND",
+            message: `Worktree '${parsed.worktreePath}' não encontrado no projeto.`,
+          });
+        }
+        if (target.isMain || target.hasActiveTask) {
+          throw new WorkflowRuntimeError({
+            statusCode: 409,
+            code: "WORKFLOW_ALREADY_RUNNING",
+            message: target.isMain
+              ? "Não é permitido remover a worktree principal do repositório."
+              : "Não é possível remover worktree vinculado a uma execução ativa.",
+          });
+        }
+        await removeOne(target);
+      } else if (parsed.pruneAllOrphans) {
+        for (const item of listed.items) {
+          if (item.isMain) continue;
+          if (item.hasActiveTask) {
+            skippedActivePaths.push(item.worktreePath);
+            continue;
+          }
+          if (item.isOrphan) {
+            await removeOne(item);
+          }
+        }
+      }
+
+      return CleanupProjectWorktreesResponseSchema.parse({
+        projectId,
+        removedPaths,
+        skippedActivePaths,
+        message:
+          removedPaths.length > 0
+            ? `${removedPaths.length} worktree(s) removido(s) com segurança.`
+            : "Nenhum worktree órfão elegível para limpeza.",
+      });
+    },
+
     async close() {
       await backgroundTasks.drainAll();
+      symbolLockManager.clearAll();
       await destroyAgentController();
       await mastra.shutdown();
       await closeMastraStorage();

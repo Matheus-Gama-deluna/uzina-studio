@@ -97,14 +97,23 @@ export class BackgroundTasksRegistry {
           updateTask,
         });
         const entry = this.tasks.get(taskId);
-        if (entry && entry.summary.status === "running") {
+        if (
+          entry &&
+          (entry.summary.status === "running" ||
+            (entry.summary.status === "queued_waiting_lock" &&
+              abortController.signal.aborted))
+        ) {
           updateTask({
             status: abortController.signal.aborted ? "aborted" : "completed",
           });
         }
       } catch (err) {
         const entry = this.tasks.get(taskId);
-        if (entry && entry.summary.status === "running") {
+        if (
+          entry &&
+          (entry.summary.status === "running" ||
+            entry.summary.status === "queued_waiting_lock")
+        ) {
           updateTask({
             status: abortController.signal.aborted ? "aborted" : "failed",
             summary:
@@ -133,7 +142,8 @@ export class BackgroundTasksRegistry {
       if (
         item.summary.organizationId === organizationId &&
         item.summary.deliverableId === deliverableId &&
-        item.summary.status === "running"
+        (item.summary.status === "running" ||
+          item.summary.status === "queued_waiting_lock")
       ) {
         return item.abortController.signal;
       }
@@ -151,7 +161,9 @@ export class BackgroundTasksRegistry {
       if (
         item.summary.organizationId === organizationId &&
         item.summary.deliverableId === deliverableId &&
-        (item.summary.status === "running" || item.summary.status === "queued")
+        (item.summary.status === "running" ||
+          item.summary.status === "queued" ||
+          item.summary.status === "queued_waiting_lock")
       ) {
         item.abortController.abort(reason);
         item.summary = {
@@ -253,7 +265,8 @@ export class BackgroundTasksRegistry {
     for (const item of active) {
       if (
         item.summary.status === "running" ||
-        item.summary.status === "queued"
+        item.summary.status === "queued" ||
+        item.summary.status === "queued_waiting_lock"
       ) {
         item.abortController.abort("RUNTIME_SHUTDOWN");
       }

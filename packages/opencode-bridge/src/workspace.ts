@@ -859,3 +859,175 @@ export function syncSkillsToWorktree(
   }
   return writtenPaths;
 }
+
+export interface GitWorktreeEntry {
+  worktreePath: string;
+  headSha: string | null;
+  branchName: string | null;
+  isMain: boolean;
+  isBare: boolean;
+  isPrunable: boolean;
+}
+
+export async function listProjectWorktrees(
+  repoPath: string
+): Promise<GitWorktreeEntry[]> {
+  const absRepo = path.resolve(repoPath);
+  if (!fs.existsSync(absRepo)) {
+    return [];
+  }
+
+  try {
+    const check = await runGit(absRepo, ["rev-parse", "--is-inside-work-tree"]);
+    if (check.stdout.trim() !== "true") {
+      return [];
+    }
+    const { stdout } = await runGit(absRepo, [
+      "worktree",
+      "list",
+      "--porcelain",
+    ]);
+    const mainNorm = normalizeGitPathForCompare(absRepo);
+    const blocks = stdout
+      .split(/\r?\n\r?\n/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+
+    const entries: GitWorktreeEntry[] = [];
+    for (let i = 0; i < blocks.length; i += 1) {
+      const block = blocks[i]!;
+      let worktreePath = "";
+      let headSha: string | null = null;
+      let branchName: string | null = null;
+      let isBare = false;
+      let isPrunable = false;
+
+      for (const rawLine of block.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (line.startsWith("worktree ")) {
+          worktreePath = path.resolve(line.slice("worktree ".length).trim());
+        } else if (line.startsWith("HEAD ")) {
+          headSha = line.slice("HEAD ".length).trim() || null;
+        } else if (line.startsWith("branch ")) {
+          const ref = line.slice("branch ".length).trim();
+          branchName = ref.replace(/^refs\/heads\//, "") || null;
+        } else if (line === "bare") {
+          isBare = true;
+        } else if (line.startsWith("prunable")) {
+          isPrunable = true;
+        }
+      }
+
+      if (!worktreePath) continue;
+      const entryNorm = normalizeGitPathForCompare(worktreePath);
+      const isMain = i === 0 || entryNorm === mainNorm;
+      entries.push({
+        worktreePath,
+        headSha,
+        branchName,
+        isMain,
+        isBare,
+        isPrunable,
+      });
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+export async function removeWorktreeByPathSafe(params: {
+  repoPath: string;
+  worktreePath: string;
+  deleteBranch?: boolean;
+  branchName?: string | null;
+}): Promise<void> {
+  const absRepo = path.resolve(params.repoPath);
+  if (!fs.existsSync(absRepo)) {
+    throw new WorktreeError(`Repositório não encontrado: ${absRepo}`);
+  }
+
+  const trimmedTarget = params.worktreePath.trim();
+  if (!trimmedTarget || trimmedTarget.includes("\0")) {
+    throw new WorktreeError("Caminho de worktree inválido.");
+  }
+
+  const absTarget = path.resolve(trimmedTarget);
+  if (fs.existsSync(absTarget) && fs.lstatSync(absTarget).isSymbolicLink()) {
+    throw new WorktreeError(
+      `Remoção de symlink externo não é permitida em removeWorktreeByPathSafe: '${absTarget}'.`
+    );
+  }
+
+  const mainNorm = normalizeGitPathForCompare(absRepo);
+  const targetNorm = normalizeGitPathForCompare(absTarget);
+
+  if (targetNorm === mainNorm) {
+    throw new WorktreeError(
+      "Não é permitido remover a worktree principal do repositório."
+    );
+  }
+
+  const entries = await listProjectWorktrees(absRepo);
+  const matched = entries.find(
+    (e) => normalizeGitPathForCompare(e.worktreePath) === targetNorm
+  );
+  if (matched?.isMain) {
+    throw new WorktreeError(
+      "Não é permitido remover a worktree principal do repositório."
+    );
+  }
+
+  // Contenção estrita: deve pertencer à lista oficial do repositório OU estar dentro de <repo>/.worktrees/
+  if (!matched) {
+    const worktreesRoot = path.join(absRepo, ".worktrees");
+    if (!fs.existsSync(worktreesRoot)) {
+      throw new WorktreeError(
+        `Worktree '${absTarget}' não pertence ao repositório '${absRepo}'.`
+      );
+    }
+    try {
+      assertPathInsideWorkspace(worktreesRoot, absTarget, { allowRoot: false });
+    } catch (err) {
+      throw new WorktreeError(
+        err instanceof Error
+          ? err.message
+          : `Caminho fora do diretório de worktrees: '${absTarget}'.`,
+        err
+      );
+    }
+  }
+
+  const canonicalRemovalTarget = matched
+    ? path.resolve(matched.worktreePath)
+    : absTarget;
+
+  await runGit(absRepo, [
+    "worktree",
+    "remove",
+    "--force",
+    canonicalRemovalTarget,
+  ]).catch(() => undefined);
+  await runGit(absRepo, ["worktree", "prune"]).catch(() => undefined);
+
+  if (fs.existsSync(canonicalRemovalTarget)) {
+    fs.rmSync(canonicalRemovalTarget, {
+      recursive: true,
+      force: true,
+      maxRetries: 4,
+      retryDelay: 120,
+    });
+  }
+
+  const resolvedBranch = params.branchName ?? matched?.branchName ?? null;
+  if (
+    params.deleteBranch &&
+    resolvedBranch &&
+    resolvedBranch.startsWith("uzina/")
+  ) {
+    assertSafeGitRef(resolvedBranch, "branchName");
+    await runGit(absRepo, ["branch", "-D", "--", resolvedBranch]).catch(
+      () => undefined
+    );
+  }
+}

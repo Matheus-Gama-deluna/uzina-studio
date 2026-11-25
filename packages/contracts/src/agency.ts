@@ -417,6 +417,7 @@ export type BackgroundTaskKind = z.infer<typeof BackgroundTaskKindSchema>;
 
 export const BackgroundTaskStatusSchema = z.enum([
   "queued",
+  "queued_waiting_lock",
   "running",
   "suspended",
   "completed",
@@ -424,6 +425,58 @@ export const BackgroundTaskStatusSchema = z.enum([
   "aborted",
 ]);
 export type BackgroundTaskStatus = z.infer<typeof BackgroundTaskStatusSchema>;
+
+export const ProjectWorktreeItemSchema = z
+  .object({
+    repositoryId: z.uuid(),
+    repositoryName: z.string().min(1).max(200),
+    worktreePath: z.string().min(1).max(1024),
+    branchName: z.string().nullable(),
+    headSha: z.string().nullable(),
+    isMain: z.boolean(),
+    isBare: z.boolean().default(false),
+    isOrphan: z.boolean(),
+    hasActiveTask: z.boolean(),
+    deliverableId: z.uuid().nullable(),
+    deliverableTitle: z.string().nullable(),
+    deliverableStatus: z.string().nullable(),
+    canMerge: z.boolean(),
+  })
+  .strict();
+export type ProjectWorktreeItem = z.infer<typeof ProjectWorktreeItemSchema>;
+
+export const ProjectWorktreeListResponseSchema = z
+  .object({
+    projectId: z.uuid(),
+    items: z.array(ProjectWorktreeItemSchema),
+    orphanCount: z.number().int().min(0),
+  })
+  .strict();
+export type ProjectWorktreeListResponse = z.infer<
+  typeof ProjectWorktreeListResponseSchema
+>;
+
+export const CleanupProjectWorktreesRequestSchema = z
+  .object({
+    worktreePath: z.string().min(1).max(1024).optional(),
+    pruneAllOrphans: z.boolean().default(false),
+  })
+  .strict();
+export type CleanupProjectWorktreesRequest = z.infer<
+  typeof CleanupProjectWorktreesRequestSchema
+>;
+
+export const CleanupProjectWorktreesResponseSchema = z
+  .object({
+    projectId: z.uuid(),
+    removedPaths: z.array(z.string()),
+    skippedActivePaths: z.array(z.string()),
+    message: z.string(),
+  })
+  .strict();
+export type CleanupProjectWorktreesResponse = z.infer<
+  typeof CleanupProjectWorktreesResponseSchema
+>;
 
 export const BackgroundTaskSummarySchema = z
   .object({

@@ -10,6 +10,7 @@ import type {
   AutonomousCycleResponse,
   BackgroundTaskListResponse,
   CleanupDeliverableWorktreeResponse,
+  CleanupProjectWorktreesResponse,
   Deliverable,
   DeliverableListResponse,
   DeliverableStatus,
@@ -17,6 +18,7 @@ import type {
   ProjectFinalizePolicy,
   ProjectListResponse,
   ProjectStageAutomation,
+  ProjectWorktreeListResponse,
   RiskLevel,
   UpdateProjectStageAutomation,
 } from "@uzina/contracts";
@@ -25,6 +27,7 @@ import {
   Activity,
   ArrowRight,
   FileText,
+  GitBranch,
   Kanban,
   Layers,
   List,
@@ -36,6 +39,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -169,10 +173,22 @@ export function DeliverablesDocsHub() {
       ),
     refetchInterval: (query) =>
       query.state.data?.items.some(
-        (t) => t.status === "running" || t.status === "queued"
+        (t) =>
+          t.status === "running" ||
+          t.status === "queued" ||
+          t.status === "queued_waiting_lock"
       )
         ? 4000
         : false,
+  });
+
+  const projectWorktreesQuery = useQuery({
+    queryKey: ["project-worktrees", activeProject?.id ?? "none"],
+    enabled: Boolean(activeProject?.id),
+    queryFn: () =>
+      fetchJson<ProjectWorktreeListResponse>(
+        `/api/projects/${activeProject?.id}/worktrees`
+      ),
   });
 
   const agencyQuery = useQuery({
@@ -345,9 +361,50 @@ export function DeliverablesDocsHub() {
     onSuccess: async (data) => {
       setActionErrMsg(null);
       setBannerMsg(data.message);
-      await queryClient.invalidateQueries({
-        queryKey: ["deliverables", activeProject?.id ?? "none"],
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["project-worktrees", activeProject?.id ?? "none"],
+        }),
+      ]);
+    },
+    onError: (err: Error) => {
+      setActionErrMsg(err.message);
+    },
+  });
+
+  const pruneWorktreesMutation = useMutation({
+    mutationFn: async (payload: {
+      worktreePath?: string;
+      pruneAllOrphans?: boolean;
+    }) => {
+      if (!activeProject) throw new Error("Nenhum projeto ativo.");
+      const res = await fetch(`/api/projects/${activeProject.id}/worktrees`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? "Falha ao limpar worktrees.");
+      }
+      return (await res.json()) as CleanupProjectWorktreesResponse;
+    },
+    onSuccess: async (data) => {
+      setActionErrMsg(null);
+      setBannerMsg(data.message);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["project-worktrees", activeProject?.id ?? "none"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["deliverables", activeProject?.id ?? "none"],
+        }),
+      ]);
     },
     onError: (err: Error) => {
       setActionErrMsg(err.message);
@@ -664,7 +721,10 @@ export function DeliverablesDocsHub() {
               disabled={
                 autonomousCycleMutation.isPending ||
                 (backgroundTasksQuery.data?.items ?? []).some(
-                  (t) => t.status === "running" || t.status === "queued"
+                  (t) =>
+                    t.status === "running" ||
+                    t.status === "queued" ||
+                    t.status === "queued_waiting_lock"
                 )
               }
               onClick={() => autonomousCycleMutation.mutate()}
@@ -693,10 +753,20 @@ export function DeliverablesDocsHub() {
                 Tarefas em 2º plano:{" "}
                 {
                   (backgroundTasksQuery.data?.items ?? []).filter(
-                    (t) => t.status === "running" || t.status === "queued"
+                    (t) =>
+                      t.status === "running" ||
+                      t.status === "queued" ||
+                      t.status === "queued_waiting_lock"
                   ).length
                 }{" "}
                 ativas / {(backgroundTasksQuery.data?.items ?? []).length} total
+                {(backgroundTasksQuery.data?.items ?? []).some(
+                  (t) => t.status === "queued_waiting_lock"
+                ) && (
+                  <span className="ml-2 rounded border border-status-warn/40 bg-status-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-status-warn">
+                    Aguardando Lock AST
+                  </span>
+                )}
               </span>
             </span>
             <span className="text-fg-muted">
@@ -1534,6 +1604,131 @@ export function DeliverablesDocsHub() {
                 )}
               </div>
         </div>
+      )}
+
+      {mainTab === "slices" && (
+        <section
+          data-testid="worktrees-governance-panel"
+          className="w-full space-y-3 rounded-xl border border-border-subtle bg-surface p-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <GitBranch className="size-4 shrink-0 text-accent" />
+              <h2 className="text-sm font-semibold text-fg-primary">
+                Worktrees &amp; Branches
+              </h2>
+              <span className="rounded border border-border-subtle bg-inset px-2 py-0.5 font-mono text-xs text-fg-secondary tabular-nums">
+                {projectWorktreesQuery.data?.items.length ?? 0} total ·{" "}
+                {projectWorktreesQuery.data?.orphanCount ?? 0} órfão(s)
+              </span>
+            </div>
+            <button
+              type="button"
+              data-testid="btn-prune-orphan-worktrees"
+              disabled={
+                pruneWorktreesMutation.isPending ||
+                (projectWorktreesQuery.data?.orphanCount ?? 0) === 0
+              }
+              onClick={() =>
+                pruneWorktreesMutation.mutate({ pruneAllOrphans: true })
+              }
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-default bg-inset px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+            >
+              {pruneWorktreesMutation.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="size-3.5 text-fg-muted" />
+              )}
+              <span>Limpar órfãos (GC)</span>
+            </button>
+          </div>
+
+          {projectWorktreesQuery.isLoading ? (
+            <p className="text-xs text-fg-muted">
+              Inspecionando worktrees Git do projeto...
+            </p>
+          ) : (projectWorktreesQuery.data?.items ?? []).length === 0 ? (
+            <p className="text-xs text-fg-muted">
+              Nenhum worktree Git encontrado ou repositório local não vinculado.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {(projectWorktreesQuery.data?.items ?? []).map((wt) => (
+                <li
+                  key={`${wt.repositoryId}-${wt.worktreePath}`}
+                  data-testid="worktree-governance-item"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle bg-inset px-3 py-2 text-xs"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono font-medium text-fg-primary">
+                        {wt.branchName ?? "(HEAD destacado)"}
+                      </span>
+                      <span
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                          wt.isMain
+                            ? "border-accent/40 bg-accent-subtle text-accent"
+                            : wt.hasActiveTask
+                              ? "border-status-info/40 bg-status-info/10 text-status-info"
+                              : wt.isOrphan
+                                ? "border-status-warn/40 bg-status-warn/10 text-status-warn"
+                                : "border-border-subtle bg-surface text-fg-secondary"
+                        }`}
+                      >
+                        {wt.isMain
+                          ? "Principal"
+                          : wt.hasActiveTask
+                            ? "Em execução"
+                            : wt.isOrphan
+                              ? "Órfão"
+                              : "Isolado"}
+                      </span>
+                      {wt.headSha && (
+                        <span className="font-mono text-[11px] text-fg-muted tabular-nums">
+                          {wt.headSha.slice(0, 7)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="break-all font-mono text-[11px] text-fg-muted">
+                      {wt.repositoryName} · {wt.worktreePath}
+                      {wt.deliverableTitle ? ` · ${wt.deliverableTitle}` : ""}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {wt.canMerge && wt.deliverableId && (
+                      <button
+                        type="button"
+                        disabled={mergeBranchMutation.isPending}
+                        onClick={() =>
+                          mergeBranchMutation.mutate(wt.deliverableId!)
+                        }
+                        className="inline-flex min-h-7 items-center rounded border border-accent/40 bg-accent-subtle px-2 text-[11px] font-medium text-accent hover:border-accent disabled:opacity-50"
+                      >
+                        Mesclar na base
+                      </button>
+                    )}
+                    {!wt.isMain && !wt.hasActiveTask && (
+                      <button
+                        type="button"
+                        disabled={pruneWorktreesMutation.isPending}
+                        onClick={() =>
+                          pruneWorktreesMutation.mutate({
+                            worktreePath: wt.worktreePath,
+                            pruneAllOrphans: false,
+                          })
+                        }
+                        className="inline-flex min-h-7 items-center rounded border border-border-default bg-surface px-2 text-[11px] font-medium text-fg-secondary hover:border-border-strong disabled:opacity-50"
+                      >
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
 
       {/* Modal: Nova Entrega */}
