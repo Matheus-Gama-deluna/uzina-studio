@@ -1,7 +1,7 @@
 # Dossiê do Slice 31 — Two-Stage Verifier, Risk Briefing, Retrospectiva QMD & OpenSpec Sync
 
-* **Status:** `Backend/Workflow Concluído · UI pendente na Onda 3`
-* **Branch:** `feat/slices-27-34-agentic-evolution-v2` (commit `71cad82`, após contratos `ff08845`)
+* **Status:** `Concluído`
+* **Branch:** `feat/slices-27-34-agentic-evolution-v2` (commits `71cad82` Backend/Workflow + `b5faf27` UI `/app/decisions`, após contratos `ff08845`)
 * **Estratégia Aplicada:** *Fresh-Context Two-Stage Verifier (`Spec Compliance` → `Adversarial QA/AppSec`) + Determinismo no Risk Briefing*
 * **Spec de Referência:** [plano-mestre-evolucao-agentes-v2-slices-26-34.md](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md)
 
@@ -20,14 +20,12 @@ Resolve **GAP-07**, elevando `stageVerify`, `stageDecision` e `stageFinalize` co
   - `distillRetrospectiveToQmd`: grava lições estruturadas no QMD (`convention` / `security_triage`) quando `verifyAttempts >= 2` ou há rejeição/`changes_requested` humana com feedback.
   - `syncOpenSpecArchive`: aplica `openSpecDelta` (`added`/`modified`/`removed`) ao documento vivo `OPENSPEC.md` no `merged` (removendo placeholders vazios).
 - **Draft PR & Workflow:** [github-pr.ts](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/packages/mastra-runtime/src/github-pr.ts) renderiza `DecisionRiskBriefing` no corpo do Draft PR; [deliverable-lifecycle.ts](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/packages/mastra-runtime/src/workflows/deliverable-lifecycle.ts) conecta `stageVerify`, `stageDecision` e `stageFinalize`.
-- **Testes:** [slice31-two-stage-verifier-retro.test.ts](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/packages/mastra-runtime/tests/slice31-two-stage-verifier-retro.test.ts) (PGlite `:memory:`).
-
-## 3. Pendências para Fechamento Completo (Onda 3)
-- [ ] **UI `/app/decisions` (`apps/web/`):** `DecisionRiskBriefingCard` em `decisions-workbench.tsx` exibindo Matriz Requisito ↔ Teste ↔ Diff, `Confidence Score (0–100)` e Checklist de Risco & Rollback + testes/QA `browser`.
+- **UI `/app/decisions` (`apps/web`, commit `b5faf27`):** [decision-risk-briefing-card.tsx](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/apps/web/src/components/decision-risk-briefing-card.tsx) integrado ao [decisions-workbench.tsx](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/apps/web/src/components/decisions-workbench.tsx) exibindo Matriz Requisito ↔ Teste ↔ Diff, `Confidence Score (0–100)`, Checklist de Superfície Alterada e Plano de Rollback nos 5 estados de UI (`loading`, `empty`, `error`, `partial`, `populated`).
+- **Testes:** [slice31-two-stage-verifier-retro.test.ts](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/packages/mastra-runtime/tests/slice31-two-stage-verifier-retro.test.ts) (PGlite `:memory:`) e [slices-31-32-34-ui.test.ts](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/apps/web/tests/slices-31-32-34-ui.test.ts).
 
 ---
 
-## 4. Evidências de Verificação (Backend/Workflow)
-- `pnpm --filter @uzina/mastra-runtime build`: **PASS**
-- `pnpm --filter @uzina/mastra-runtime test -- tests/slice31-two-stage-verifier-retro.test.ts`: **9/9 passed**
-- `node scripts/check-no-ee.mjs`: **exit 0** | `node scripts/audit-tests.mjs`: **91 arquivos, 322 testes, 0 violações**
+## 3. Evidências de Verificação (Onda 4A)
+- `pnpm verify`: **34/34 tasks OK** (9/9 builds, 9/9 typechecks, 9/9 lints; `@uzina/mastra-runtime` 24 files / 183 passed; `@uzina/web` 15 files / 45 passed).
+- `node scripts/check-no-ee.mjs`: **exit 0** | `node scripts/audit-tests.mjs`: **95 arquivos, 338 testes, 2 suprimidos, 0 violações**.
+- `node scripts/audit-agent-trajectories.mjs`: **4/4 passed**.

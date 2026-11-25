@@ -1,8 +1,11 @@
-# Handoff de Continuação — Ondas 3 & 4 (Slices 31 UI, 32 e 34)
+# [CONCLUÍDO] Handoff de Continuação — Ondas 3 & 4 (Slices 31 UI, 32 e 34)
 
-**Data do Checkpoint:** `2026-11-25`  
+> **Status Final:** **CONCLUÍDO em `2026-11-25`** na branch `feat/slices-27-34-agentic-evolution-v2` via commits `b5faf27` (Slice 31 UI), `8475fcd` (Slice 32) e `c0ac693` (Slice 34).  
+> **Gate Final (`Onda 4`):** `pnpm verify` **34/34 tasks OK** · `node scripts/check-no-ee.mjs` **0** · `node scripts/audit-tests.mjs` **95 arquivos, 338 testes, 2 suprimidos, 0 violações** · `node scripts/audit-agent-trajectories.mjs` **4/4 passed**.
+
+**Data do Checkpoint Original:** `2026-11-25`  
 **Branch Ativa:** `feat/slices-27-34-agentic-evolution-v2` (enviada ao `origin` no GitHub)  
-**Motivo da Pausa:** Atingimento do limite de cota (429 `RESOURCE_EXHAUSTED`) nos modelos disponíveis ao disparar a Onda 3 no `/swarm`. Todo o trabalho das **Ondas 0, 1 e 2** está limpo, testado, commitado e documentado.
+**Motivo Histórico do Handoff:** Pausa por cota na Onda 3 (agora integralmente retomada, implementada, verificada e encerrada).
 
 ---
 

@@ -479,3 +479,19 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
 * **Ponto de Parada & Retomada (`Onda 3 + Onda 4`):**
   * Execução pausada por limite de cota (`429 RESOURCE_EXHAUSTED`) no início da Onda 3.
   * Restam: UI do Slice 31 em `/app/decisions`, Slice 32 completo, Slice 34 completo e o `pnpm verify` final único + auditoria consolidada. Guia passo a passo e prompt de retomada em [HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md](docs/status/HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md).
+
+---
+
+## 2026-11-25 — Fechamento das Ondas 3 & 4: Slices 31 (UI), 32 e 34 + Gate Final (`feat/slices-27-34-agentic-evolution-v2`) ★ Evolução Agêntica v2 Concluída
+
+* **Entregue (Onda 3 + Onda 4A — 3 commits semânticos verificados):**
+  * **Slice 31 UI (`/app/decisions`, commit `b5faf27` — [dossiê](docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md)):** `apps/web/src/components/decision-risk-briefing-card.tsx` integrado a `decisions-workbench.tsx` exibindo Matriz Requisito ↔ Teste ↔ Diff, `Confidence Score (0–100)`, Checklist de Superfície Alterada e Plano de Rollback nos 5 estados de UI.
+  * **Slice 32 (`8475fcd` — [dossiê](docs/slices/slice-32-agentic-ci-evals-trajectory-gates.md)):** `packages/mastra-runtime/src/evals/trajectory-evals.ts` (7 binary gates + `runTrajectoryEvalSuite()` para `software_architect`, `ux_designer`, `qa_appsec` e `MastraWorkspaceExecutorAdapter`), `computeAgentEffectivenessMetricsScoped` em `packages/mastra-runtime/src/finops.ts`, gate CI `scripts/audit-agent-trajectories.mjs`, rota `GET /api/finops/effectiveness` e `AgentEffectivenessPanel` em `/app/finops` (`slice32-trajectory-evals.test.ts` + atualização de `slice18-real-agents-om.integration.test.ts` com `ToolSearchProcessor`).
+  * **Slice 34 (`c0ac693` — [dossiê](docs/slices/slice-34-visual-a11y-mutation-pbt-and-skills-registry.md)):** `packages/core/src/skills-lock.ts` (SHA-256 determinístico + política `Apache-2.0`/`MIT`), `packages/core/src/mutation-pbt.ts` (PBT determinístico + Stryker via `execFile`, `shell: false`), `packages/mastra-runtime/src/stages/visual-a11y-verify.ts` (viewports `1440x900` e `390x844` + hook `stageVerify` em `deliverable-lifecycle.ts`), `packages/mastra-runtime/src/entropy.ts` + `uzina doctor --entropy` em `apps/cli/src/cli.ts`, rotas `GET /api/skills/catalog` e `GET /api/projects/[id]/entropy`, `SkillsCatalogPanel` em `/app/finops`, MSW fixtures/handlers e `apps/web/tests/slices-31-32-34-ui.test.ts`.
+* **Validação Final Real (Onda 4A):**
+  * `node scripts/check-no-ee.mjs`: `0` (zero `@mastra/*-ee`/`ee/`).
+  * `pnpm verify`: **34/34 tasks OK** (9/9 builds, 9/9 typechecks, 9/9 lints; `@uzina/contracts` 14 files / 269 passed; `@uzina/core` 17 files / 228 passed; `@uzina/db` 12 passed + 1 conditional pgvector skipped / 39 passed + 1 skipped; `@uzina/codebase-intel` 1 file / 13 passed; `@uzina/opencode-bridge` 6 files / 58 passed; `@uzina/security-engine` 4 files / 33 passed; `@uzina/mastra-runtime` 24 files / 183 passed; `@uzina/cli` 1 file / 13 passed; `@uzina/web` 15 files / 45 passed).
+  * `node scripts/audit-tests.mjs`: **95 arquivos, 338 testes, 2 suprimidos, 0 violações**.
+  * `node scripts/audit-agent-trajectories.mjs`: **4/4 passed**.
+  * Auditoria consolidada da Onda 3: `execFile` com `shell: false` e allowlist em `mutation-pbt.ts`, isolamento Playwright/axe em `visual-a11y-verify.ts`, `assertPathInsideWorkspace` + SHA-256 em `skills-lock.ts`, RBAC + multi-tenant `organizationId`/`projectId` nas 3 novas rotas API, zero `any` implícito ou `as unknown as`.
+* **Marco Atingido:** **Evolução Agêntica v2 (Slices 26–34) 100% concluída e verificada** na branch `feat/slices-27-34-agentic-evolution-v2`, pronta para push e abertura de Pull Request para `main`.

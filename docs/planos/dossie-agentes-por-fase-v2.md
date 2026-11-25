@@ -3,6 +3,21 @@
 **Documento Complementar a:** [plano-mestre-evolucao-agentes-v2-slices-26-34.md](file:///c:/Users/gamam/OneDrive/Documentos/_Fabrica_softwares/docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md)  
 **Escopo:** Especificação detalhada de comportamento, restrições negativas, playbooks, artefatos imutáveis de handoff, matriz de tools, skills e evals para todos os agentes do Uzina Studio, espelhados em profissionais sênior reais.
 
+> **Status Executivo de Implementação (Slices 26–34):** **100% Concluído e Verificado** na branch `feat/slices-27-34-agentic-evolution-v2` (`a27b7e0` → `c0ac693`).  
+> **Evidências Reais:** `pnpm verify` **34/34 tasks OK** (9/9 builds, 9/9 typechecks, 9/9 lints) · `node scripts/check-no-ee.mjs` **0** · `node scripts/audit-tests.mjs` **95 arquivos, 338 testes, 2 suprimidos, 0 violações** · `node scripts/audit-agent-trajectories.mjs` **4/4 passed**.
+>
+> | Slice | Escopo Entregue | Commit | Status |
+> | :---: | :--- | :---: | :---: |
+> | **26** | Controller Dinâmico, `skills-loader` v2 (`agentskills.io`), Playbooks & Guardrails | `a27b7e0` | 🟢 Concluído |
+> | **27** | Biblioteca de 16 Skills Autorais `Apache-2.0` + `references/`/`templates/`/`scripts/` (`ff08845` contratos) | `4cf36b1` | 🟢 Concluído |
+> | **28** | 14 Tools Especializadas com RBAC/Multi-Tenant, `ToolSearchProcessor`, `review` read-only | `4b3ea02` | 🟢 Concluído |
+> | **29** | Handoffs Imutáveis (`ShapeSpec`, `ArchitectBlueprintV2`, Pipeline UX 3 Estágios) | `769d943` | 🟢 Concluído |
+> | **30** | Builder Harness (`Test Lock`, micro-loop allowlisted, `migration-safety`, 3-Strikes) | `36fe585` | 🟢 Concluído |
+> | **31** | Two-Stage Verifier, `DecisionRiskBriefing` (Backend + `/app/decisions`), Retro QMD & OpenSpec Sync | `71cad82`, `b5faf27` | 🟢 Concluído |
+> | **32** | Trajectory Evals CI (`audit-agent-trajectories.mjs`), Efetividade FinOps & `/app/finops` | `8475fcd` | 🟢 Concluído |
+> | **33** | AppSec v2 (`dast-passive`, `reachability`, `sbom` CycloneDX 1.5, `scanAgenticPromptInjectionNative`) | `0961fee` | 🟢 Concluído |
+> | **34** | `skills-lock` SHA-256, PBT/Stryker, Visual/A11y Gate, Entropia CLI (`uzina doctor --entropy`) & UI | `c0ac693` | 🟢 Concluído |
+
 ---
 
 ## 1. Mapa Global de Responsabilidades, Fronteiras e Artefatos Imutáveis
