@@ -118,17 +118,44 @@ function createToolCallingAgentMockModel(params: {
   toolName: string;
   finalReply: string;
 }) {
-  let agentTurnStep = 0;
+  let targetCalled = false;
+  let searchCalled = false;
+  let callCounter = 0;
   const mockUsage = {
     inputTokens: 120,
     outputTokens: 32,
     totalTokens: 152,
   };
 
-  const nextPlan = () => {
-    if (agentTurnStep === 0) {
-      agentTurnStep += 1;
-      return { kind: "tool-call" as const };
+  const hasTool = (
+    tools: ReadonlyArray<{ name: string }> | undefined,
+    name: string
+  ): boolean => Boolean(tools?.some((t) => t.name === name));
+
+  const nextPlan = (tools?: ReadonlyArray<{ name: string }>) => {
+    if (!targetCalled) {
+      if (
+        !hasTool(tools, params.toolName) &&
+        hasTool(tools, "search_tools") &&
+        !searchCalled
+      ) {
+        searchCalled = true;
+        callCounter += 1;
+        return {
+          kind: "tool-call" as const,
+          toolCallId: `tc-search-${callCounter}`,
+          toolName: "search_tools",
+          input: JSON.stringify({ query: params.toolName }),
+        };
+      }
+      targetCalled = true;
+      callCounter += 1;
+      return {
+        kind: "tool-call" as const,
+        toolCallId: `tc-deliverables-${callCounter}`,
+        toolName: params.toolName,
+        input: "{}",
+      };
     }
     return { kind: "text" as const, text: params.finalReply };
   };
@@ -136,16 +163,16 @@ function createToolCallingAgentMockModel(params: {
   return new MastraLanguageModelV2Mock({
     provider: "mock-provider",
     modelId: "mock-v2-tools",
-    doGenerate: async () => {
-      const plan = nextPlan();
+    doGenerate: async (options) => {
+      const plan = nextPlan(options.tools);
       if (plan.kind === "tool-call") {
         return {
           content: [
             {
               type: "tool-call",
-              toolCallId: "tc-deliverables-1",
-              toolName: params.toolName,
-              input: "{}",
+              toolCallId: plan.toolCallId,
+              toolName: plan.toolName,
+              input: plan.input,
             },
           ],
           finishReason: "tool-calls",
@@ -169,8 +196,8 @@ function createToolCallingAgentMockModel(params: {
         stream: simulateReadableStream({ chunks: [] }),
       };
     },
-    doStream: async () => {
-      const plan = nextPlan();
+    doStream: async (options) => {
+      const plan = nextPlan(options.tools);
       if (plan.kind === "tool-call") {
         return {
           rawCall: { rawPrompt: null, rawSettings: {} },
@@ -186,23 +213,23 @@ function createToolCallingAgentMockModel(params: {
               },
               {
                 type: "tool-input-start",
-                id: "tc-deliverables-1",
-                toolName: params.toolName,
+                id: plan.toolCallId,
+                toolName: plan.toolName,
               },
               {
                 type: "tool-input-delta",
-                id: "tc-deliverables-1",
-                delta: "{}",
+                id: plan.toolCallId,
+                delta: plan.input,
               },
               {
                 type: "tool-input-end",
-                id: "tc-deliverables-1",
+                id: plan.toolCallId,
               },
               {
                 type: "tool-call",
-                toolCallId: "tc-deliverables-1",
-                toolName: params.toolName,
-                input: "{}",
+                toolCallId: plan.toolCallId,
+                toolName: plan.toolName,
+                input: plan.input,
               },
               {
                 type: "finish",

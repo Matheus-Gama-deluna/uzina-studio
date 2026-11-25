@@ -1,18 +1,24 @@
 import {
+  AgencyAgentRoleSchema,
+  AgentEffectivenessMetricsSchema,
   DEFAULT_TOOL_POLICIES,
   EngineConfigResponseSchema,
   FinopsSummaryRequestSchema,
   FinopsSummarySchema,
   LlmUsageCallEventSchema,
   RecordTokenSavingsSchema,
+  RoleEffectivenessStatsSchema,
   TokenSavingsTechniqueSchema,
   ToolPoliciesMapSchema,
   UpdateEngineConfigSchema,
+  type AgencyAgentRole,
+  type AgentEffectivenessMetrics,
   type EngineConfig,
   type EngineConfigResponse,
   type FinopsSummary,
   type FinopsSummaryRequest,
   type RecordTokenSavings,
+  type RoleEffectivenessStats,
   type TokenSavingsEvent,
   type TokenSavingsTechnique,
   type ToolPoliciesMap,
@@ -807,4 +813,291 @@ export async function getProjectAccumulatedTokens(
       ? Math.round(extraInMemoryTokens)
       : 0;
   return persistedTokens + extra;
+}
+
+const ACTOR_ROLE_TO_AGENCY_ROLE: Record<string, AgencyAgentRole> = {
+  orchestrator: "orchestrator",
+  product_discovery: "product_discovery",
+  discovery: "product_discovery",
+  software_architect: "software_architect",
+  architect: "software_architect",
+  ux_designer: "ux_designer",
+  visual: "ux_designer",
+  tech_lead: "tech_lead",
+  builder: "tech_lead",
+  qa_appsec: "qa_appsec",
+  verifier: "qa_appsec",
+  security: "qa_appsec",
+};
+
+function mapActorRoleToAgencyRole(rawRole: string): AgencyAgentRole | null {
+  const key = rawRole.trim().toLowerCase();
+  return ACTOR_ROLE_TO_AGENCY_ROLE[key] ?? null;
+}
+
+interface RoleMetricsAccumulator {
+  runs: number;
+  toolResultFallbacks: number;
+  totalTokens: number;
+  latencySumMs: number;
+  latencySamples: number;
+  failures: number;
+}
+
+/**
+ * Calcula métricas de eficácia dos agentes da organização (com filtro opcional por projeto)
+ * a partir dos registros reais de `deliverables` e `executionEvents` no banco de dados.
+ */
+export async function computeAgentEffectivenessMetricsScoped(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    projectId?: string;
+  }
+): Promise<AgentEffectivenessMetrics> {
+  const delivConditions = [eq(clients.organizationId, params.organizationId)];
+  if (params.projectId) {
+    delivConditions.push(eq(projects.id, params.projectId));
+  }
+
+  const delivRows = await db
+    .select({
+      id: deliverables.id,
+      status: deliverables.status,
+      verifyAttempts: deliverables.verifyAttempts,
+      evidencePackJson: deliverables.evidencePackJson,
+    })
+    .from(deliverables)
+    .innerJoin(projects, eq(deliverables.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .where(and(...delivConditions));
+
+  const verifiedDelivs = delivRows.filter(
+    (d) =>
+      d.verifyAttempts > 0 ||
+      d.status === "decision_pending" ||
+      d.status === "approved" ||
+      d.status === "merged" ||
+      d.status === "failed"
+  );
+
+  const firstPassCount = verifiedDelivs.filter((d) => {
+    if (d.status === "failed") return false;
+    if (d.verifyAttempts > 1) return false;
+    const packVerifyPassed =
+      d.evidencePackJson &&
+      typeof d.evidencePackJson === "object" &&
+      typeof d.evidencePackJson.verifyPassed === "boolean"
+        ? d.evidencePackJson.verifyPassed
+        : null;
+    if (packVerifyPassed === false) return false;
+    return (
+      d.verifyAttempts === 1 ||
+      packVerifyPassed === true ||
+      d.status === "decision_pending" ||
+      d.status === "approved" ||
+      d.status === "merged"
+    );
+  }).length;
+
+  const firstPassVerifyRate =
+    verifiedDelivs.length > 0
+      ? Number(((firstPassCount / verifiedDelivs.length) * 100).toFixed(1))
+      : 0;
+
+  const averageVerifyAttempts =
+    verifiedDelivs.length > 0
+      ? Number(
+          (
+            verifiedDelivs.reduce(
+              (acc, d) => acc + Math.max(0, d.verifyAttempts),
+              0
+            ) / verifiedDelivs.length
+          ).toFixed(2)
+        )
+      : 0;
+
+  const eventRows =
+    delivRows.length === 0
+      ? []
+      : await db
+          .select({ event: executionEvents })
+          .from(executionEvents)
+          .innerJoin(
+            deliverables,
+            eq(executionEvents.deliverableId, deliverables.id)
+          )
+          .innerJoin(projects, eq(deliverables.projectId, projects.id))
+          .innerJoin(clients, eq(projects.clientId, clients.id))
+          .where(and(...delivConditions))
+          .orderBy(executionEvents.createdAt);
+
+  const roleAcc = new Map<AgencyAgentRole, RoleMetricsAccumulator>();
+  for (const role of AgencyAgentRoleSchema.options) {
+    roleAcc.set(role, {
+      runs: 0,
+      toolResultFallbacks: 0,
+      totalTokens: 0,
+      latencySumMs: 0,
+      latencySamples: 0,
+      failures: 0,
+    });
+  }
+
+  let reworkCostUsd = 0;
+  let confidenceScoreSum = 0;
+  let confidenceScoreCount = 0;
+
+  const delivSawFailedVerify = new Set<string>();
+  const activeDelivIds = new Set<string>();
+  const delivWithSkillLoad = new Set<string>();
+  let explicitSkillSignalsTotal = 0;
+  let explicitSkillSignalsPassed = 0;
+
+  for (const { event: ev } of eventRows) {
+    activeDelivIds.add(ev.deliverableId);
+    const payload =
+      ev.payloadJson && typeof ev.payloadJson === "object"
+        ? (ev.payloadJson as Record<string, unknown>)
+        : {};
+
+    const costUsd = Math.max(0, Number(ev.estimatedCostUsd ?? 0));
+    const attemptNum =
+      typeof payload.attemptNumber === "number" &&
+      Number.isFinite(payload.attemptNumber)
+        ? payload.attemptNumber
+        : null;
+    const isExplicitRework = payload.isRework === true;
+
+    if (
+      (ev.eventType === "token_usage" || ev.eventType === "verify_result") &&
+      (delivSawFailedVerify.has(ev.deliverableId) ||
+        (attemptNum !== null && attemptNum >= 2) ||
+        isExplicitRework)
+    ) {
+      reworkCostUsd += costUsd;
+    }
+
+    if (ev.eventType === "verify_result") {
+      if (typeof payload.confidenceScore === "number" && Number.isFinite(payload.confidenceScore)) {
+        confidenceScoreSum += Math.min(100, Math.max(0, payload.confidenceScore));
+        confidenceScoreCount += 1;
+      }
+      if (payload.verifyPassed === false) {
+        delivSawFailedVerify.add(ev.deliverableId);
+      }
+    } else if (
+      ev.eventType === "stage_change" &&
+      ev.stage === "stage_decision" &&
+      payload.decision === "changes_requested"
+    ) {
+      delivSawFailedVerify.add(ev.deliverableId);
+    }
+
+    // Skill adherence tracking
+    if (typeof payload.skillAdherence === "boolean") {
+      explicitSkillSignalsTotal += 1;
+      if (payload.skillAdherence) {
+        explicitSkillSignalsPassed += 1;
+        delivWithSkillLoad.add(ev.deliverableId);
+      }
+    } else if (
+      ev.eventType === "tool_call" &&
+      payload.toolName === "load_uzina_skill" &&
+      payload.phase !== "start"
+    ) {
+      explicitSkillSignalsTotal += 1;
+      if (payload.status !== "error") {
+        explicitSkillSignalsPassed += 1;
+        delivWithSkillLoad.add(ev.deliverableId);
+      }
+    }
+
+    // Role stats aggregation
+    const mappedRole = mapActorRoleToAgencyRole(ev.actorRole);
+    if (!mappedRole) continue;
+    const bucket = roleAcc.get(mappedRole)!;
+    const tokens = Math.max(0, ev.tokensInput) + Math.max(0, ev.tokensOutput);
+    bucket.totalTokens += tokens;
+
+    if (
+      typeof payload.durationMs === "number" &&
+      Number.isFinite(payload.durationMs) &&
+      payload.durationMs >= 0
+    ) {
+      bucket.latencySumMs += payload.durationMs;
+      bucket.latencySamples += 1;
+    }
+
+    if (
+      ev.eventType === "token_usage" ||
+      ev.eventType === "verify_result" ||
+      ev.eventType === "error"
+    ) {
+      bucket.runs += 1;
+      if (
+        ev.eventType === "error" ||
+        (ev.eventType === "verify_result" && payload.verifyPassed === false)
+      ) {
+        bucket.failures += 1;
+      }
+    } else if (ev.eventType === "tool_call" && payload.phase === "result") {
+      bucket.toolResultFallbacks += 1;
+      if (payload.status === "error") {
+        bucket.failures += 1;
+      }
+    }
+  }
+
+  let skillAdherenceRate = 0;
+  if (explicitSkillSignalsTotal > 0 && activeDelivIds.size > 0) {
+    const signalPassRatio = explicitSkillSignalsPassed / explicitSkillSignalsTotal;
+    const delivCoverageRatio = Math.min(
+      1,
+      delivWithSkillLoad.size / activeDelivIds.size
+    );
+    skillAdherenceRate = Number(
+      (((signalPassRatio + delivCoverageRatio) / 2) * 100).toFixed(1)
+    );
+  } else if (explicitSkillSignalsTotal > 0) {
+    skillAdherenceRate = Number(
+      ((explicitSkillSignalsPassed / explicitSkillSignalsTotal) * 100).toFixed(1)
+    );
+  }
+
+  const averageConfidenceScore =
+    confidenceScoreCount > 0
+      ? Number((confidenceScoreSum / confidenceScoreCount).toFixed(1))
+      : 0;
+
+  const byRole = {} as Record<AgencyAgentRole, RoleEffectivenessStats>;
+  for (const role of AgencyAgentRoleSchema.options) {
+    const acc = roleAcc.get(role)!;
+    const effectiveRuns =
+      acc.runs > 0 ? acc.runs : acc.toolResultFallbacks > 0 ? acc.toolResultFallbacks : 0;
+    byRole[role] = RoleEffectivenessStatsSchema.parse({
+      runs: effectiveRuns,
+      avgTokens:
+        effectiveRuns > 0
+          ? Number((acc.totalTokens / effectiveRuns).toFixed(1))
+          : 0,
+      avgLatencyMs:
+        acc.latencySamples > 0
+          ? Number((acc.latencySumMs / acc.latencySamples).toFixed(1))
+          : 0,
+      failureRate:
+        effectiveRuns > 0
+          ? Math.min(1, Number((acc.failures / effectiveRuns).toFixed(4)))
+          : 0,
+    });
+  }
+
+  return AgentEffectivenessMetricsSchema.parse({
+    firstPassVerifyRate,
+    averageVerifyAttempts,
+    skillAdherenceRate,
+    averageConfidenceScore,
+    reworkCostUsd: Number(reworkCostUsd.toFixed(6)),
+    byRole,
+  });
 }

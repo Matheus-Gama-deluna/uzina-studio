@@ -7,14 +7,12 @@ import {
   redactSensitiveText,
 } from "@uzina/core";
 import {
-  clients,
   codebaseFiles,
   codebaseSymbols,
   decisions,
   deliverables,
   designPrototypes,
   projectRepositories,
-  projects,
   type UzinaDb,
 } from "@uzina/db";
 import { and, desc, eq, ilike, inArray } from "drizzle-orm";
