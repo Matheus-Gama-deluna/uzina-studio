@@ -412,3 +412,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * QA visual `browser` em `/app/deliverables` e `/app/decisions` (Desktop `1440x900` e Mobile `390x844`): **PASS** (`0` console errors, `0` HTTP `>= 500`, status SSE transitando para `Ao vivo`).
   * Revisores independentes: `test-critic` (hardening aplicado nos 3 arquivos de teste), `appsec-auditor` (**PASS** + `EventsQuerySchema` e `knownSecrets` aplicados) e `factory-verifier` (**PASS**).
 * **Próximo passo:** Iniciar execução do **Slice 24 (P3.3 + P3.4 — Worktrees & Branches GC, Histórico de Versões do Estúdio & AST Symbol-Locking)**.
+
+---
+
+## 2026-11-24 — Slice 24: P3.3 + P3.4 — Worktrees & Branches GC, Histórico Visual v1..vN & AST Symbol-Locking (`feat/slice-24-p3-worktree-gc-studio-history-ast-lock`)
+
+* **Entregue:**
+  * **P3.3 Worktrees & Branches Governance + Histórico do Estúdio Visual (`contracts/agency.ts`, `opencode-bridge/workspace.ts`, `service.ts`, `/api/projects/[id]/worktrees`, `deliverables-docs-hub.tsx`, `visual-studio-workspace.tsx`, `handlers.ts`):** `listProjectWorktrees` (`git worktree list --porcelain`) e `removeWorktreeByPathSafe` bloqueando `isMain`, symlinks externos e path traversal; endpoints `GET`/`DELETE /api/projects/[id]/worktrees` com RBAC (`READ_ROLES`/`WORKSPACE_WRITE_ROLES`) e proteção `409` contra remoção de execuções ativas; painel `Worktrees & Branches` em largura total (`w-full`) abaixo de empty/lista/kanban com GC de órfãos e merge 1-clique; e seletor de histórico `v1..vN` (`studio-version-selector`) no `/app/studio` com `safePreviewUrl` e `<iframe sandbox="">`.
+  * **P3.4 AST Symbol-Locking (`symbol-locks.ts`, `background-tasks.ts`, `service.ts`):** `extractCandidateSymbolNames`, `resolveDeliverableTargetSymbols` (consultando `codebase_symbols`/`codebase_edges` via `querySymbolGraphInMemory` com fallback `symbol::<name>`) e `SymbolLockManager` (`tryAcquire`, `acquireOrWait`, `release` no `finally`), integrados ao `runProjectAutonomousCycle` com status `"queued_waiting_lock"` e badge `"Aguardando Lock AST"`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`79` arquivos, `252` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`0` warnings Turbopack; `@uzina/opencode-bridge` `53/53`, `@uzina/mastra-runtime` `62/62`, `@uzina/web` `33/33` incluindo `worktree-governance.test.ts`, `slice24-p3-worktrees-and-ast-symbol-lock.integration.test.ts` e `slice24-worktrees-api-and-studio-history.test.ts`).
+  * Playwright `pnpm test:e2e`: `2 passed (24.2s)`.
+  * QA visual `browser` revalidado em `/app/deliverables` (Desktop `1440x900` com/sem entregas e Mobile `390x844`) e `/app/studio`: **PASS** (`0` console errors, `0` pageerrors, `0` HTTP `>= 500`).
+  * Revisores independentes: `test-critic` (bordas + fluxo `queued_waiting_lock` via `runProjectAutonomousCycle` incorporados), `appsec-auditor` (hardening contra symlinks externos, escopo `projectId` e `safePreviewUrl` aplicados) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 25 (P3.5 + P3.6 — DockerExecutionWorkspace Hot-Reload, Tool Policies Allow/Ask/Deny & GitHub Draft PR via Vault PAT)**.
