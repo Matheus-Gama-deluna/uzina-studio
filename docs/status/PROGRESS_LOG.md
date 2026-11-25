@@ -397,3 +397,18 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * QA visual `browser` multi-viewport (`1440x900` Light/Dark/A+ e `390x844` zero overflow): **PASS** (`0` console errors, `0` HTTP `>= 500`).
   * Revisores independentes: `test-critic` (bordas incorporadas em `slice22-p2-prd-qa-and-polish.integration.test.ts` e `contract-drift.test.ts`) e `factory-verifier` (**PASS**).
 * **Próximo passo:** Iniciar execução do **Slice 23 (P3.1 + P3.2 — Tool Trace Timeline, SSE Resumível & Semantic Diff Chunking)**.
+
+---
+
+## 2026-11-24 — Slice 23: P3.1 + P3.2 — Tool Trace Timeline, SSE Resumível & Semantic Diff Chunking (`feat/slice-23-p3-tool-trace-resumable-sse-semantic-diff`)
+
+* **Entregue:**
+  * **P3.1 Tool Trace Timeline & Resumable SSE (`contracts/decisions.ts`, `operations-queries.ts`, `/api/deliverables/[id]/events`, `workspace-adapter.ts`, `deliverable-lifecycle.ts`, `tool-trace-timeline.tsx`, `deliverables-docs-hub.tsx`):** `ToolCallTracePayloadSchema`, ordenação determinística `(asc(createdAt), asc(id))` e cursor `afterEventId`/`Last-Event-ID` com validação Zod (`EventsQuerySchema`), hooks `beforeToolCall`/`afterToolCall` no `MastraWorkspaceExecutorAdapter`, eventos `tool_call` para `audit:tests`/`verify_runner`/`security-engine` no `stage_verify`, e componente `ToolTraceTimeline` com reconexão `?afterEventId=` e backoff exponencial na Caixa de Decisões e aba Evidências.
+  * **P3.2 Semantic Diff Chunking & Ajuste por Arquivo (`core/diff.ts`, `deliverable-lifecycle.ts`, `decisions-workbench.tsx`, `mocks/fixtures.ts`, `mocks/handlers.ts`):** `SemanticDiffCategorySchema`, `SemanticDiffFileSchema`, `parseUnifiedDiffSemantic` (`code`/`test`/`config`/`docs`, clamping, CRLF, redação via `redactSensitiveText` com `knownSecrets`), persistência de `diffSummary.fileDiffs` + `testCommandOutput` no `evidencePack`, filtro por categoria, diff colorizado sem XSS, `<details>` com saída de verificação e botão `"Pedir ajuste neste arquivo"` preenchendo `#decision-feedback`.
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`76` arquivos, `245` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`0` warnings Turbopack; `@uzina/core` `175/175`, `@uzina/mastra-runtime` `59/59`, `@uzina/web` `31/31` incluindo `diff-semantic.test.ts`, `slice23-p3-tool-trace-and-semantic-diff.integration.test.ts` e `slice23-resumable-sse-and-semantic-diff.test.ts`).
+  * Playwright `pnpm test:e2e`: `2 passed (24.8s)`.
+  * QA visual `browser` em `/app/deliverables` e `/app/decisions` (Desktop `1440x900` e Mobile `390x844`): **PASS** (`0` console errors, `0` HTTP `>= 500`, status SSE transitando para `Ao vivo`).
+  * Revisores independentes: `test-critic` (hardening aplicado nos 3 arquivos de teste), `appsec-auditor` (**PASS** + `EventsQuerySchema` e `knownSecrets` aplicados) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 24 (P3.3 + P3.4 — Worktrees & Branches GC, Histórico de Versões do Estúdio & AST Symbol-Locking)**.

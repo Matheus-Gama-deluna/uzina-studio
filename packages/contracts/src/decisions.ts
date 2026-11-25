@@ -10,6 +10,33 @@ export const DecisionStatusSchema = z.enum([
 ]);
 export type DecisionStatus = z.infer<typeof DecisionStatusSchema>;
 
+export const SemanticDiffCategorySchema = z.enum([
+  "code",
+  "test",
+  "config",
+  "docs",
+]);
+export type SemanticDiffCategory = z.infer<typeof SemanticDiffCategorySchema>;
+
+export const SemanticDiffFileSchema = z.object({
+  filePath: z.string().min(1).max(512),
+  category: SemanticDiffCategorySchema,
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  hunkPreview: z.string().max(4096),
+});
+export type SemanticDiffFile = z.infer<typeof SemanticDiffFileSchema>;
+
+export const ToolCallTracePayloadSchema = z.object({
+  phase: z.enum(["start", "result"]),
+  toolName: z.string().min(1).max(120),
+  targetPath: z.string().max(512).optional(),
+  durationMs: z.number().int().min(0).optional(),
+  status: z.enum(["running", "ok", "error"]),
+  summary: z.string().max(1000).optional(),
+});
+export type ToolCallTracePayload = z.infer<typeof ToolCallTracePayloadSchema>;
+
 export const VerifyCheckSummarySchema = z.object({
   name: z.string().trim().min(1).max(120),
   passed: z.boolean(),
@@ -31,7 +58,9 @@ export const EvidencePackSchema = z.object({
     filesChanged: z.number().int().nonnegative(),
     diffBytes: z.number().int().nonnegative(),
     preview: z.string().max(16384),
+    fileDiffs: z.array(SemanticDiffFileSchema).max(200).optional(),
   }),
+  testCommandOutput: z.string().max(16384).optional(),
   securitySummary: z.object({
     scanId: z.uuid().nullable(),
     critical: z.number().int().nonnegative(),

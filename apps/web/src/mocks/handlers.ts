@@ -786,9 +786,18 @@ export const handlers = [
     );
   }),
 
-  http.get("*/api/deliverables/:id/events", () => {
-    const ev = mockExecutionEvents.items[0]!;
-    const sse = `id: ${ev.id}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`;
+  http.get("*/api/deliverables/:id/events", ({ request }) => {
+    const url = new URL(request.url);
+    const afterEventId =
+      request.headers.get("last-event-id") ?? url.searchParams.get("afterEventId");
+    const items = mockExecutionEvents.items;
+    const afterIdx = afterEventId
+      ? items.findIndex((e) => e.id === afterEventId)
+      : -1;
+    const slice = afterIdx !== -1 ? items.slice(afterIdx + 1) : items;
+    const sse = slice
+      .map((ev) => `id: ${ev.id}\nevent: ${ev.eventType}\ndata: ${JSON.stringify(ev)}\n\n`)
+      .join("");
     return new HttpResponse(sse, {
       status: 200,
       headers: { "content-type": "text/event-stream; charset=utf-8" },

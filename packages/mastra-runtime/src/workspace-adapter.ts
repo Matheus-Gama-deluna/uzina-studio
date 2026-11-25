@@ -14,11 +14,13 @@ import {
   type ListOptions,
   type ReadOptions,
   type RemoveOptions,
+  type WorkspaceToolAfterHookContext,
   type WorkspaceToolHookContext,
   type WriteOptions,
 } from "@mastra/core/workspace";
 import {
   OpenCodeSessionResultSchema,
+  ToolCallTracePayloadSchema,
   type CodingExecutorMode,
   type OpenCodeRunSessionOptionsInput,
   type WorkspaceKind,
@@ -31,6 +33,7 @@ import {
   type RunSessionOutput,
 } from "@uzina/opencode-bridge";
 import { z } from "zod";
+import { recordExecutionEvent } from "./event-bus.js";
 import {
   collectOrganizationKnownSecrets,
   createTenantModelResolver,
@@ -243,6 +246,8 @@ export interface CodingAdapterExecutionOptions<
 > extends RunSessionExtraOptions<TSchema> {
   db?: UzinaDb;
   projectId?: string;
+  deliverableId?: string;
+  stage?: string;
   budgetCapUsd?: number | null;
   workspaceKind?: WorkspaceKind;
   modelOverride?: MastraModelConfig;
@@ -322,10 +327,35 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
 
     const readFilesNormalized = new Set<string>();
     const touchedFilesSet = new Set<string>();
+    const toolStartTimes = new Map<string, number[]>();
+    let knownSecrets: string[] = [];
     let budgetExceeded = false;
     const internalAbort = new AbortController();
     const forwardAbort = () => internalAbort.abort(options.signal?.reason);
     options.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+    const traceStage = options.stage ?? "stage_build";
+    const resolveTargetPathPreview = (input: unknown): string | undefined => {
+      const candidate = collectHookCandidatePaths(input)[0];
+      if (!candidate) return undefined;
+      return redactSensitiveText(candidate, knownSecrets).slice(0, 512);
+    };
+
+    const emitToolTrace = async (payload: unknown) => {
+      if (!options.db || !options.deliverableId) return;
+      try {
+        const parsed = ToolCallTracePayloadSchema.parse(payload);
+        await recordExecutionEvent(options.db, {
+          deliverableId: options.deliverableId,
+          stage: traceStage,
+          actorRole: options.role,
+          eventType: "tool_call",
+          payload: parsed,
+        });
+      } catch {
+        // Telemetria best-effort não interrompe execução do agente
+      }
+    };
 
     const beforeToolHook = async (ctx: WorkspaceToolHookContext) => {
       const candidates = collectHookCandidatePaths(ctx.input);
@@ -389,7 +419,55 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
           }
         }
       }
+
+      if (options.db && options.deliverableId) {
+        const queue = toolStartTimes.get(ctx.workspaceToolName) ?? [];
+        queue.push(Date.now());
+        toolStartTimes.set(ctx.workspaceToolName, queue);
+        const targetPath = resolveTargetPathPreview(ctx.input);
+        await emitToolTrace({
+          phase: "start",
+          toolName: ctx.workspaceToolName,
+          ...(targetPath ? { targetPath } : {}),
+          status: "running",
+        });
+      }
       return undefined;
+    };
+
+    const afterToolHook = async (ctx: WorkspaceToolAfterHookContext) => {
+      if (!options.db || !options.deliverableId) return;
+      const queue = toolStartTimes.get(ctx.workspaceToolName);
+      const started = queue?.shift();
+      const durationMs =
+        typeof started === "number" ? Math.max(0, Date.now() - started) : 0;
+      const targetPath = resolveTargetPathPreview(ctx.input);
+      const outputRecord =
+        ctx.output && typeof ctx.output === "object"
+          ? (ctx.output as Record<string, unknown>)
+          : null;
+      const outputErr =
+        outputRecord && typeof outputRecord.error === "string"
+          ? outputRecord.error
+          : null;
+      const hasError = Boolean(ctx.error) || Boolean(outputErr);
+      const rawSummary = ctx.error
+        ? ctx.error instanceof Error
+          ? ctx.error.message
+          : String(ctx.error)
+        : outputErr;
+      const summary = rawSummary
+        ? redactSensitiveText(rawSummary, knownSecrets).slice(0, 1000)
+        : undefined;
+
+      await emitToolTrace({
+        phase: "result",
+        toolName: ctx.workspaceToolName,
+        ...(targetPath ? { targetPath } : {}),
+        durationMs,
+        status: hasError ? "error" : "ok",
+        ...(summary ? { summary } : {}),
+      });
     };
 
     const workspace = new Workspace({
@@ -398,6 +476,7 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
       tools: {
         hooks: {
           beforeToolCall: beforeToolHook,
+          afterToolCall: afterToolHook,
         },
         [WORKSPACE_TOOLS.SANDBOX.EXECUTE_COMMAND]: { enabled: false },
         [WORKSPACE_TOOLS.SANDBOX.GET_PROCESS_OUTPUT]: { enabled: false },
@@ -408,7 +487,7 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
 
     try {
       const db = options.db;
-      const knownSecrets = db
+      knownSecrets = db
         ? await collectOrganizationKnownSecrets(db, {
             organizationId: options.providerConfig.organizationId,
             masterKey: this.deps.masterKey,

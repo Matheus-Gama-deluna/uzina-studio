@@ -286,7 +286,27 @@ export const mockDecisions = DecisionListResponseSchema.parse({
             filesChanged: 4,
             diffBytes: 1840,
             preview: "+ export const verified = true;",
+            fileDiffs: [
+              {
+                filePath: "src/vault/crypto.ts",
+                category: "code",
+                additions: 14,
+                deletions: 3,
+                hunkPreview:
+                  "@@ -10,3 +10,14 @@\n-export const verified = false;\n+export const verified = true;",
+              },
+              {
+                filePath: "tests/vault.test.ts",
+                category: "test",
+                additions: 12,
+                deletions: 0,
+                hunkPreview:
+                  "@@ -0,0 +1,12 @@\n+test('criptografa segredo', () => expect(verified).toBe(true));",
+              },
+            ],
           },
+          testCommandOutput:
+            "[PASS] audit:tests (42ms): 14 testes auditados sem anti-patterns.\n[PASS] typecheck + test (850ms): Todos os checks determinísticos verdes.",
           securitySummary: {
             scanId: MOCK_SCAN_ID,
             critical: 0,
@@ -411,6 +431,26 @@ export const mockSecurityScans = SecurityScanListResponseSchema.parse({
 
 export const mockExecutionEvents = ExecutionEventListResponseSchema.parse({
   items: [
+    {
+      id: "93000000-0000-4000-8000-000000000000",
+      deliverableId: MOCK_DELIVERABLE_ID,
+      stage: "stage_verify",
+      actorRole: "verifier",
+      eventType: "tool_call",
+      tokensInput: 0,
+      tokensOutput: 0,
+      cacheReadTokens: 0,
+      estimatedCostUsd: 0,
+      payloadJson: {
+        phase: "result",
+        toolName: "audit:tests",
+        targetPath: "tests/",
+        durationMs: 42,
+        status: "ok",
+        summary: "14 testes auditados sem anti-patterns.",
+      },
+      createdAt: NOW,
+    },
     {
       id: "93000000-0000-4000-8000-000000000001",
       deliverableId: MOCK_DELIVERABLE_ID,
