@@ -13,6 +13,7 @@ export * from "./background-tasks.js";
 export * from "./symbol-locks.js";
 export * from "./workspace-adapter.js";
 export * from "./tools/workspace-tools.js";
+export * from "./tools/role-specialized-tools.js";
 export * from "./agents/engineering-agents.js";
 export * from "./controller.js";
 export * from "./agency.js";

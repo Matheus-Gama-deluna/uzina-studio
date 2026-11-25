@@ -28,6 +28,7 @@ import {
   loadNativeSkills,
   redactSensitiveText,
   redactSensitiveValue,
+  selectNonConflictingSkillsForStage,
 } from "@uzina/core";
 import type { UzinaDb } from "@uzina/db";
 import { getProjectAccumulatedCostUsd } from "./finops.js";
@@ -590,6 +591,8 @@ function mapAgencyRoleToSkillRole(role?: AgencyAgentRole): AgentRole | undefined
 export function createUzinaSkillsCatalogProcessor(params: {
   role?: AgencyAgentRole;
   skillsDir?: string;
+  preferredLeadName?: string;
+  includeCritique?: boolean;
 }) {
   return {
     id: "uzina-skills-catalog",
@@ -608,7 +611,25 @@ export function createUzinaSkillsCatalogProcessor(params: {
           : [skillRole]
         : undefined;
 
-      const ctx = createUzinaSkillsContext(params.skillsDir, rolesFilter);
+      const preferredLeadFromCtx = requestContext?.get("preferredLeadSkill");
+      const preferredLeadName =
+        typeof preferredLeadFromCtx === "string" && preferredLeadFromCtx.trim()
+          ? preferredLeadFromCtx.trim()
+          : params.preferredLeadName;
+
+      const includeCritiqueFromCtx = requestContext?.get("includeCritique");
+      const includeCritique =
+        typeof includeCritiqueFromCtx === "boolean"
+          ? includeCritiqueFromCtx
+          : (params.includeCritique ??
+            (dynamicRole === "qa_appsec" ||
+              dynamicRole === "ux_designer" ||
+              requestContext?.get("controllerMode") === "review"));
+
+      const ctx = createUzinaSkillsContext(params.skillsDir, rolesFilter, {
+        preferredLeadName,
+        includeCritique,
+      });
       if (!ctx.catalogMarkdown) {
         return { systemMessages };
       }
@@ -901,13 +922,20 @@ export function createUzinaAgentsMdInjector(options: {
 
 export function createUzinaSkillsContext(
   skillsDir?: string,
-  roles?: AgentRole[]
+  roles?: AgentRole[],
+  stageSelection?: {
+    preferredLeadName?: string;
+    includeCritique?: boolean;
+  }
 ): {
   entries: SkillCatalogEntry[];
   catalogMarkdown: string;
 } {
   try {
-    const definitions = loadNativeSkills({ skillsDir, roles });
+    const rawDefinitions = loadNativeSkills({ skillsDir, roles });
+    const definitions = stageSelection
+      ? selectNonConflictingSkillsForStage(rawDefinitions, stageSelection)
+      : rawDefinitions;
     const entries: SkillCatalogEntry[] = definitions
       .map((skill) => ({
         name: skill.name,

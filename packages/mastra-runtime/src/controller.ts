@@ -36,7 +36,7 @@ import {
   createUzinaSkillsCatalogProcessor,
 } from "./processors.js";
 import { getMastraStorageSingleton, type UzinaMastraStore } from "./storage.js";
-import { createWorkspaceToolsForRole } from "./tools/workspace-tools.js";
+import { createAllControllerWorkspaceTools } from "./tools/workspace-tools.js";
 import { getRolePlaybookInstructions } from "./agents/engineering-agents.js";
 
 const CONTROLLER_SINGLETON_KEY = Symbol.for("@uzina/mastra/controller-v1");
@@ -94,6 +94,8 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
   discovery: [
     "search_qmd_memories",
     "read_project_deliverables",
+    "check_requirement_conflicts",
+    "read_finops_and_risk_digest",
     "load_uzina_skill",
     "ask_user",
     "submit_plan",
@@ -107,6 +109,10 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
     "create_qmd_memory",
     "load_uzina_skill",
     "ask_user",
@@ -119,6 +125,9 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
   visual: [
     "search_qmd_memories",
     "read_project_deliverables",
+    "read_design_system_contract",
+    "inspect_prototype_version",
+    "validate_color_contrast_and_tokens",
     "load_uzina_skill",
     "ask_user",
     "task_write",
@@ -131,6 +140,10 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
     "create_qmd_memory",
     "load_uzina_skill",
     "task_write",
@@ -143,6 +156,13 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
+    "read_security_scan_findings",
+    "read_deliverable_evidence_and_diff",
+    "run_test_anti_pattern_audit",
     "load_uzina_skill",
     "task_check",
   ],
@@ -274,11 +294,10 @@ export async function getOrCreateUzinaAgentController(params: {
     modelOverride: params.modelOverride,
   });
 
-  const sharedTools = createWorkspaceToolsForRole({
+  const sharedTools = createAllControllerWorkspaceTools({
     db: params.db,
-    role: "software_architect",
-    actorRole: "developer",
     masterKey: params.masterKey,
+    dataDir: params.dataDir,
   });
 
   const dynamicControllerModel:

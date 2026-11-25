@@ -12,6 +12,7 @@ import {
   createUzinaSkillsCatalogProcessor,
 } from "../processors.js";
 import { createWorkspaceToolsForRole } from "../tools/workspace-tools.js";
+import type { SymbolLockManager } from "../symbol-locks.js";
 
 const ROLE_PLAYBOOKS: Record<AgencyAgentRole, string> = {
   orchestrator: [
@@ -111,6 +112,11 @@ export function createEngineeringSpecialistAgent(params: {
   modelOverride?: MastraModelConfig;
   extraInstructions?: string;
   skillsDir?: string;
+  dataDir?: string;
+  workspaceRoot?: string;
+  symbolLockManager?: SymbolLockManager;
+  preferredLeadSkill?: string;
+  includeCritiqueSkills?: boolean;
   enableSemanticRecall?: boolean;
   onTailFlushed?: (flushedTail: string) => void;
 }): Agent {
@@ -126,6 +132,9 @@ export function createEngineeringSpecialistAgent(params: {
     actorRole: params.actorRole,
     masterKey: params.masterKey,
     skillsDir: params.skillsDir,
+    dataDir: params.dataDir,
+    workspaceRoot: params.workspaceRoot,
+    symbolLockManager: params.symbolLockManager,
   });
 
   const dynamicModel:
@@ -168,6 +177,8 @@ export function createEngineeringSpecialistAgent(params: {
     createUzinaSkillsCatalogProcessor({
       role: params.role,
       skillsDir: params.skillsDir,
+      preferredLeadName: params.preferredLeadSkill,
+      includeCritique: params.includeCritiqueSkills,
     }),
     ...(params.enableSemanticRecall !== false
       ? [createUzinaSemanticRecallProcessor({ db: params.db })]

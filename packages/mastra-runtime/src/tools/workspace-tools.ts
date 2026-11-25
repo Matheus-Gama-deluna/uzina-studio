@@ -22,68 +22,18 @@ import { z } from "zod";
 import { createMemoryScoped } from "../memories.js";
 import { collectOrganizationKnownSecrets } from "../model-resolver.js";
 import { searchQmdScoped } from "../qmd.js";
+import type { SymbolLockManager } from "../symbol-locks.js";
+import {
+  WRITE_ROLES,
+  assertProjectScopeForTool,
+  createRoleSpecializedToolsMap,
+  resolveActorFromContext,
+  resolveProjectIdFromContext,
+  selectRoleSpecializedTools,
+  type WorkspaceToolActor,
+} from "./role-specialized-tools.js";
 
-const WRITE_ROLES = new Set<OrgRole>(["owner", "admin", "developer"]);
-
-export interface WorkspaceToolActor {
-  organizationId: string;
-  userId: string;
-  role: OrgRole;
-}
-
-function resolveActorFromContext(context?: {
-  requestContext?: { get?: (key: string) => unknown };
-}): WorkspaceToolActor {
-  const raw = context?.requestContext?.get?.("actor");
-  if (
-    raw &&
-    typeof raw === "object" &&
-    "organizationId" in raw &&
-    "userId" in raw &&
-    "role" in raw
-  ) {
-    return raw as WorkspaceToolActor;
-  }
-  throw new Error(
-    "TOOL_ACTOR_REQUIRED: ator autenticado obrigatório no RequestContext."
-  );
-}
-
-function resolveProjectIdFromContext(
-  explicitProjectId: string | undefined,
-  context?: { requestContext?: { get?: (key: string) => unknown } }
-): string | undefined {
-  if (explicitProjectId) return explicitProjectId;
-  const ctxVal = context?.requestContext?.get?.("projectId");
-  return typeof ctxVal === "string" && ctxVal.length > 0 ? ctxVal : undefined;
-}
-
-async function assertProjectScopeForTool(
-  db: UzinaDb,
-  projectId: string,
-  organizationId: string
-): Promise<{ id: string; clientId: string; name: string }> {
-  const [proj] = await db
-    .select({
-      id: projects.id,
-      clientId: projects.clientId,
-      name: projects.name,
-    })
-    .from(projects)
-    .innerJoin(clients, eq(projects.clientId, clients.id))
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(clients.organizationId, organizationId)
-      )
-    )
-    .limit(1);
-
-  if (!proj) {
-    throw new Error("Projeto não encontrado ou não pertence à organização.");
-  }
-  return proj;
-}
+export type { WorkspaceToolActor };
 
 export function createWorkspaceToolsForRole(params: {
   db: UzinaDb;
@@ -91,6 +41,9 @@ export function createWorkspaceToolsForRole(params: {
   actorRole: OrgRole;
   masterKey?: Buffer | string | null;
   skillsDir?: string;
+  dataDir?: string;
+  workspaceRoot?: string;
+  symbolLockManager?: SymbolLockManager;
 }): ToolsInput {
   const searchQmdMemoriesTool = createTool({
     id: "search_qmd_memories",
@@ -467,5 +420,57 @@ export function createWorkspaceToolsForRole(params: {
     tools.create_qmd_memory = createQmdMemoryTool;
   }
 
-  return tools;
+  const allSpecialized = createRoleSpecializedToolsMap({
+    db: params.db,
+    masterKey: params.masterKey,
+    dataDir: params.dataDir,
+    workspaceRoot: params.workspaceRoot,
+    symbolLockManager: params.symbolLockManager,
+  });
+  const roleSpecialized = selectRoleSpecializedTools({
+    allTools: allSpecialized,
+    role: params.role,
+    actorRole: params.actorRole,
+  });
+
+  return {
+    ...tools,
+    ...roleSpecialized,
+  };
+}
+
+/**
+ * Monta o catálogo completo de tools do AgentController (filtradas por modo via `CONTROLLER_MODE_TOOLS`).
+ */
+export function createAllControllerWorkspaceTools(params: {
+  db: UzinaDb;
+  masterKey?: Buffer | string | null;
+  skillsDir?: string;
+  dataDir?: string;
+  workspaceRoot?: string;
+  symbolLockManager?: SymbolLockManager;
+}): ToolsInput {
+  const baseTools = createWorkspaceToolsForRole({
+    db: params.db,
+    role: "software_architect",
+    actorRole: "developer",
+    masterKey: params.masterKey,
+    skillsDir: params.skillsDir,
+    dataDir: params.dataDir,
+    workspaceRoot: params.workspaceRoot,
+    symbolLockManager: params.symbolLockManager,
+  });
+
+  const specializedAll = createRoleSpecializedToolsMap({
+    db: params.db,
+    masterKey: params.masterKey,
+    dataDir: params.dataDir,
+    workspaceRoot: params.workspaceRoot,
+    symbolLockManager: params.symbolLockManager,
+  });
+
+  return {
+    ...baseTools,
+    ...specializedAll,
+  };
 }
