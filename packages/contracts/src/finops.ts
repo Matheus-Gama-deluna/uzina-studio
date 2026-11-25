@@ -115,6 +115,26 @@ export type EmbeddingEngineMode = z.infer<typeof EmbeddingEngineModeSchema>;
 export const AstEngineModeSchema = z.enum(["ts_native", "polyglot"]);
 export type AstEngineMode = z.infer<typeof AstEngineModeSchema>;
 
+export const ToolPolicyActionSchema = z.enum(["allow", "ask", "deny"]);
+export type ToolPolicyAction = z.infer<typeof ToolPolicyActionSchema>;
+
+export const ToolPoliciesMapSchema = z
+  .object({
+    readCode: ToolPolicyActionSchema.default("allow"),
+    runTests: ToolPolicyActionSchema.default("allow"),
+    writeFiles: ToolPolicyActionSchema.default("allow"),
+    gitFinalize: ToolPolicyActionSchema.default("allow"),
+  })
+  .strict();
+export type ToolPoliciesMap = z.infer<typeof ToolPoliciesMapSchema>;
+
+export const DEFAULT_TOOL_POLICIES: ToolPoliciesMap = {
+  readCode: "allow",
+  runTests: "allow",
+  writeFiles: "allow",
+  gitFinalize: "allow",
+};
+
 export const EngineOptionTelemetrySchema = z
   .object({
     id: z.string().min(1),
@@ -143,6 +163,7 @@ export const EngineConfigSchema = z
     autoInjectInRunner: z.boolean(),
     dockerCpuLimit: z.string().trim().min(1).max(16),
     dockerMemoryLimit: z.string().trim().min(2).max(16),
+    toolPolicies: ToolPoliciesMapSchema.default(DEFAULT_TOOL_POLICIES),
     updatedAt: z.iso.datetime(),
   })
   .strict();
@@ -161,6 +182,7 @@ export const UpdateEngineConfigSchema = z
     autoInjectInRunner: z.boolean().optional(),
     dockerCpuLimit: z.string().trim().min(1).max(16).optional(),
     dockerMemoryLimit: z.string().trim().min(2).max(16).optional(),
+    toolPolicies: ToolPoliciesMapSchema.partial().optional(),
   })
   .strict();
 export type UpdateEngineConfig = z.infer<typeof UpdateEngineConfigSchema>;
@@ -171,6 +193,8 @@ export const EngineConfigResponseSchema = z
     catalog: z.array(EngineOptionTelemetrySchema),
     activeEmbeddingProviderId: z.string().min(1),
     degraded: z.boolean(),
+    dockerReady: z.boolean().default(false),
+    dockerVersion: z.string().nullable().default(null),
   })
   .strict();
 export type EngineConfigResponse = z.infer<typeof EngineConfigResponseSchema>;

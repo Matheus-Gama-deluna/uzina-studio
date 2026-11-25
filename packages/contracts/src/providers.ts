@@ -46,6 +46,22 @@ export const ProviderProfilePublicSchema = z
   .strict();
 export type ProviderProfilePublic = z.infer<typeof ProviderProfilePublicSchema>;
 
+export function isAllowedGitHubApiBaseUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname.toLowerCase() === "api.github.com" &&
+      (parsed.port === "" || parsed.port === "443") &&
+      (parsed.pathname === "" || parsed.pathname === "/") &&
+      !parsed.search &&
+      !parsed.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const CreateProviderProfileSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
@@ -87,6 +103,18 @@ export const CreateProviderProfileSchema = z
         path: ["baseUrl"],
         message:
           "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
+      });
+    }
+    if (
+      val.providerType === "github_pat" &&
+      val.baseUrl &&
+      !isAllowedGitHubApiBaseUrl(val.baseUrl)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message:
+          "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
       });
     }
   });
@@ -143,6 +171,18 @@ export const TestProviderConnectionRequestSchema = z
         path: ["baseUrl"],
         message:
           "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
+      });
+    }
+    if (
+      val.providerType === "github_pat" &&
+      val.baseUrl &&
+      !isAllowedGitHubApiBaseUrl(val.baseUrl)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message:
+          "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
       });
     }
   });

@@ -68,6 +68,7 @@ import {
   LocalGitWorktreeWorkspace,
   OpenCodeRunner,
   SdkOpenCodeTransport,
+  type DockerProbeResult,
   type ExecutionWorkspace,
   type OpenCodeTransport,
 } from "@uzina/opencode-bridge";
@@ -83,10 +84,16 @@ import { z } from "zod";
 import { WorkflowRuntimeError } from "../errors.js";
 import { recordExecutionEvent } from "../event-bus.js";
 import {
+  createConfiguredExecutionWorkspaceScoped,
   getEngineConfigScoped,
   getProjectAccumulatedCostUsd,
   getProjectAccumulatedTokens,
 } from "../finops.js";
+import {
+  createGitHubDraftPrViaApi,
+  parseGitHubOwnerRepo,
+  resolveOrganizationGitHubPat,
+} from "../github-pr.js";
 import {
   formatMemoriesForPrompt,
   resolveHierarchicalMemories,
@@ -189,6 +196,8 @@ export type FinalizeRunner = (ctx: {
   commitMessage: string;
   prTitle: string;
   prBody: string;
+  githubPat?: string | null;
+  fetchImpl?: typeof fetch;
   signal: AbortSignal;
 }) => Promise<FinalizeOutcome>;
 
@@ -196,6 +205,8 @@ export interface DeliverableWorkflowDeps {
   db: UzinaDb;
   masterKey?: Buffer;
   workspaceFactory?: () => ExecutionWorkspace;
+  dockerProbe?: () => Promise<DockerProbeResult>;
+  githubFetchImpl?: typeof fetch;
   transportFactory?: () => OpenCodeTransport;
   verifyRunner?: VerifyRunner;
   securityRunnerDeps?: RunSecurityScanDeps;
@@ -274,6 +285,26 @@ function isProviderType(raw: string): raw is ProviderType {
     raw === "google" ||
     raw === "ollama"
   );
+}
+
+async function resolveStageWorkspace(
+  deps: DeliverableWorkflowDeps,
+  params: {
+    organizationId: string;
+    deliverableId: string;
+    stage: string;
+  }
+): Promise<ExecutionWorkspace> {
+  if (deps.workspaceFactory) {
+    return deps.workspaceFactory();
+  }
+  const resolved = await createConfiguredExecutionWorkspaceScoped(deps.db, {
+    organizationId: params.organizationId,
+    deliverableId: params.deliverableId,
+    stage: params.stage,
+    ...(deps.dockerProbe ? { dockerProbe: deps.dockerProbe } : {}),
+  });
+  return resolved.workspace;
 }
 
 async function resolveProjectRepository(
@@ -556,6 +587,26 @@ async function findPendingDecisionTypeForStep(
     .orderBy(desc(decisions.updatedAt))
     .limit(1);
   return pending?.decisionType ?? null;
+}
+
+async function hasApprovedToolPolicyForStep(
+  db: UzinaDb,
+  deliverableId: string,
+  mastraStepId: string
+): Promise<boolean> {
+  const [approved] = await db
+    .select({ id: decisions.id })
+    .from(decisions)
+    .where(
+      and(
+        eq(decisions.deliverableId, deliverableId),
+        eq(decisions.mastraStepId, mastraStepId),
+        eq(decisions.decisionType, "tool_policy_approval"),
+        eq(decisions.status, "approved")
+      )
+    )
+    .limit(1);
+  return Boolean(approved);
 }
 
 async function checkBudgetCapExceeded(
@@ -861,6 +912,8 @@ async function defaultFinalizeRunner(ctx: {
   commitMessage: string;
   prTitle: string;
   prBody: string;
+  githubPat?: string | null;
+  fetchImpl?: typeof fetch;
   signal: AbortSignal;
 }): Promise<FinalizeOutcome> {
   const safeBranch = assertSafeBranchRefName(ctx.branchName, "branchName");
@@ -921,6 +974,56 @@ async function defaultFinalizeRunner(ctx: {
   }
 
   if (ctx.remoteUrl) {
+    let apiError: string | null = null;
+    const pat = ctx.githubPat?.trim() || null;
+    const ghRepo = pat ? parseGitHubOwnerRepo(ctx.remoteUrl) : null;
+
+    if (pat && ghRepo) {
+      const isHttpsRemote = ctx.remoteUrl.trim().toLowerCase().startsWith("https://");
+      const basicAuth = Buffer.from(`x-access-token:${pat}`, "utf8").toString("base64");
+      const pushEnv: NodeJS.ProcessEnv = {
+        ...gitEnv,
+        GIT_TERMINAL_PROMPT: "0",
+        ...(isHttpsRemote
+          ? {
+              GIT_CONFIG_COUNT: "1",
+              GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+              GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicAuth}`,
+            }
+          : {}),
+      };
+      const pushRes = await runSubprocessSafe(
+        "git",
+        ["push", "-u", "origin", safeBranch],
+        { cwd: ctx.workspacePath, env: pushEnv, timeoutMs: 60_000, signal: ctx.signal }
+      );
+      if (pushRes.exitCode === 0) {
+        const prApiRes = await createGitHubDraftPrViaApi({
+          owner: ghRepo.owner,
+          repo: ghRepo.repo,
+          head: safeBranch,
+          base: safeBaseBranch,
+          title: ctx.prTitle,
+          body: ctx.prBody,
+          pat,
+          fetchImpl: ctx.fetchImpl,
+          signal: ctx.signal,
+        });
+        if (prApiRes.ok) {
+          return {
+            mode: "draft_pr",
+            commitSha,
+            prUrl: prApiRes.prUrl,
+            shouldDeleteBranchOnCleanup: false,
+            mergeBlockedReason: null,
+          };
+        }
+        apiError = prApiRes.error ?? "Falha ao abrir Draft PR via API REST do GitHub.";
+      } else {
+        apiError = `Falha no git push autenticado via PAT: ${redactSensitiveText(pushRes.stderr, [pat, basicAuth]).slice(0, 240)}`;
+      }
+    }
+
     const ghEnv: NodeJS.ProcessEnv = {
       ...gitEnv,
       GH_TOKEN: process.env.GH_TOKEN,
@@ -979,7 +1082,8 @@ async function defaultFinalizeRunner(ctx: {
         prUrl: null,
         shouldDeleteBranchOnCleanup: false,
         mergeBlockedReason:
-          "Remote ou GitHub CLI (gh) indisponível para abrir Draft PR; branch local preservada.",
+          apiError ??
+          "Remote ou GitHub CLI (gh)/PAT indisponível para abrir Draft PR; branch local preservada.",
       };
     }
   } else if (policy === "draft_pr") {
@@ -2320,6 +2424,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
     suspendSchema: z.object({
       gate: WorkflowGateTypeSchema,
       stage: z.string().optional(),
+      toolClass: z.string().optional(),
       estimatedCostUsd: z.number().optional(),
       budgetCapUsd: z.number().optional(),
     }),
@@ -2349,12 +2454,16 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         });
       }
 
-      const workspace =
-        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+      const workspace = await resolveStageWorkspace(deps, {
+        organizationId: currentState.organizationId,
+        deliverableId: row.id,
+        stage: "stage_contract_and_tests",
+      });
       const currentStatus = parseDeliverableStatus(row.status);
+      let resumedContractDecisionType: DecisionType | null = null;
 
       if (resumeData) {
-        const pendingType = await findPendingDecisionTypeForStep(
+        resumedContractDecisionType = await findPendingDecisionTypeForStep(
           db,
           row.id,
           "stage_contract_and_tests"
@@ -2362,7 +2471,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         await syncPendingDecisionResolution(db, {
           deliverableId: row.id,
           mastraStepId: "stage_contract_and_tests",
-          decisionType: pendingType ?? "stage_gate_approve",
+          decisionType: resumedContractDecisionType ?? "stage_gate_approve",
           status: resumeData.decision,
           humanFeedback: resumeData.feedback ?? null,
         });
@@ -2525,6 +2634,86 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         });
       }
 
+      const engineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+        includeDockerProbe: false,
+      });
+      const contractReadPolicy = engineCfg.config.toolPolicies.readCode;
+      const contractWritePolicy = engineCfg.config.toolPolicies.writeFiles;
+
+      if (contractReadPolicy === "deny" || contractWritePolicy === "deny") {
+        const deniedClass =
+          contractReadPolicy === "deny" ? "readCode" : "writeFiles";
+        const denyMsg =
+          deniedClass === "readCode"
+            ? "Política granular bloqueou leitura de código em Contract & Tests ('readCode=deny')."
+            : "Política granular bloqueou escrita de contrato/testes ('writeFiles=deny').";
+        await recordExecutionEvent(db, {
+          deliverableId: row.id,
+          stage: "stage_contract_and_tests",
+          actorRole: "builder",
+          eventType: "tool_call",
+          payload: {
+            phase: "result",
+            toolName: `tool_policy:${deniedClass}`,
+            status: "error",
+            summary: denyMsg,
+          },
+        });
+        await safeCleanupWorkspace(workspace, false);
+        assertValidTransition(effectiveContractStatus, "failed", {
+          hasUi: currentState.hasUi,
+        });
+        await db
+          .update(deliverables)
+          .set({
+            status: "failed",
+            pausedFromStatus: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, row.id));
+        failWorkflow(
+          new WorkflowRuntimeError({
+            statusCode: 403,
+            code: "TOOL_POLICY_DENIED",
+            message: denyMsg,
+          })
+        );
+      }
+
+      const contractPolicyApproved =
+        resumeData?.decision === "approved" &&
+        (resumedContractDecisionType === "tool_policy_approval" ||
+          (await hasApprovedToolPolicyForStep(
+            db,
+            row.id,
+            "stage_contract_and_tests"
+          )));
+
+      if (
+        (contractReadPolicy === "ask" || contractWritePolicy === "ask") &&
+        !contractPolicyApproved
+      ) {
+        const askClass =
+          contractReadPolicy === "ask" ? "readCode" : "writeFiles";
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_contract_and_tests",
+          decisionType: "tool_policy_approval",
+          summary: `Aprovar política '${askClass}=ask' em Contract & Tests para '${row.title}'`,
+          payloadJson: {
+            gate: "tool_policy_approval",
+            stage: "contract_tests",
+            toolClass: askClass,
+          },
+        });
+        return suspend({
+          gate: "tool_policy_approval",
+          stage: "contract_tests",
+          toolClass: askClass,
+        });
+      }
+
       if (inputData.hasUi && inputData.designMdContent) {
         const designTarget = assertPathInsideWorkspace(
           handle.workspacePath,
@@ -2540,13 +2729,22 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
+      const effectiveContractToolPolicies = {
+        ...engineCfg.config.toolPolicies,
+        readCode:
+          contractReadPolicy === "ask" && contractPolicyApproved
+            ? ("allow" as const)
+            : contractReadPolicy,
+        writeFiles:
+          contractWritePolicy === "ask" && contractPolicyApproved
+            ? ("allow" as const)
+            : contractWritePolicy,
+      };
+
       const transport = deps.transportFactory?.() ?? createDefaultTransport();
       const runner = new OpenCodeRunner({
         transport,
         masterKey: deps.masterKey,
-      });
-      const engineCfg = await getEngineConfigScoped(db, {
-        organizationId: currentState.organizationId,
       });
       const codingExecutor = createCodingExecutorAdapter({
         mode: engineCfg.config.codingExecutorMode,
@@ -2577,6 +2775,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stage: "stage_contract_and_tests",
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
+          toolPolicies: effectiveContractToolPolicies,
           ...(deps.codingModelOverride
             ? { modelOverride: deps.codingModelOverride }
             : {}),
@@ -2751,6 +2950,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       stuckAlert: StuckAlertSchema.optional(),
       attempts: z.number().int().positive().optional(),
       stage: z.string().optional(),
+      toolClass: z.string().optional(),
       estimatedCostUsd: z.number().optional(),
       budgetCapUsd: z.number().optional(),
     }),
@@ -2791,15 +2991,19 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
-      const workspace =
-        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+      const workspace = await resolveStageWorkspace(deps, {
+        organizationId: currentState.organizationId,
+        deliverableId: row.id,
+        stage: "stage_build",
+      });
       await workspace.attach(worktreeHandle);
 
       const currentStatus = parseDeliverableStatus(row.status);
       let nextFeedback = currentState.humanFeedback;
+      let resumedBuildDecisionType: DecisionType | null = null;
 
       if (resumeData) {
-        const pendingType = await findPendingDecisionTypeForStep(
+        resumedBuildDecisionType = await findPendingDecisionTypeForStep(
           db,
           row.id,
           "stage_build"
@@ -2807,7 +3011,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         await syncPendingDecisionResolution(db, {
           deliverableId: row.id,
           mastraStepId: "stage_build",
-          decisionType: pendingType ?? "stuck_intervention",
+          decisionType: resumedBuildDecisionType ?? "stuck_intervention",
           status: resumeData.decision,
           humanFeedback: resumeData.feedback ?? null,
         });
@@ -2927,6 +3131,85 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         });
       }
 
+      const engineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+        includeDockerProbe: false,
+      });
+
+      const readPolicy = engineCfg.config.toolPolicies.readCode;
+      const writePolicy = engineCfg.config.toolPolicies.writeFiles;
+      if (readPolicy === "deny" || writePolicy === "deny") {
+        const deniedClass = readPolicy === "deny" ? "readCode" : "writeFiles";
+        const denyMsg =
+          deniedClass === "readCode"
+            ? "Política granular bloqueou leitura de código ('readCode=deny')."
+            : "Política granular bloqueou escrita em arquivos ('writeFiles=deny').";
+        await recordExecutionEvent(db, {
+          deliverableId: row.id,
+          stage: "stage_build",
+          actorRole: "builder",
+          eventType: "tool_call",
+          payload: {
+            phase: "result",
+            toolName: `tool_policy:${deniedClass}`,
+            status: "error",
+            summary: denyMsg,
+          },
+        });
+        await safeCleanupWorkspace(workspace, false);
+        assertValidTransition(effectiveBuildStatus, "failed", {
+          hasUi: currentState.hasUi,
+        });
+        await db
+          .update(deliverables)
+          .set({
+            status: "failed",
+            pausedFromStatus: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(deliverables.id, row.id));
+        failWorkflow(
+          new WorkflowRuntimeError({
+            statusCode: 403,
+            code: "TOOL_POLICY_DENIED",
+            message: denyMsg,
+          })
+        );
+      }
+
+      const buildPolicyApproved =
+        resumeData?.decision === "approved" &&
+        (resumedBuildDecisionType === "tool_policy_approval" ||
+          (await hasApprovedToolPolicyForStep(db, row.id, "stage_build")));
+
+      if ((readPolicy === "ask" || writePolicy === "ask") && !buildPolicyApproved) {
+        const askClass = readPolicy === "ask" ? "readCode" : "writeFiles";
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_build",
+          decisionType: "tool_policy_approval",
+          summary: `Aprovar política '${askClass}=ask' para '${row.title}'`,
+          payloadJson: {
+            gate: "tool_policy_approval",
+            stage: "building",
+            toolClass: askClass,
+          },
+        });
+        return suspend({
+          gate: "tool_policy_approval",
+          stage: "building",
+          toolClass: askClass,
+        });
+      }
+
+      const effectiveBuildToolPolicies = {
+        ...engineCfg.config.toolPolicies,
+        readCode:
+          readPolicy === "ask" && buildPolicyApproved ? ("allow" as const) : readPolicy,
+        writeFiles:
+          writePolicy === "ask" && buildPolicyApproved ? ("allow" as const) : writePolicy,
+      };
+
       const provider = await resolveBuilderProviderProfile(
         db,
         currentState.organizationId
@@ -2935,9 +3218,6 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const runner = new OpenCodeRunner({
         transport,
         masterKey: deps.masterKey,
-      });
-      const engineCfg = await getEngineConfigScoped(db, {
-        organizationId: currentState.organizationId,
       });
       const codingExecutor = createCodingExecutorAdapter({
         mode: engineCfg.config.codingExecutorMode,
@@ -2977,6 +3257,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           stage: "stage_build",
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
+          toolPolicies: effectiveBuildToolPolicies,
           ...(deps.codingModelOverride
             ? { modelOverride: deps.codingModelOverride }
             : {}),
@@ -3201,6 +3482,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
     suspendSchema: z.object({
       gate: WorkflowGateTypeSchema,
       stage: z.string().optional(),
+      toolClass: z.string().optional(),
       estimatedCostUsd: z.number().optional(),
       budgetCapUsd: z.number().optional(),
     }),
@@ -3245,8 +3527,11 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
-      const workspace =
-        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+      const workspace = await resolveStageWorkspace(deps, {
+        organizationId: currentState.organizationId,
+        deliverableId: row.id,
+        stage: "stage_verify",
+      });
       await workspace.attach(worktreeHandle);
 
       const initialVerifyStatus = parseDeliverableStatus(row.status);
@@ -3345,6 +3630,36 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         return suspend({
           gate: "stage_gate_approve",
           stage: "verifying",
+        });
+      }
+
+      const verifyEngineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+        includeDockerProbe: false,
+      });
+      if (
+        verifyEngineCfg.config.toolPolicies.runTests === "ask" &&
+        !(
+          resumeData?.decision === "approved" &&
+          (resumedDecisionType === "tool_policy_approval" ||
+            (await hasApprovedToolPolicyForStep(db, row.id, "stage_verify")))
+        )
+      ) {
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_verify",
+          decisionType: "tool_policy_approval",
+          summary: `Aprovar política 'runTests=ask' para '${row.title}'`,
+          payloadJson: {
+            gate: "tool_policy_approval",
+            stage: "verifying",
+            toolClass: "runTests",
+          },
+        });
+        return suspend({
+          gate: "tool_policy_approval",
+          stage: "verifying",
+          toolClass: "runTests",
         });
       }
 
@@ -3518,41 +3833,61 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
 
         // 2) Comandos determinísticos (somente se TestAuditor passou)
         if (failureReasons.length === 0) {
-          const verifyRunnerStarted = Date.now();
-          await emitVerifyToolTrace({
-            phase: "start",
-            toolName: "verify_runner",
-            targetPath: worktreeHandle.workspacePath,
-            status: "running",
-          });
-          const runner = deps.verifyRunner ?? defaultVerifyRunner;
-          const cmdChecks = await runner({
-            deliverableId: row.id,
-            workspacePath: worktreeHandle.workspacePath,
-            workspace,
-            attemptNumber,
-            signal: heartbeat.signal,
-          });
-          verifyChecks.push(...cmdChecks);
-          const verifyRunnerDurationMs = Math.max(
-            1,
-            Date.now() - verifyRunnerStarted
-          );
-          const failedCmd = cmdChecks.find((c) => !c.passed);
-          await emitVerifyToolTrace({
-            phase: "result",
-            toolName: "verify_runner",
-            targetPath: worktreeHandle.workspacePath,
-            durationMs: verifyRunnerDurationMs,
-            status: failedCmd ? "error" : "ok",
-            summary: failedCmd
-              ? `${failedCmd.name}: ${failedCmd.summary}`
-              : `${cmdChecks.length} check(s) determinístico(s) aprovado(s).`,
-          });
-          if (failedCmd) {
-            failureReasons.push(
-              `Verify runner falhou em '${failedCmd.name}': ${failedCmd.summary}`
+          if (verifyEngineCfg.config.toolPolicies.runTests === "deny") {
+            const denySummary =
+              "Política granular bloqueou execução de testes ('runTests=deny').";
+            await emitVerifyToolTrace({
+              phase: "result",
+              toolName: "verify_runner",
+              targetPath: worktreeHandle.workspacePath,
+              durationMs: 0,
+              status: "error",
+              summary: denySummary,
+            });
+            verifyChecks.push({
+              name: "policy:runTests",
+              passed: false,
+              durationMs: 0,
+              summary: denySummary,
+            });
+            failureReasons.push(denySummary);
+          } else {
+            const verifyRunnerStarted = Date.now();
+            await emitVerifyToolTrace({
+              phase: "start",
+              toolName: "verify_runner",
+              targetPath: worktreeHandle.workspacePath,
+              status: "running",
+            });
+            const runner = deps.verifyRunner ?? defaultVerifyRunner;
+            const cmdChecks = await runner({
+              deliverableId: row.id,
+              workspacePath: worktreeHandle.workspacePath,
+              workspace,
+              attemptNumber,
+              signal: heartbeat.signal,
+            });
+            verifyChecks.push(...cmdChecks);
+            const verifyRunnerDurationMs = Math.max(
+              1,
+              Date.now() - verifyRunnerStarted
             );
+            const failedCmd = cmdChecks.find((c) => !c.passed);
+            await emitVerifyToolTrace({
+              phase: "result",
+              toolName: "verify_runner",
+              targetPath: worktreeHandle.workspacePath,
+              durationMs: verifyRunnerDurationMs,
+              status: failedCmd ? "error" : "ok",
+              summary: failedCmd
+                ? `${failedCmd.name}: ${failedCmd.summary}`
+                : `${cmdChecks.length} check(s) determinístico(s) aprovado(s).`,
+            });
+            if (failedCmd) {
+              failureReasons.push(
+                `Verify runner falhou em '${failedCmd.name}': ${failedCmd.summary}`
+              );
+            }
           }
         }
 
@@ -4351,8 +4686,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       "Realiza commit padronizado, abre Draft PR ou merge local seguro, transita para merged e limpa o worktree.",
     inputSchema: DeliveryCycleIOSchema,
     outputSchema: DeliverableLifecycleOutputSchema,
+    suspendSchema: z.object({
+      gate: WorkflowGateTypeSchema,
+      stage: z.string().optional(),
+      toolClass: z.string().optional(),
+    }),
+    resumeSchema: WorkflowResumeInputSchema,
     stateSchema: WorkflowRuntimeStateSchema,
-    execute: async ({ inputData, getState, setState, abortSignal }) => {
+    execute: async ({ inputData, resumeData, getState, setState, suspend, abortSignal }) => {
       const currentState = await getState();
 
       if (inputData.rejected || inputData.failed || !inputData.approved) {
@@ -4393,68 +4734,181 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
+      let resumedFinalizeDecisionType: DecisionType | null = null;
+      if (resumeData) {
+        resumedFinalizeDecisionType = await findPendingDecisionTypeForStep(
+          db,
+          row.id,
+          "stage_finalize"
+        );
+        await syncPendingDecisionResolution(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_finalize",
+          decisionType: resumedFinalizeDecisionType ?? "tool_policy_approval",
+          status: resumeData.decision,
+          humanFeedback: resumeData.feedback ?? null,
+        });
+
+        if (resumeData.decision === "rejected") {
+          const rejectStatus = parseDeliverableStatus(row.status);
+          assertValidTransition(rejectStatus, "failed", {
+            hasUi: currentState.hasUi,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "failed",
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
+          const nextHistory = appendStageHistory(
+            currentState.stageHistory,
+            "stage_finalize"
+          );
+          await setState({
+            ...currentState,
+            rejected: true,
+            stageHistory: nextHistory,
+          });
+          return {
+            rejected: true,
+            deliverableId: row.id,
+            deliverableStatus: "failed" as const,
+            worktreeHandle,
+            contractTestFiles: inputData.contractTestFiles,
+            stageHistory: nextHistory,
+            evidencePack: currentState.evidencePack,
+          };
+        }
+      }
+
       const repo = await resolveProjectRepository(db, row.repositoryId);
       const { finalizePolicy } = await resolveProjectAutomationAndBudget(
         db,
         row.projectId
       );
-      const workspace =
-        deps.workspaceFactory?.() ?? new LocalGitWorktreeWorkspace();
+      const workspace = await resolveStageWorkspace(deps, {
+        organizationId: currentState.organizationId,
+        deliverableId: row.id,
+        stage: "stage_finalize",
+      });
       await workspace.attach(worktreeHandle);
+
+      const finalizeEngineCfg = await getEngineConfigScoped(db, {
+        organizationId: currentState.organizationId,
+        includeDockerProbe: false,
+      });
+
+      const gitFinalizePolicy = finalizeEngineCfg.config.toolPolicies.gitFinalize;
+      if (
+        gitFinalizePolicy === "ask" &&
+        !(
+          resumeData?.decision === "approved" &&
+          (resumedFinalizeDecisionType === "tool_policy_approval" ||
+            (await hasApprovedToolPolicyForStep(db, row.id, "stage_finalize")))
+        )
+      ) {
+        await upsertPendingDecision(db, {
+          deliverableId: row.id,
+          mastraStepId: "stage_finalize",
+          decisionType: "tool_policy_approval",
+          summary: `Aprovar finalização Git ('gitFinalize=ask') para '${row.title}'`,
+          payloadJson: {
+            gate: "tool_policy_approval",
+            stage: "stage_finalize",
+            toolClass: "gitFinalize",
+          },
+        });
+        return suspend({
+          gate: "tool_policy_approval",
+          stage: "stage_finalize",
+          toolClass: "gitFinalize",
+        });
+      }
 
       const finalizeFn = deps.finalizeRunner ?? defaultFinalizeRunner;
       let outcome: FinalizeOutcome;
-      try {
-        outcome = await finalizeFn({
-          deliverableId: row.id,
-          workspacePath: worktreeHandle.workspacePath,
-          repoPath: repo?.localPath ?? worktreeHandle.repoPath,
-          remoteUrl: repo?.remoteUrl ?? null,
-          branchName: worktreeHandle.branchName,
-          baseBranch: worktreeHandle.baseBranch,
-          finalizePolicy,
-          commitMessage: `feat(deliverable): ${row.title}`,
-          prTitle: `[Uzina] ${row.title}`,
-          prBody: currentState.evidencePack
-            ? `Pacote de evidências aprovado (${currentState.evidencePack.verifyAttempts} tentativa(s) de verify).`
-            : row.description ?? row.title,
-          signal: abortSignal ?? new AbortController().signal,
-        });
-      } catch (error) {
-        const currentStatus = parseDeliverableStatus(row.status);
-        assertValidTransition(currentStatus, "failed", {
-          hasUi: currentState.hasUi,
-        });
-        await db
-          .update(deliverables)
-          .set({
-            status: "failed",
-            updatedAt: new Date(),
-          })
-          .where(eq(deliverables.id, row.id));
-
+      if (gitFinalizePolicy === "deny") {
+        const denyReason =
+          "Política granular bloqueou finalização Git ('gitFinalize=deny'); branch local preservada.";
         await recordExecutionEvent(db, {
           deliverableId: row.id,
           stage: "stage_finalize",
           actorRole: "builder",
-          eventType: "error",
+          eventType: "tool_call",
           payload: {
-            message: redactSensitiveText(
-              error instanceof Error ? error.message : String(error)
-            ),
+            phase: "result",
+            toolName: "git_finalize",
+            status: "error",
+            summary: denyReason,
           },
         });
+        outcome = {
+          mode: "local_branch_ready",
+          commitSha: null,
+          prUrl: null,
+          shouldDeleteBranchOnCleanup: false,
+          mergeBlockedReason: denyReason,
+        };
+      } else {
+        const githubPat = await resolveOrganizationGitHubPat(db, {
+          organizationId: currentState.organizationId,
+          masterKey: deps.masterKey,
+        });
+        try {
+          outcome = await finalizeFn({
+            deliverableId: row.id,
+            workspacePath: worktreeHandle.workspacePath,
+            repoPath: repo?.localPath ?? worktreeHandle.repoPath,
+            remoteUrl: repo?.remoteUrl ?? null,
+            branchName: worktreeHandle.branchName,
+            baseBranch: worktreeHandle.baseBranch,
+            finalizePolicy,
+            commitMessage: `feat(deliverable): ${row.title}`,
+            prTitle: `[Uzina] ${row.title}`,
+            prBody: currentState.evidencePack
+              ? `Pacote de evidências aprovado (${currentState.evidencePack.verifyAttempts} tentativa(s) de verify).`
+              : row.description ?? row.title,
+            githubPat,
+            fetchImpl: deps.githubFetchImpl,
+            signal: abortSignal ?? new AbortController().signal,
+          });
+        } catch (error) {
+          const currentStatus = parseDeliverableStatus(row.status);
+          assertValidTransition(currentStatus, "failed", {
+            hasUi: currentState.hasUi,
+          });
+          await db
+            .update(deliverables)
+            .set({
+              status: "failed",
+              updatedAt: new Date(),
+            })
+            .where(eq(deliverables.id, row.id));
 
-        failWorkflow(
-          new WorkflowRuntimeError({
-            statusCode: 500,
-            code: "EXECUTION_FAILED",
-            message: redactSensitiveText(
-              error instanceof Error ? error.message : "Falha na finalização Git."
-            ),
-            cause: error,
-          })
-        );
+          await recordExecutionEvent(db, {
+            deliverableId: row.id,
+            stage: "stage_finalize",
+            actorRole: "builder",
+            eventType: "error",
+            payload: {
+              message: redactSensitiveText(
+                error instanceof Error ? error.message : String(error)
+              ),
+            },
+          });
+
+          failWorkflow(
+            new WorkflowRuntimeError({
+              statusCode: 500,
+              code: "EXECUTION_FAILED",
+              message: redactSensitiveText(
+                error instanceof Error ? error.message : "Falha na finalização Git."
+              ),
+              cause: error,
+            })
+          );
+        }
       }
 
       await safeCleanupWorkspace(workspace, outcome.shouldDeleteBranchOnCleanup);

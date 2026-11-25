@@ -2,10 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  DEFAULT_TOOL_POLICIES,
   EngineConfigResponseSchema,
   type AstEngineMode,
   type CodingExecutorMode,
   type EmbeddingEngineMode,
+  type ToolPoliciesMap,
+  type ToolPolicyAction,
   type WorkspaceKind,
 } from "@uzina/contracts";
 import { Check, Cpu, HardDrive, Save, Sliders, Zap } from "lucide-react";
@@ -23,7 +26,18 @@ interface EngineDraft {
   ollamaEmbeddingModel?: string;
   dockerCpuLimit?: string;
   dockerMemoryLimit?: string;
+  toolPolicies?: ToolPoliciesMap;
 }
+
+const TOOL_POLICY_ITEMS: Array<{
+  key: keyof ToolPoliciesMap;
+  label: string;
+}> = [
+  { key: "readCode", label: "Leitura de Código" },
+  { key: "runTests", label: "Execução de Testes" },
+  { key: "writeFiles", label: "Escrita em Arquivos" },
+  { key: "gitFinalize", label: "Finalização Git (Merge / PR)" },
+];
 
 export function EngineConfigPanel() {
   const queryClient = useQueryClient();
@@ -60,6 +74,8 @@ export function EngineConfigPanel() {
   const dockerCpuLimit = draft.dockerCpuLimit ?? cfg?.dockerCpuLimit ?? "1.0";
   const dockerMemoryLimit =
     draft.dockerMemoryLimit ?? cfg?.dockerMemoryLimit ?? "512m";
+  const toolPolicies: ToolPoliciesMap =
+    draft.toolPolicies ?? cfg?.toolPolicies ?? DEFAULT_TOOL_POLICIES;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -78,6 +94,7 @@ export function EngineConfigPanel() {
           ollamaEmbeddingModel,
           dockerCpuLimit,
           dockerMemoryLimit,
+          toolPolicies,
         }),
       });
       if (!res.ok) {
@@ -133,9 +150,23 @@ export function EngineConfigPanel() {
         </div>
 
         {data && (
-          <span className="rounded-md border border-border-subtle bg-inset px-2.5 py-1 font-mono text-xs text-fg-secondary">
-            provider ativo: {data.activeEmbeddingProviderId}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              data-testid="engine-docker-ready-badge"
+              className={`rounded-md border px-2.5 py-1 font-mono text-xs ${
+                data.dockerReady
+                  ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
+                  : "border-border-subtle bg-inset text-fg-secondary"
+              }`}
+            >
+              {data.dockerReady
+                ? `Docker v${data.dockerVersion ?? "ativo"}`
+                : "Docker indisponível · fallback Worktree"}
+            </span>
+            <span className="rounded-md border border-border-subtle bg-inset px-2.5 py-1 font-mono text-xs text-fg-secondary">
+              provider ativo: {data.activeEmbeddingProviderId}
+            </span>
+          </div>
         )}
       </div>
 
@@ -374,6 +405,51 @@ export function EngineConfigPanel() {
                 className="w-28 rounded border border-border-subtle bg-inset px-2.5 py-1.5 font-mono text-xs text-fg-primary focus:border-accent focus:outline-none"
               />
             </div>
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-border-subtle bg-inset/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold text-fg-primary">
+              Políticas Granulares por Classe de Ferramenta (allow · ask · deny)
+            </h3>
+            <span className="text-xs text-fg-muted">
+              Aplicado imediatamente no Mastra Workspace e gates HITL.
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {TOOL_POLICY_ITEMS.map((item) => {
+              const selectId = `tool-policy-${item.key}`;
+              return (
+                <div key={item.key} className="min-w-0">
+                  <label
+                    htmlFor={selectId}
+                    className="block text-xs font-medium text-fg-secondary"
+                  >
+                    {item.label}
+                  </label>
+                  <select
+                    id={selectId}
+                    data-testid={selectId}
+                    value={toolPolicies[item.key]}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        toolPolicies: {
+                          ...(prev.toolPolicies ?? toolPolicies),
+                          [item.key]: e.target.value as ToolPolicyAction,
+                        },
+                      }))
+                    }
+                    className="mt-1 min-h-9 w-full rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+                  >
+                    <option value="allow">Permitir (allow)</option>
+                    <option value="ask">Solicitar aprovação (ask)</option>
+                    <option value="deny">Bloquear (deny)</option>
+                  </select>
+                </div>
+              );
+            })}
           </div>
         </div>
 

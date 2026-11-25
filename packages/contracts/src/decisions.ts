@@ -153,6 +153,7 @@ export const ExecutionEventTypeSchema = z.enum([
   "stuck_alert",
   "verify_result",
   "token_usage",
+  "fallback_to_worktree",
   "error",
 ]);
 export type ExecutionEventType = z.infer<typeof ExecutionEventTypeSchema>;

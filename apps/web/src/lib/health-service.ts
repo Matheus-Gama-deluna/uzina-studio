@@ -6,10 +6,15 @@ import {
   type HealthPublic,
 } from "@uzina/contracts";
 import { checkDbHealth } from "@uzina/db";
+import {
+  probeDockerDaemon,
+  type DockerProbeResult,
+} from "@uzina/mastra-runtime";
 import { NextResponse } from "next/server";
 import { getAuth, getAuthStatus } from "./auth";
 
 export type DbHealthProbe = (timeoutMs?: number) => Promise<DatabaseHealthCheck>;
+export type DockerHealthProbe = () => Promise<DockerProbeResult>;
 
 export async function getPublicHealth(
   probe: DbHealthProbe = checkDbHealth
@@ -30,7 +35,8 @@ export async function getPublicHealth(
 }
 
 export async function getDetailedHealth(
-  probe: DbHealthProbe = checkDbHealth
+  probe: DbHealthProbe = checkDbHealth,
+  dockerProbe: DockerHealthProbe = probeDockerDaemon
 ): Promise<HealthDetails> {
   let dbCheck: DatabaseHealthCheck;
   try {
@@ -41,6 +47,17 @@ export async function getDetailedHealth(
       mode: "pglite",
       latencyMs: 0,
       errorCode: "DB_PROBE_FAILED",
+    };
+  }
+
+  let dockerCheck: DockerProbeResult;
+  try {
+    dockerCheck = await dockerProbe();
+  } catch {
+    dockerCheck = {
+      ready: false,
+      version: null,
+      errorCode: "DOCKER_UNAVAILABLE",
     };
   }
 
@@ -55,6 +72,7 @@ export async function getDetailedHealth(
     checks: {
       database: dbCheck,
       auth: { status: getAuthStatus() },
+      docker: dockerCheck,
     },
   });
 }
@@ -69,6 +87,7 @@ export function createHealthGetHandler(deps?: { probe?: DbHealthProbe }) {
 
 export function createHealthDetailsGetHandler(deps?: {
   probe?: DbHealthProbe;
+  dockerProbe?: DockerHealthProbe;
 }) {
   return async function GET(request: Request): Promise<Response> {
     let session: unknown;
@@ -88,7 +107,7 @@ export function createHealthDetailsGetHandler(deps?: {
       );
     }
 
-    const payload = await getDetailedHealth(deps?.probe);
+    const payload = await getDetailedHealth(deps?.probe, deps?.dockerProbe);
     const httpStatus = payload.status === "error" ? 503 : 200;
     return NextResponse.json(payload, { status: httpStatus });
   };

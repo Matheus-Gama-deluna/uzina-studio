@@ -23,6 +23,7 @@ import {
   ToolCallTracePayloadSchema,
   type CodingExecutorMode,
   type OpenCodeRunSessionOptionsInput,
+  type ToolPoliciesMap,
   type WorkspaceKind,
 } from "@uzina/contracts";
 import { assertPathInsideWorkspace, redactSensitiveText } from "@uzina/core";
@@ -250,6 +251,7 @@ export interface CodingAdapterExecutionOptions<
   stage?: string;
   budgetCapUsd?: number | null;
   workspaceKind?: WorkspaceKind;
+  toolPolicies?: ToolPoliciesMap;
   modelOverride?: MastraModelConfig;
 }
 
@@ -268,6 +270,53 @@ export class OpenCodeExecutorAdapter implements CodingExecutorAdapter {
   async runSession<TSchema extends z.ZodTypeAny = z.ZodUnknown>(
     options: OpenCodeRunSessionOptionsInput & CodingAdapterExecutionOptions<TSchema>
   ): Promise<RunSessionOutput<TSchema>> {
+    const mode = options.mode ?? "build";
+    const blockedClass =
+      options.toolPolicies?.readCode === "deny" ||
+      options.toolPolicies?.readCode === "ask"
+        ? ("readCode" as const)
+        : mode === "build" &&
+            (options.toolPolicies?.writeFiles === "deny" ||
+              options.toolPolicies?.writeFiles === "ask")
+          ? ("writeFiles" as const)
+          : null;
+
+    if (blockedClass) {
+      const blockedAction = options.toolPolicies![blockedClass];
+      const msg = `Execução OpenCode bloqueada pela política granular '${blockedClass}=${blockedAction}'.`;
+      if (options.db && options.deliverableId) {
+        await recordExecutionEvent(options.db, {
+          deliverableId: options.deliverableId,
+          stage: options.stage ?? "stage_build",
+          actorRole: options.role,
+          eventType: "tool_call",
+          payload: {
+            phase: "result",
+            toolName: `tool_policy:${blockedClass}`,
+            status: "error",
+            summary: msg,
+          },
+        }).catch(() => undefined);
+      }
+      return OpenCodeSessionResultSchema.parse({
+        sessionId: null,
+        status: "error",
+        mode,
+        role: options.role,
+        lockedModelId:
+          options.providerConfig.roleBindings[options.role]?.modelId ??
+          "opencode-policy-blocked",
+        finalText: "",
+        stuckAlert: null,
+        touchedFiles: [],
+        commandsExecuted: [],
+        tokenUsage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+        turns: 0,
+        durationMs: 0,
+        errorMessage: msg,
+      }) as RunSessionOutput<TSchema>;
+    }
+
     return this.runner.runSession({
       ...options,
       outputSchema: options.outputSchema,
@@ -375,18 +424,52 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
         }
       }
 
-      if (ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.READ_FILE) {
-        for (const c of candidates) {
-          readFilesNormalized.add(normalizeTrackerKey(c, workspaceRoot));
-        }
-      }
-
       const isWriteOp =
         ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.WRITE_FILE ||
         ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.EDIT_FILE ||
         ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.AST_EDIT ||
         ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.DELETE ||
         ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.APPLY_PATCH;
+
+      const isReadOp =
+        ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.READ_FILE ||
+        ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.LIST_FILES ||
+        ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.FILE_STAT ||
+        ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.GREP;
+
+      const policyClass = isWriteOp
+        ? ("writeFiles" as const)
+        : isReadOp
+          ? ("readCode" as const)
+          : null;
+      const policyAction = policyClass
+        ? options.toolPolicies?.[policyClass]
+        : undefined;
+
+      if (policyAction === "deny" || policyAction === "ask") {
+        const denyMsg = `Execução bloqueada pela política granular '${policyClass}=${policyAction}'.`;
+        if (options.db && options.deliverableId) {
+          const targetPath = resolveTargetPathPreview(ctx.input);
+          await emitToolTrace({
+            phase: "result",
+            toolName: ctx.workspaceToolName,
+            ...(targetPath ? { targetPath } : {}),
+            durationMs: 0,
+            status: "error",
+            summary: denyMsg,
+          });
+        }
+        return {
+          proceed: false as const,
+          output: { error: denyMsg },
+        };
+      }
+
+      if (ctx.workspaceToolName === WORKSPACE_TOOLS.FILESYSTEM.READ_FILE) {
+        for (const c of candidates) {
+          readFilesNormalized.add(normalizeTrackerKey(c, workspaceRoot));
+        }
+      }
 
       if (isWriteOp && options.mode === "plan") {
         return {

@@ -1,0 +1,1 @@
+ALTER TABLE "engine_configs" ADD COLUMN "tool_policies_json" jsonb DEFAULT '{"readCode":"allow","runTests":"allow","writeFiles":"allow","gitFinalize":"allow"}'::jsonb NOT NULL;

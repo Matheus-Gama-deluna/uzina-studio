@@ -4,7 +4,7 @@ import {
 } from "@uzina/contracts";
 import { encryptSecret, maskApiKey } from "@uzina/core";
 import { getDb, providerProfiles } from "@uzina/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { jsonError, parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, VAULT_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -59,7 +59,14 @@ export async function POST(request: Request): Promise<Response> {
       await tx
         .update(providerProfiles)
         .set({ isDefault: false, updatedAt: new Date() })
-        .where(eq(providerProfiles.organizationId, guard.actor.organizationId));
+        .where(
+          and(
+            eq(providerProfiles.organizationId, guard.actor.organizationId),
+            body.data.providerType === "github_pat"
+              ? eq(providerProfiles.providerType, "github_pat")
+              : ne(providerProfiles.providerType, "github_pat")
+          )
+        );
     }
 
     const [row] = await tx

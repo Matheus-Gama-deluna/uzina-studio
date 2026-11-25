@@ -1,6 +1,7 @@
 import {
   TestProviderConnectionRequestSchema,
   TestProviderConnectionResponseSchema,
+  isAllowedGitHubApiBaseUrl,
   isPrivateOrLoopbackUrl,
   type AgencyAgentRole,
   type AgentRole,
@@ -23,6 +24,7 @@ export const DEFAULT_PROVIDER_BASE_URLS: Record<ProviderType, string> = {
   anthropic: "https://api.anthropic.com/v1",
   omniroute: "http://localhost:8080/v1",
   ollama: "http://127.0.0.1:11434",
+  github_pat: "https://api.github.com",
 };
 
 export const DEFAULT_PROVIDER_MODELS: Record<
@@ -48,6 +50,10 @@ export const DEFAULT_PROVIDER_MODELS: Record<
   ollama: {
     tier3: "qwen2.5-coder:7b",
     tier2: "qwen2.5-coder:7b",
+  },
+  github_pat: {
+    tier3: "github-rest-v3",
+    tier2: "github-rest-v3",
   },
 };
 
@@ -160,6 +166,83 @@ export async function callProviderLlmApi(params: {
       error:
         "Provedores cloud (Google/Anthropic) não podem apontar para endereços privados ou loopback.",
     };
+  }
+  if (params.providerType === "github_pat") {
+    if (!isAllowedGitHubApiBaseUrl(baseUrl)) {
+      return {
+        ok: false,
+        providerType: params.providerType,
+        modelId: "github-rest-v3",
+        latencyMs: 0,
+        text: null,
+        error: "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
+      };
+    }
+    const token = params.apiKey?.trim();
+    if (!token) {
+      return {
+        ok: false,
+        providerType: params.providerType,
+        modelId: "github-rest-v3",
+        latencyMs: 0,
+        text: null,
+        error: "GitHub PAT ausente para verificação.",
+      };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), params.timeoutMs ?? 10_000);
+    try {
+      const ghEndpoint = `${baseUrl.replace(/\/+$/, "")}/user`;
+      const res = await fetchFn(ghEndpoint, {
+        method: "GET",
+        redirect: "error",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "Uzina-Studio",
+        },
+        signal: controller.signal,
+      });
+      const json = (await res.json().catch(() => null)) as {
+        login?: string;
+        message?: string;
+      } | null;
+      if (!res.ok) {
+        const msg = json?.message ?? `GitHub retornou HTTP ${res.status}.`;
+        return {
+          ok: false,
+          providerType: params.providerType,
+          modelId: "github-rest-v3",
+          latencyMs: Date.now() - startedAt,
+          text: null,
+          error: redactSensitiveText(msg, [token]).slice(0, 380),
+        };
+      }
+      return {
+        ok: true,
+        providerType: params.providerType,
+        modelId: "github-rest-v3",
+        latencyMs: Date.now() - startedAt,
+        text: json?.login
+          ? `GitHub PAT autenticado (@${json.login})`
+          : "GitHub PAT autenticado",
+        error: null,
+      };
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Falha de rede ao verificar GitHub PAT.";
+      return {
+        ok: false,
+        providerType: params.providerType,
+        modelId: "github-rest-v3",
+        latencyMs: Date.now() - startedAt,
+        text: null,
+        error: redactSensitiveText(msg, [token]).slice(0, 380),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
   }
   const rawModel =
     params.modelId?.trim() ||
@@ -467,7 +550,44 @@ export async function testProviderLlmConnectionScoped(
       });
     }
 
-    resolvedType = parsed.providerType ?? (row.providerType as ProviderType);
+    if (
+      parsed.providerType &&
+      parsed.providerType !== (row.providerType as ProviderType)
+    ) {
+      return TestProviderConnectionResponseSchema.parse({
+        ok: false,
+        providerType: row.providerType as ProviderType,
+        modelId: DEFAULT_PROVIDER_MODELS[row.providerType as ProviderType].tier2,
+        latencyMs: 0,
+        replyPreview: null,
+        error:
+          "Não é permitido sobrescrever o providerType de um perfil armazenado no cofre.",
+      });
+    }
+
+    resolvedType = row.providerType as ProviderType;
+    const storedBaseNormalized = (
+      row.baseUrl ?? DEFAULT_PROVIDER_BASE_URLS[resolvedType]
+    )
+      .trim()
+      .replace(/\/+$/, "");
+    const incomingBaseNormalized = parsed.baseUrl?.trim().replace(/\/+$/, "");
+    if (
+      !parsed.apiKey &&
+      row.encryptedApiKey &&
+      incomingBaseNormalized &&
+      incomingBaseNormalized !== storedBaseNormalized
+    ) {
+      return TestProviderConnectionResponseSchema.parse({
+        ok: false,
+        providerType: resolvedType,
+        modelId: DEFAULT_PROVIDER_MODELS[resolvedType].tier2,
+        latencyMs: 0,
+        replyPreview: null,
+        error:
+          "Não é permitido redirecionar chave armazenada no cofre para outra URL sem reinformar a chave.",
+      });
+    }
     resolvedBaseUrl = parsed.baseUrl ?? row.baseUrl;
     const bindings = (row.roleBindingsJson ?? {}) as RoleBindings;
     resolvedModelId =
@@ -489,6 +609,21 @@ export async function testProviderLlmConnectionScoped(
         latencyMs: 0,
         replyPreview: null,
         error: "URL privada ou loopback não permitida para provedor cloud (anti-SSRF).",
+      });
+    }
+    if (
+      resolvedType === "github_pat" &&
+      resolvedBaseUrl &&
+      !isAllowedGitHubApiBaseUrl(resolvedBaseUrl)
+    ) {
+      return TestProviderConnectionResponseSchema.parse({
+        ok: false,
+        providerType: resolvedType,
+        modelId: resolvedModelId,
+        latencyMs: 0,
+        replyPreview: null,
+        error:
+          "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
       });
     }
 
@@ -536,6 +671,20 @@ export async function testProviderLlmConnectionScoped(
       latencyMs: 0,
       replyPreview: null,
       error: "URL privada ou loopback não permitida para provedor cloud (anti-SSRF).",
+    });
+  }
+  if (
+    resolvedType === "github_pat" &&
+    resolvedBaseUrl &&
+    !isAllowedGitHubApiBaseUrl(resolvedBaseUrl)
+  ) {
+    return TestProviderConnectionResponseSchema.parse({
+      ok: false,
+      providerType: resolvedType,
+      modelId: resolvedModelId ?? DEFAULT_PROVIDER_MODELS[resolvedType].tier2,
+      latencyMs: 0,
+      replyPreview: null,
+      error: "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
     });
   }
 
@@ -592,7 +741,9 @@ export async function invokeOrganizationLlmForAgentScoped(
     .orderBy(desc(providerProfiles.isDefault), desc(providerProfiles.updatedAt));
 
   const primary = profiles.find(
-    (p) => Boolean(p.encryptedApiKey) || p.providerType === "ollama"
+    (p) =>
+      p.providerType !== "github_pat" &&
+      (Boolean(p.encryptedApiKey) || p.providerType === "ollama")
   );
 
   if (!primary) {
