@@ -771,8 +771,16 @@ export const mockEngineConfigResponse = EngineConfigResponseSchema.parse({
     autoInjectInRunner: true,
     dockerCpuLimit: "1.0",
     dockerMemoryLimit: "512m",
+    toolPolicies: {
+      readCode: "allow",
+      runTests: "allow",
+      writeFiles: "allow",
+      gitFinalize: "allow",
+    },
     updatedAt: NOW,
   },
+  dockerReady: false,
+  dockerVersion: null,
   catalog: [
     {
       id: "deterministic",

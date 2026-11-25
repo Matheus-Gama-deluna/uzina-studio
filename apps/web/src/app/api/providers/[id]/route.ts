@@ -1,11 +1,12 @@
 import {
   ProviderTypeSchema,
   UpdateProviderProfileSchema,
+  isAllowedGitHubApiBaseUrl,
   isPrivateOrLoopbackUrl,
 } from "@uzina/contracts";
 import { encryptSecret, maskApiKey } from "@uzina/core";
 import { getDb, providerProfiles } from "@uzina/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
 import { VAULT_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -58,6 +59,17 @@ export async function PATCH(
       code: "VALIDATION_ERROR",
     });
   }
+  if (
+    providerType === "github_pat" &&
+    body.data.baseUrl &&
+    !isAllowedGitHubApiBaseUrl(body.data.baseUrl)
+  ) {
+    return jsonError(400, {
+      error:
+        "GitHub PAT aceita exclusivamente https://api.github.com como Base URL.",
+      code: "VALIDATION_ERROR",
+    });
+  }
 
   let nextEncryptedKey = existing.encryptedApiKey;
   let nextPreview = existing.keyPreview;
@@ -77,7 +89,14 @@ export async function PATCH(
       await tx
         .update(providerProfiles)
         .set({ isDefault: false, updatedAt: new Date() })
-        .where(eq(providerProfiles.organizationId, guard.actor.organizationId));
+        .where(
+          and(
+            eq(providerProfiles.organizationId, guard.actor.organizationId),
+            providerType === "github_pat"
+              ? eq(providerProfiles.providerType, "github_pat")
+              : ne(providerProfiles.providerType, "github_pat")
+          )
+        );
     }
 
     const [row] = await tx

@@ -31,6 +31,7 @@ const PROVIDER_LABELS: Record<ProviderType, string> = {
   anthropic: "Anthropic Direct (Claude)",
   omniroute: "OmniRoute Gateway",
   ollama: "Ollama Local (Sem Chave Externa)",
+  github_pat: "GitHub PAT (Draft PR)",
 };
 
 const PROVIDER_PRESETS: Record<
@@ -108,6 +109,14 @@ const PROVIDER_PRESETS: Record<
       "llama3.2",
       "deepseek-r1:8b",
     ],
+  },
+  github_pat: {
+    defaultName: "GitHub PAT (Draft PR)",
+    baseUrl: "https://api.github.com",
+    keyPlaceholder: "ghp_... ou github_pat_...",
+    tier3Model: "github-rest-v3",
+    tier2Model: "github-rest-v3",
+    suggestions: ["github-rest-v3"],
   },
 };
 
@@ -192,6 +201,9 @@ export function ProvidersManager() {
     if (!editing && (!name.trim() || Object.values(PROVIDER_PRESETS).some((p) => p.defaultName === name.trim()))) {
       setName(preset.defaultName);
     }
+    if (!editing && nextType === "github_pat") {
+      setIsDefault(false);
+    }
     setRoleModels(buildBindingsForPreset(nextType, "recommended_tiering"));
     setPingResult(null);
   }
@@ -234,17 +246,21 @@ export function ProvidersManager() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const isGithubPat = providerType === "github_pat";
       const roleBindings: RoleBindings = {};
-      for (const r of AGENT_ROLES) {
-        const val = roleModels[r.key]?.trim();
-        if (val) {
-          roleBindings[r.key] = { modelId: val };
+      if (!isGithubPat) {
+        for (const r of AGENT_ROLES) {
+          const val = roleModels[r.key]?.trim();
+          if (val) {
+            roleBindings[r.key] = { modelId: val };
+          }
         }
       }
 
       const parsedIn = Number(customInputUsd);
       const parsedOut = Number(customOutputUsd);
       const hasCustomRates =
+        !isGithubPat &&
         customInputUsd.trim().length > 0 &&
         customOutputUsd.trim().length > 0 &&
         Number.isFinite(parsedIn) &&
@@ -252,15 +268,17 @@ export function ProvidersManager() {
         Number.isFinite(parsedOut) &&
         parsedOut >= 0;
 
-      const nextCustomPricing = hasCustomRates
-        ? {
-            ...(editing?.customPricing ?? {}),
-            "*": {
-              inputPer1MUsd: parsedIn,
-              outputPer1MUsd: parsedOut,
-            },
-          }
-        : editing?.customPricing;
+      const nextCustomPricing = isGithubPat
+        ? undefined
+        : hasCustomRates
+          ? {
+              ...(editing?.customPricing ?? {}),
+              "*": {
+                inputPer1MUsd: parsedIn,
+                outputPer1MUsd: parsedOut,
+              },
+            }
+          : editing?.customPricing;
 
       if (editing) {
         const res = await fetch(`/api/providers/${editing.id}`, {
@@ -326,7 +344,7 @@ export function ProvidersManager() {
     setProviderType(initialType);
     setBaseUrl(preset.baseUrl);
     setApiKey("");
-    setIsDefault(profiles.length === 0);
+    setIsDefault(initialType === "github_pat" ? false : profiles.length === 0);
     setRoleModels(buildBindingsForPreset(initialType, "recommended_tiering"));
     setCustomPricingOpen(false);
     setCustomInputUsd("");
@@ -434,7 +452,7 @@ export function ProvidersManager() {
       </section>
 
       {/* Guia Rápido de Provedores (1 clique para abrir modal pré-configurado) */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(
           [
             {
@@ -461,6 +479,11 @@ export function ProvidersManager() {
               type: "ollama" as const,
               title: "Ollama 100% Local",
               desc: "Sem chave externa: conecta em http://127.0.0.1:11434 (Qwen/Llama).",
+            },
+            {
+              type: "github_pat" as const,
+              title: "GitHub PAT (Draft PR)",
+              desc: "Token cifrado para git push HTTPS e abertura automática de Draft PR via REST API.",
             },
           ] as const
         ).map((card) => (
@@ -574,7 +597,11 @@ export function ProvidersManager() {
                               className="size-3.5"
                               strokeWidth={1.75}
                             />
-                            <span>Padrão Ativo no Chat</span>
+                            <span>
+                              {profile.providerType === "github_pat"
+                                ? "GitHub PAT Padrão"
+                                : "Padrão Ativo no Chat"}
+                            </span>
                           </span>
                         )}
                       </div>
@@ -642,25 +669,30 @@ export function ProvidersManager() {
                     </div>
                   )}
 
-                  {/* Tabela de Role Bindings (7 papéis) */}
-                  <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3 sm:grid-cols-4 lg:grid-cols-7">
-                    {AGENT_ROLES.map((r) => {
-                      const bound = profile.roleBindings[r.key];
-                      return (
-                        <div
-                          key={r.key}
-                          className="rounded-md border border-border-subtle bg-inset px-2.5 py-2"
-                        >
-                          <p className="truncate text-xs text-fg-muted">
-                            {r.label}
-                          </p>
-                          <p className="truncate font-mono text-xs text-fg-primary">
-                            {bound?.modelId ?? "—"}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {profile.providerType === "github_pat" ? (
+                    <div className="mt-3 rounded-md border border-border-subtle bg-inset px-3 py-2 text-xs text-fg-secondary">
+                      Escopo: Automação de <code className="font-mono text-fg-primary">git push</code> HTTPS e abertura de Draft PR via GitHub REST API (não participa da escala de LLMs).
+                    </div>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3 sm:grid-cols-4 lg:grid-cols-7">
+                      {AGENT_ROLES.map((r) => {
+                        const bound = profile.roleBindings[r.key];
+                        return (
+                          <div
+                            key={r.key}
+                            className="rounded-md border border-border-subtle bg-inset px-2.5 py-2"
+                          >
+                            <p className="truncate text-xs text-fg-muted">
+                              {r.label}
+                            </p>
+                            <p className="truncate font-mono text-xs text-fg-primary">
+                              {bound?.modelId ?? "—"}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </article>
               );
             })}
@@ -776,76 +808,78 @@ export function ProvidersManager() {
               </div>
 
               {/* Presets de 1 Clique para Model Tiering nos 7 Papéis */}
-              <div className="space-y-2 border-t border-border-subtle pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-fg-primary">
-                    Modelos por Papel de Agente (7 especialistas):
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      data-testid="btn-preset-recommended-tiering"
-                      onClick={() =>
-                        setRoleModels(
-                          buildBindingsForPreset(
-                            providerType,
-                            "recommended_tiering"
+              {providerType !== "github_pat" && (
+                <div className="space-y-2 border-t border-border-subtle pt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-fg-primary">
+                      Modelos por Papel de Agente (7 especialistas):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="btn-preset-recommended-tiering"
+                        onClick={() =>
+                          setRoleModels(
+                            buildBindingsForPreset(
+                              providerType,
+                              "recommended_tiering"
+                            )
                           )
-                        )
-                      }
-                      className="rounded border border-border-default bg-elevated px-2.5 py-1 text-xs font-medium text-fg-primary hover:border-border-strong"
-                    >
-                      Preset Tiering (Pro + Flash)
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="btn-preset-fast-economy"
-                      onClick={() =>
-                        setRoleModels(
-                          buildBindingsForPreset(providerType, "fast_economy")
-                        )
-                      }
-                      className="rounded border border-border-subtle bg-inset px-2.5 py-1 text-xs font-medium text-fg-secondary hover:text-fg-primary"
-                    >
-                      Preset 100% Rápido / Free Tier
-                    </button>
+                        }
+                        className="rounded border border-border-default bg-elevated px-2.5 py-1 text-xs font-medium text-fg-primary hover:border-border-strong"
+                      >
+                        Preset Tiering (Pro + Flash)
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="btn-preset-fast-economy"
+                        onClick={() =>
+                          setRoleModels(
+                            buildBindingsForPreset(providerType, "fast_economy")
+                          )
+                        }
+                        className="rounded border border-border-subtle bg-inset px-2.5 py-1 text-xs font-medium text-fg-secondary hover:text-fg-primary"
+                      >
+                        Preset 100% Rápido / Free Tier
+                      </button>
+                    </div>
+                  </div>
+
+                  <datalist id="provider-models-suggestions">
+                    {currentPreset.suggestions.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {AGENT_ROLES.map((r) => (
+                      <div key={r.key} className="space-y-1">
+                        <label
+                          htmlFor={`bind-${r.key}`}
+                          className="flex items-center justify-between text-xs font-medium text-fg-secondary"
+                        >
+                          <span>{r.label}</span>
+                          <span className="font-mono text-xs text-fg-muted">
+                            {r.defaultTier === "tier3" ? "Tier 3" : "Tier 2"}
+                          </span>
+                        </label>
+                        <input
+                          id={`bind-${r.key}`}
+                          list="provider-models-suggestions"
+                          value={roleModels[r.key] ?? ""}
+                          onChange={(e) =>
+                            setRoleModels((prev) => ({
+                              ...prev,
+                              [r.key]: e.target.value,
+                            }))
+                          }
+                          className="min-h-8 w-full rounded border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                <datalist id="provider-models-suggestions">
-                  {currentPreset.suggestions.map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {AGENT_ROLES.map((r) => (
-                    <div key={r.key} className="space-y-1">
-                      <label
-                        htmlFor={`bind-${r.key}`}
-                        className="flex items-center justify-between text-xs font-medium text-fg-secondary"
-                      >
-                        <span>{r.label}</span>
-                        <span className="font-mono text-xs text-fg-muted">
-                          {r.defaultTier === "tier3" ? "Tier 3" : "Tier 2"}
-                        </span>
-                      </label>
-                      <input
-                        id={`bind-${r.key}`}
-                        list="provider-models-suggestions"
-                        value={roleModels[r.key] ?? ""}
-                        onChange={(e) =>
-                          setRoleModels((prev) => ({
-                            ...prev,
-                            [r.key]: e.target.value,
-                          }))
-                        }
-                        className="min-h-8 w-full rounded border border-border-default bg-inset px-2.5 font-mono text-xs text-fg-primary"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
 
               <label className="flex items-center gap-2 pt-1 text-xs text-fg-primary">
                 <input
@@ -854,61 +888,67 @@ export function ProvidersManager() {
                   onChange={(e) => setIsDefault(e.target.checked)}
                   className="size-4 accent-accent"
                 />
-                <span>Definir como provedor padrão da Central Conversacional</span>
+                <span>
+                  {providerType === "github_pat"
+                    ? "Definir como GitHub PAT padrão da organização"
+                    : "Definir como provedor padrão da Central Conversacional"}
+                </span>
               </label>
 
-              <div className="rounded-md border border-border-subtle bg-inset/50 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => setCustomPricingOpen((prev) => !prev)}
-                  className="flex w-full items-center justify-between text-xs font-medium text-fg-secondary hover:text-fg-primary"
-                >
-                  <span>Tarifa customizada FinOps (opcional — USD por 1M tokens)</span>
-                  <span>{customPricingOpen ? "−" : "+"}</span>
-                </button>
-                {customPricingOpen && (
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="provider-custom-input-usd"
-                        className="block text-xs text-fg-secondary"
-                      >
-                        Input (USD / 1M tok)
-                      </label>
-                      <input
-                        id="provider-custom-input-usd"
-                        data-testid="provider-custom-input-usd"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={customInputUsd}
-                        onChange={(e) => setCustomInputUsd(e.target.value)}
-                        placeholder="Ex.: 0.40"
-                        className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
-                      />
+              {providerType !== "github_pat" && (
+                <div className="rounded-md border border-border-subtle bg-inset/50 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomPricingOpen((prev) => !prev)}
+                    className="flex w-full items-center justify-between text-xs font-medium text-fg-secondary hover:text-fg-primary"
+                  >
+                    <span>Tarifa customizada FinOps (opcional — USD por 1M tokens)</span>
+                    <span>{customPricingOpen ? "−" : "+"}</span>
+                  </button>
+                  {customPricingOpen && (
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="provider-custom-input-usd"
+                          className="block text-xs text-fg-secondary"
+                        >
+                          Input (USD / 1M tok)
+                        </label>
+                        <input
+                          id="provider-custom-input-usd"
+                          data-testid="provider-custom-input-usd"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={customInputUsd}
+                          onChange={(e) => setCustomInputUsd(e.target.value)}
+                          placeholder="Ex.: 0.40"
+                          className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="provider-custom-output-usd"
+                          className="block text-xs text-fg-secondary"
+                        >
+                          Output (USD / 1M tok)
+                        </label>
+                        <input
+                          id="provider-custom-output-usd"
+                          data-testid="provider-custom-output-usd"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={customOutputUsd}
+                          onChange={(e) => setCustomOutputUsd(e.target.value)}
+                          placeholder="Ex.: 1.20"
+                          className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="provider-custom-output-usd"
-                        className="block text-xs text-fg-secondary"
-                      >
-                        Output (USD / 1M tok)
-                      </label>
-                      <input
-                        id="provider-custom-output-usd"
-                        data-testid="provider-custom-output-usd"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={customOutputUsd}
-                        onChange={(e) => setCustomOutputUsd(e.target.value)}
-                        placeholder="Ex.: 1.20"
-                        className="min-h-8 w-full rounded border border-border-default bg-surface px-2.5 font-mono text-xs text-fg-primary tabular-nums"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               {pingResult && (
                 <div

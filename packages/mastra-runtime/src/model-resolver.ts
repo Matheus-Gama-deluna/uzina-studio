@@ -222,7 +222,11 @@ export async function collectOrganizationKnownSecrets(
 
   const secrets: string[] = [];
   for (const profile of profiles) {
-    if (!profile.encryptedApiKey || !isProviderType(profile.providerType)) {
+    if (
+      !profile.encryptedApiKey ||
+      (!isProviderType(profile.providerType) &&
+        profile.providerType !== "github_pat")
+    ) {
       continue;
     }
     try {
@@ -230,7 +234,7 @@ export async function collectOrganizationKnownSecrets(
         encrypted: profile.encryptedApiKey,
         masterKey: keyBuf,
         organizationId: profile.organizationId,
-        providerType: profile.providerType,
+        providerType: profile.providerType as ProviderType,
       });
       if (raw && raw !== "ollama" && raw.length >= 6) {
         secrets.push(raw);
@@ -251,12 +255,13 @@ export async function resolveOrganizationModelConfig(
     preferredProviderId?: string;
   }
 ): Promise<ResolvedOrganizationModel | null> {
-  const profiles = await db
+  const rawProfiles = await db
     .select()
     .from(providerProfiles)
     .where(eq(providerProfiles.organizationId, params.organizationId))
     .orderBy(desc(providerProfiles.isDefault), desc(providerProfiles.updatedAt));
 
+  const profiles = rawProfiles.filter((p) => isProviderType(p.providerType));
   if (profiles.length === 0) {
     return null;
   }
@@ -407,11 +412,13 @@ export function createTenantModelResolver(deps: {
         return deps.modelOverride;
       }
 
-      const profiles = await deps.db
+      const rawProfiles = await deps.db
         .select()
         .from(providerProfiles)
         .where(eq(providerProfiles.organizationId, organizationId))
         .orderBy(desc(providerProfiles.isDefault), desc(providerProfiles.updatedAt));
+
+      const profiles = rawProfiles.filter((p) => isProviderType(p.providerType));
 
       const slashIdx = requestedModelId.indexOf("/");
       const requestedProvider =

@@ -47,6 +47,7 @@ const GATE_LABELS: Record<string, string> = {
   visual_approve: "Estúdio Visual",
   stage_gate_approve: "Aprovação de Fase",
   budget_cap_pause: "Teto de Orçamento",
+  tool_policy_approval: "Aprovação de Política de Ferramenta",
   pr_evidence_approve: "PR & Evidências",
   stuck_intervention: "Intervenção Stuck",
 };

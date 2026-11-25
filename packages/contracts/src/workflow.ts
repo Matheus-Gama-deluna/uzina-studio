@@ -225,6 +225,7 @@ export const WorkflowGateTypeSchema = z.enum([
   "stuck_intervention",
   "stage_gate_approve",
   "budget_cap_pause",
+  "tool_policy_approval",
 ]);
 export type WorkflowGateType = z.infer<typeof WorkflowGateTypeSchema>;
 

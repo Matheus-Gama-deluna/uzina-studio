@@ -325,3 +325,55 @@ export class DockerExecutionWorkspace implements ExecutionWorkspace {
     await this.inner.cleanup(options);
   }
 }
+
+export interface DockerProbeResult {
+  ready: boolean;
+  version: string | null;
+  errorCode?: string;
+}
+
+export async function probeDockerDaemon(options?: {
+  timeoutMs?: number;
+  runner?: DockerCommandRunner;
+}): Promise<DockerProbeResult> {
+  const timeoutMs = Math.min(Math.max(options?.timeoutMs ?? 2500, 200), 15_000);
+  const runner = options?.runner ?? defaultDockerRunner;
+  try {
+    const res = await runner({
+      args: ["version", "--format", "{{.Server.Version}}"],
+      timeoutMs,
+    });
+    if (res.timedOut) {
+      return {
+        ready: false,
+        version: null,
+        errorCode: "DOCKER_TIMEOUT",
+      };
+    }
+    if (res.exitCode !== 0) {
+      return {
+        ready: false,
+        version: null,
+        errorCode: "DOCKER_UNAVAILABLE",
+      };
+    }
+    const cleanVersion = res.stdout.trim().split(/\r?\n/)[0]?.trim() || null;
+    if (!cleanVersion) {
+      return {
+        ready: false,
+        version: null,
+        errorCode: "DOCKER_UNAVAILABLE",
+      };
+    }
+    return {
+      ready: true,
+      version: cleanVersion,
+    };
+  } catch {
+    return {
+      ready: false,
+      version: null,
+      errorCode: "DOCKER_UNAVAILABLE",
+    };
+  }
+}

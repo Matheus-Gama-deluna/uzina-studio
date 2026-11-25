@@ -708,7 +708,7 @@ export async function resolveAgencyTeamWithTieringScoped(
     .where(eq(providerProfiles.organizationId, organizationId))
     .orderBy(desc(providerProfiles.isDefault), desc(providerProfiles.updatedAt));
 
-  const primaryProvider = profiles[0];
+  const primaryProvider = profiles.find((p) => p.providerType !== "github_pat");
   const bindings = primaryProvider?.roleBindingsJson ?? {};
   const providerPrefix = primaryProvider?.providerType ?? "google";
 
@@ -866,7 +866,9 @@ export async function getSystemReadinessScoped(
       : [];
 
   const activeProviders = providers.filter(
-    (p) => Boolean(p.encryptedApiKey) || p.providerType === "ollama"
+    (p) =>
+      p.providerType !== "github_pat" &&
+      (Boolean(p.encryptedApiKey) || p.providerType === "ollama")
   );
   const llmProviderConfigured = activeProviders.length > 0;
   const hasProjects = orgProjects.length > 0;

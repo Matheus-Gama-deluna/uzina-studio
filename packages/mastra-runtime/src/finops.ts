@@ -1,10 +1,12 @@
 import {
+  DEFAULT_TOOL_POLICIES,
   EngineConfigResponseSchema,
   FinopsSummaryRequestSchema,
   FinopsSummarySchema,
   LlmUsageCallEventSchema,
   RecordTokenSavingsSchema,
   TokenSavingsTechniqueSchema,
+  ToolPoliciesMapSchema,
   UpdateEngineConfigSchema,
   type EngineConfig,
   type EngineConfigResponse,
@@ -13,6 +15,7 @@ import {
   type RecordTokenSavings,
   type TokenSavingsEvent,
   type TokenSavingsTechnique,
+  type ToolPoliciesMap,
   type UpdateEngineConfig,
   type WorkspaceKind,
 } from "@uzina/contracts";
@@ -36,10 +39,14 @@ import {
 import {
   DockerExecutionWorkspace,
   LocalGitWorktreeWorkspace,
+  probeDockerDaemon,
+  type DockerExecutionWorkspaceOptions,
+  type DockerProbeResult,
   type ExecutionWorkspace,
 } from "@uzina/opencode-bridge";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getProjectCodebaseTreeScoped } from "./codebase.js";
+import { recordExecutionEvent } from "./event-bus.js";
 import { searchQmdScoped } from "./qmd.js";
 
 // Preço médio de referência ($3.00 / 1M input tokens) apenas para estimativa FinOps
@@ -325,6 +332,11 @@ export async function getFinopsSummaryScoped(
 function toEngineConfigDto(
   row: typeof engineConfigs.$inferSelect
 ): EngineConfig {
+  const parsedPolicies = ToolPoliciesMapSchema.safeParse(row.toolPoliciesJson);
+  const toolPolicies: ToolPoliciesMap = parsedPolicies.success
+    ? parsedPolicies.data
+    : { ...DEFAULT_TOOL_POLICIES };
+
   return {
     organizationId: row.organizationId,
     embeddingMode: row.embeddingMode,
@@ -338,6 +350,7 @@ function toEngineConfigDto(
     autoInjectInRunner: row.autoInjectInRunner,
     dockerCpuLimit: row.dockerCpuLimit,
     dockerMemoryLimit: row.dockerMemoryLimit,
+    toolPolicies,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -360,6 +373,8 @@ export async function getEngineConfigScoped(
   params: {
     organizationId: string;
     env?: Record<string, string | undefined>;
+    dockerProbe?: () => Promise<DockerProbeResult>;
+    includeDockerProbe?: boolean;
   }
 ): Promise<EngineConfigResponse> {
   const env = params.env ?? process.env;
@@ -402,6 +417,7 @@ export async function getEngineConfigScoped(
         autoInjectInRunner: true,
         dockerCpuLimit: "1.0",
         dockerMemoryLimit: "512m",
+        toolPolicies: { ...DEFAULT_TOOL_POLICIES },
         updatedAt: new Date().toISOString(),
       };
     } else {
@@ -431,12 +447,22 @@ export async function getEngineConfigScoped(
 
   const config = fallbackConfig ?? toEngineConfigDto(row!);
   const provider = buildProviderFromConfig(config);
+  const shouldProbeDocker = params.includeDockerProbe ?? true;
+  const dockerStatus: DockerProbeResult = shouldProbeDocker
+    ? await (params.dockerProbe ?? probeDockerDaemon)().catch(() => ({
+        ready: false,
+        version: null,
+        errorCode: "DOCKER_UNAVAILABLE",
+      }))
+    : { ready: false, version: null };
 
   return EngineConfigResponseSchema.parse({
     config,
     catalog: ENGINE_OPTIONS_CATALOG,
     activeEmbeddingProviderId: provider.id,
     degraded: provider.degraded,
+    dockerReady: dockerStatus.ready,
+    dockerVersion: dockerStatus.version,
   });
 }
 
@@ -445,10 +471,20 @@ export async function updateEngineConfigScoped(
   params: {
     organizationId: string;
     input: UpdateEngineConfig;
+    dockerProbe?: () => Promise<DockerProbeResult>;
   }
 ): Promise<EngineConfigResponse> {
   const parsed = UpdateEngineConfigSchema.parse(params.input);
-  await getEngineConfigScoped(db, { organizationId: params.organizationId });
+  const existingCfg = await getEngineConfigScoped(db, {
+    organizationId: params.organizationId,
+    includeDockerProbe: false,
+  });
+  const mergedToolPolicies: ToolPoliciesMap | undefined = parsed.toolPolicies
+    ? {
+        ...existingCfg.config.toolPolicies,
+        ...parsed.toolPolicies,
+      }
+    : undefined;
 
   const [updated] = await db
     .update(engineConfigs)
@@ -482,6 +518,9 @@ export async function updateEngineConfigScoped(
       ...(parsed.dockerMemoryLimit !== undefined
         ? { dockerMemoryLimit: parsed.dockerMemoryLimit }
         : {}),
+      ...(mergedToolPolicies !== undefined
+        ? { toolPoliciesJson: mergedToolPolicies }
+        : {}),
       updatedAt: new Date(),
     })
     .where(eq(engineConfigs.organizationId, params.organizationId))
@@ -489,12 +528,21 @@ export async function updateEngineConfigScoped(
 
   const config = toEngineConfigDto(updated!);
   const provider = buildProviderFromConfig(config);
+  const dockerStatus: DockerProbeResult = await (
+    params.dockerProbe ?? probeDockerDaemon
+  )().catch(() => ({
+    ready: false,
+    version: null,
+    errorCode: "DOCKER_UNAVAILABLE",
+  }));
 
   return EngineConfigResponseSchema.parse({
     config,
     catalog: ENGINE_OPTIONS_CATALOG,
     activeEmbeddingProviderId: provider.id,
     degraded: provider.degraded,
+    dockerReady: dockerStatus.ready,
+    dockerVersion: dockerStatus.version,
   });
 }
 
@@ -502,15 +550,94 @@ export async function resolveOrganizationEmbeddingProvider(
   db: UzinaDb,
   organizationId: string
 ): Promise<EmbeddingProvider> {
-  const res = await getEngineConfigScoped(db, { organizationId });
+  const res = await getEngineConfigScoped(db, {
+    organizationId,
+    includeDockerProbe: false,
+  });
   return buildProviderFromConfig(res.config);
+}
+
+export interface ConfiguredWorkspaceResult {
+  workspace: ExecutionWorkspace;
+  effectiveKind: WorkspaceKind;
+  fellBackToWorktree: boolean;
+  dockerVersion: string | null;
+}
+
+export async function createConfiguredExecutionWorkspaceScoped(
+  db: UzinaDb,
+  params: {
+    organizationId: string;
+    deliverableId?: string;
+    stage?: string;
+    dockerProbe?: () => Promise<DockerProbeResult>;
+    dockerOptions?: DockerExecutionWorkspaceOptions;
+  }
+): Promise<ConfiguredWorkspaceResult> {
+  const res = await getEngineConfigScoped(db, {
+    organizationId: params.organizationId,
+    includeDockerProbe: false,
+  });
+
+  if (res.config.workspaceKind === "docker") {
+    const probe = await (params.dockerProbe ?? probeDockerDaemon)().catch(
+      (): DockerProbeResult => ({
+        ready: false,
+        version: null,
+        errorCode: "DOCKER_UNAVAILABLE",
+      })
+    );
+    if (probe.ready) {
+      return {
+        workspace: new DockerExecutionWorkspace({
+          cpus: res.config.dockerCpuLimit,
+          memory: res.config.dockerMemoryLimit,
+          ...params.dockerOptions,
+        }),
+        effectiveKind: "docker",
+        fellBackToWorktree: false,
+        dockerVersion: probe.version,
+      };
+    }
+
+    if (params.deliverableId) {
+      await recordExecutionEvent(db, {
+        deliverableId: params.deliverableId,
+        stage: params.stage ?? "stage_workspace",
+        actorRole: "system",
+        eventType: "fallback_to_worktree",
+        payload: {
+          requestedKind: "docker",
+          effectiveKind: "worktree",
+          reason: probe.errorCode ?? "DOCKER_UNAVAILABLE",
+        },
+      }).catch(() => undefined);
+    }
+
+    return {
+      workspace: new LocalGitWorktreeWorkspace(),
+      effectiveKind: "worktree",
+      fellBackToWorktree: true,
+      dockerVersion: null,
+    };
+  }
+
+  return {
+    workspace: new LocalGitWorktreeWorkspace(),
+    effectiveKind: "worktree",
+    fellBackToWorktree: false,
+    dockerVersion: null,
+  };
 }
 
 export async function createOrganizationExecutionWorkspace(
   db: UzinaDb,
   organizationId: string
 ): Promise<ExecutionWorkspace> {
-  const res = await getEngineConfigScoped(db, { organizationId });
+  const res = await getEngineConfigScoped(db, {
+    organizationId,
+    includeDockerProbe: false,
+  });
   if (res.config.workspaceKind === "docker") {
     return new DockerExecutionWorkspace({
       cpus: res.config.dockerCpuLimit,

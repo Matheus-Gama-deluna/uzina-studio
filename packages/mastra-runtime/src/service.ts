@@ -61,6 +61,7 @@ import {
   LocalGitWorktreeWorkspace,
   listProjectWorktrees,
   removeWorktreeByPathSafe,
+  type DockerProbeResult,
   type ExecutionWorkspace,
   type OpenCodeTransport,
 } from "@uzina/opencode-bridge";
@@ -95,6 +96,8 @@ export interface CreateMastraRuntimeOptions extends MastraStorageOptions {
   db: UzinaDb;
   masterKey?: Buffer;
   workspaceFactory?: () => ExecutionWorkspace;
+  dockerProbe?: () => Promise<DockerProbeResult>;
+  githubFetchImpl?: typeof fetch;
   transportFactory?: () => OpenCodeTransport;
   verifyRunner?: VerifyRunner;
   securityRunnerDeps?: RunSecurityScanDeps;
@@ -354,6 +357,8 @@ export async function createMastraRuntime(
     db: options.db,
     masterKey: options.masterKey,
     workspaceFactory: options.workspaceFactory,
+    dockerProbe: options.dockerProbe,
+    githubFetchImpl: options.githubFetchImpl,
     transportFactory: options.transportFactory,
     verifyRunner: options.verifyRunner,
     securityRunnerDeps: options.securityRunnerDeps,

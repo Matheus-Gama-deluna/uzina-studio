@@ -1232,6 +1232,10 @@ export const handlers = [
         config: {
           ...mockEngineConfigResponse.config,
           ...parsed.data,
+          toolPolicies: {
+            ...mockEngineConfigResponse.config.toolPolicies,
+            ...(parsed.data.toolPolicies ?? {}),
+          },
           updatedAt: new Date().toISOString(),
         },
         activeEmbeddingProviderId:

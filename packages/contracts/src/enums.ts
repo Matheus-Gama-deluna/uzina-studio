@@ -45,6 +45,7 @@ export const ProviderTypeSchema = z.enum([
   "anthropic",
   "google",
   "ollama",
+  "github_pat",
 ]);
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
 
@@ -60,6 +61,7 @@ export const DecisionTypeSchema = z.enum([
   "stuck_intervention",
   "stage_gate_approve",
   "budget_cap_pause",
+  "tool_policy_approval",
 ]);
 export type DecisionType = z.infer<typeof DecisionTypeSchema>;
 

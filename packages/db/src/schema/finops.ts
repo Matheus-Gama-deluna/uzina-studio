@@ -3,12 +3,14 @@ import type {
   CodingExecutorMode,
   EmbeddingEngineMode,
   TokenSavingsTechnique,
+  ToolPoliciesMap,
   WorkspaceKind,
 } from "@uzina/contracts";
 import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -75,6 +77,15 @@ export const engineConfigs = pgTable("engine_configs", {
   autoInjectInRunner: boolean("auto_inject_in_runner").notNull().default(true),
   dockerCpuLimit: text("docker_cpu_limit").notNull().default("1.0"),
   dockerMemoryLimit: text("docker_memory_limit").notNull().default("512m"),
+  toolPoliciesJson: jsonb("tool_policies_json")
+    .$type<ToolPoliciesMap>()
+    .default({
+      readCode: "allow",
+      runTests: "allow",
+      writeFiles: "allow",
+      gitFinalize: "allow",
+    })
+    .notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

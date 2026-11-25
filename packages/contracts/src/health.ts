@@ -20,6 +20,13 @@ export const AuthHealthCheckSchema = z.object({
 });
 export type AuthHealthCheck = z.infer<typeof AuthHealthCheckSchema>;
 
+export const DockerHealthCheckSchema = z.object({
+  ready: z.boolean(),
+  version: z.string().nullable(),
+  errorCode: z.string().optional(),
+});
+export type DockerHealthCheck = z.infer<typeof DockerHealthCheckSchema>;
+
 export const HealthPublicSchema = z.object({
   status: z.enum(["ok", "error"]),
   service: z.literal("uzina-studio"),
@@ -37,6 +44,7 @@ export const HealthDetailsSchema = z.object({
     auth: AuthHealthCheckSchema,
     mastraStore: ServiceCheckSchema.optional(),
     llmGateway: ServiceCheckSchema.optional(),
+    docker: DockerHealthCheckSchema.optional(),
   }),
 });
 export type HealthDetails = z.infer<typeof HealthDetailsSchema>;

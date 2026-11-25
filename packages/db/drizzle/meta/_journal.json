@@ -92,6 +92,13 @@
       "when": 1795546681506,
       "tag": "0012_icy_microchip",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795570031710,
+      "tag": "0013_shallow_thundra",
+      "breakpoints": true
     }
   ]
 }
