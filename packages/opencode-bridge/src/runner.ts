@@ -4,8 +4,10 @@ import path from "node:path";
 import {
   OpenCodeRunSessionOptionsSchema,
   OpenCodeSessionResultSchema,
+  StuckAlertV2ExtensionSchema,
   type OpenCodeRunSessionOptionsInput,
   type OpenCodeSessionResult,
+  type StuckAlertV2Extension,
 } from "@uzina/contracts";
 import {
   assertPathInsideWorkspace,
@@ -17,6 +19,7 @@ import {
   redactSecretsInValue,
   StuckDetector,
   type StuckDetectorConfig,
+  type StuckThreeStrikeDirective,
 } from "@uzina/core";
 import { z } from "zod";
 import {
@@ -81,11 +84,15 @@ export interface RunSessionExtraOptions<
   outputSchema?: TSchema;
   signal?: AbortSignal;
   stuckDetector?: StuckDetector;
+  onThreeStrikeDirective?: (
+    directive: StuckThreeStrikeDirective
+  ) => Promise<void> | void;
 }
 
 export type RunSessionOutput<TSchema extends z.ZodTypeAny = z.ZodUnknown> =
-  Omit<OpenCodeSessionResult, "structuredOutput"> & {
+  Omit<OpenCodeSessionResult, "structuredOutput" | "stuckAlert"> & {
     structuredOutput?: z.infer<TSchema>;
+    stuckAlert: StuckAlertV2Extension | OpenCodeSessionResult["stuckAlert"];
   };
 
 export class OpenCodeRunner {
@@ -170,7 +177,7 @@ export class OpenCodeRunner {
     const touchedFilesSet = new Set<string>();
     const commandsExecuted: string[] = [];
     let turnViolationError: Error | null = null;
-    let detectedStuckAlert: OpenCodeSessionResult["stuckAlert"] = null;
+    let detectedStuckAlert: StuckAlertV2Extension | OpenCodeSessionResult["stuckAlert"] = null;
     let turnCount = 0;
 
     try {
@@ -288,6 +295,14 @@ export class OpenCodeRunner {
           sessionAbortController.abort();
           return;
         }
+
+        const strikeStatus = detector.getStrikeStatus();
+        if (
+          strikeStatus.requiresRootCauseHypothesis &&
+          strikeStatus.directiveMessage
+        ) {
+          await options.onThreeStrikeDirective?.(strikeStatus);
+        }
       };
 
       const runOutput = await handle.run({
@@ -309,20 +324,29 @@ export class OpenCodeRunner {
       }
 
       if (detectedStuckAlert) {
-        return OpenCodeSessionResultSchema.parse({
+        const redactedAlert = redactSecretsInValue(
+          detectedStuckAlert,
+          secretsToRedact
+        );
+        const baseResult = OpenCodeSessionResultSchema.parse({
           sessionId: handle.sessionId,
           status: "stuck",
           mode: parsed.mode,
           role: parsed.role,
           lockedModelId: lockedTarget.canonicalId,
           finalText: redactSecrets(runOutput.finalText, secretsToRedact),
-          stuckAlert: redactSecretsInValue(detectedStuckAlert, secretsToRedact),
+          stuckAlert: redactedAlert,
           touchedFiles: Array.from(touchedFilesSet),
           commandsExecuted: safeCommands,
           tokenUsage: runOutput.tokenUsage,
           turns: Math.max(turnCount, runOutput.turnsExecuted),
           durationMs: Date.now() - startedAt,
-        }) as RunSessionOutput<TSchema>;
+        });
+        const v2Parsed = StuckAlertV2ExtensionSchema.safeParse(redactedAlert);
+        return {
+          ...baseResult,
+          ...(v2Parsed.success ? { stuckAlert: v2Parsed.data } : {}),
+        } as RunSessionOutput<TSchema>;
       }
 
       if (timedOut) {

@@ -14,3 +14,4 @@ export * from "./test-auditor-fs.js";
 export * from "./qmd.js";
 export * from "./prototypes.js";
 export * from "./diff.js";
+export * from "./migration-safety.js";
