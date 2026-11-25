@@ -442,3 +442,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * QA visual `browser` em `/app/finops` e `/app/providers` (Desktop `1440x900` e Mobile `390x844`): **PASS** (`0` `console.error`, `0` `pageerror`, `0` HTTP `>= 500`, 101 reqs).
   * Revisores independentes: `test-critic` (bordas completas incorporadas), `appsec-auditor` (hardening SSRF/GitHub URL/`gitFinalize=ask`/`OpenCodeExecutorAdapter`/redação aplicados) e `factory-verifier` (`model-resolver.ts` corrigido + revalidado **PASS**).
 * **Próximo passo:** Plano Mestre P0–P3 (Slices 20–25) integralmente concluído e entregue na `main`.
+
+---
+
+## 2026-11-25 — Planejamento & Slice 26: Evolução Agêntica v2 — Controller Dinâmico, SkillsLoader v2 (`agentskills.io`), Playbooks Sênior & Guardrails (`fix/slice-26-controller-model-resolver-skills-loader-v2`)
+
+* **Planejamento Estratégico Criado (`docs/planos/`):**
+  * [plano-mestre-evolucao-agentes-v2-slices-26-34.md](docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md): Plano Mestre completo de Evolução Agêntica, Skills & Harness (Slices 26–32 em Onda 1 + Slices 33–34 em Onda 2 + Horizonte Fase 4).
+  * [dossie-agentes-por-fase-v2.md](docs/planos/dossie-agentes-por-fase-v2.md): Dossiê completo dos 8 agentes do sistema por fase SDLC, catálogo das 16 skills e matriz de rastreabilidade total.
+* **Entregue no Slice 26 (`docs/slices/slice-26-controller-model-resolver-skills-loader-v2.md`):**
+  * `@uzina/contracts` (`execution.ts`, `agency.ts`): `SkillLifecyclePhaseSchema`, `SkillRoleCategorySchema`, `SkillBudgetMetricsSchema`, extensão retrocompatível de `SkillDefinitionSchema` e `AgencyWorkingMemorySchema`.
+  * `@uzina/core` (`skills-loader.ts`, `tests/slice26-skills-loader-v2.test.ts`): descoberta automática de `references/`, `templates/` e `scripts/`, validação de orçamentos `agentskills.io` (`64`/`1024`/`500`, `strictBudgets`), `loadSkillResource` com contenção estrita (`followSymlinks: true` + `lstatSync` + bloqueio de `.git`/`.env`/`.master-key`/trailing dots NTFS + `maxBytes` + redação), e `selectNonConflictingSkillsForStage`.
+  * `@uzina/mastra-runtime` (`controller.ts`, `engineering-agents.ts`, `processors.ts`, `workspace-tools.ts`, `memory-runtime.ts`, `tests/slice26-controller-memory-skills.integration.test.ts`): remoção de `"openai/gpt-4o-mini"` hardcoded via `resolveControllerModelForMode` e `dynamicControllerModel` + `getControllerBackingAgent()` + validação multi-tenant de `projectId`/`resourceId`; Playbooks Sênior estruturados em `getRolePlaybookInstructions` para os 6 papéis; `createUzinaSkillsCatalogProcessor` + tool sob demanda `load_uzina_skill`; `WorkingMemory` tipada (`scope: "resource"`) + `createUzinaSemanticRecallProcessor` (QMD isolado por tenant + sanitização anti-injection) + `createUzinaPromptInjectionGuardProcessor` (NFKC/zero-width, `processInput`, `processInputStep`, `processToolResult` preservando redação de `knownSecrets` em `args` e `result`, mais `createOptionalLlmPromptInjectionDetector`).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`84` arquivos, `275` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`@uzina/contracts` `203/203`, `@uzina/core` `193/193`, `@uzina/db` `39 passed | 1 skipped`, `@uzina/codebase-intel` `13/13`, `@uzina/security-engine` `19/19`, `@uzina/cli` `13/13`, `@uzina/opencode-bridge` `58/58`, `@uzina/mastra-runtime` `93/93`, `@uzina/web` `36/36` + Next.js `16.4.6` Turbopack build).
+  * Revisores independentes: `test-critic` (8 ajustes incorporados), `appsec-auditor` (achados `CRITICAL`/`HIGH`/`MEDIUM`/`LOW` corrigidos e revalidados) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 27** (Upgrade das 8 skills existentes + 8 novas skills autorais com Iron Laws, tabelas Anti-Racionalização e orquestração Lead → Reference → Critique).

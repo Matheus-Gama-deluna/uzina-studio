@@ -1,7 +1,11 @@
 import type { ToolsInput } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import type { AgencyAgentRole, OrgRole } from "@uzina/contracts";
-import { redactSensitiveText } from "@uzina/core";
+import {
+  loadNativeSkills,
+  loadSkillResource,
+  redactSensitiveText,
+} from "@uzina/core";
 import {
   clients,
   codebaseFiles,
@@ -16,6 +20,7 @@ import {
 import { and, desc, eq, ilike, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { createMemoryScoped } from "../memories.js";
+import { collectOrganizationKnownSecrets } from "../model-resolver.js";
 import { searchQmdScoped } from "../qmd.js";
 
 const WRITE_ROLES = new Set<OrgRole>(["owner", "admin", "developer"]);
@@ -85,6 +90,7 @@ export function createWorkspaceToolsForRole(params: {
   role: AgencyAgentRole;
   actorRole: OrgRole;
   masterKey?: Buffer | string | null;
+  skillsDir?: string;
 }): ToolsInput {
   const searchQmdMemoriesTool = createTool({
     id: "search_qmd_memories",
@@ -376,9 +382,62 @@ export function createWorkspaceToolsForRole(params: {
     },
   });
 
+  const loadUzinaSkillTool = createTool({
+    id: "load_uzina_skill",
+    description:
+      "Carrega sob demanda o protocolo completo de uma skill nativa (SKILL.md) ou um arquivo de apoio em references/, templates/ ou scripts/.",
+    inputSchema: z.object({
+      skillName: z
+        .string()
+        .trim()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z0-9-]+$/, "skillName deve ser kebab-case"),
+      resourcePath: z.string().trim().min(1).max(200).optional(),
+    }),
+    execute: async (inputData, context) => {
+      const actor = resolveActorFromContext(context);
+      const knownSecrets = await collectOrganizationKnownSecrets(params.db, {
+        organizationId: actor.organizationId,
+        masterKey: params.masterKey,
+      }).catch(() => [] as string[]);
+
+      if (inputData.resourcePath) {
+        return loadSkillResource({
+          skillName: inputData.skillName,
+          resourcePath: inputData.resourcePath,
+          skillsDir: params.skillsDir,
+          knownSecrets,
+        });
+      }
+
+      const loaded = loadNativeSkills({
+        skillsDir: params.skillsDir,
+        names: [inputData.skillName],
+      });
+      const skill = loaded[0];
+      if (!skill) {
+        throw new Error(`Skill '${inputData.skillName}' não encontrada.`);
+      }
+
+      return {
+        name: skill.name,
+        description: skill.description,
+        phase: skill.phase ?? null,
+        roleCategory: skill.roleCategory,
+        ironLaw: skill.ironLaw ?? null,
+        content: redactSensitiveText(skill.content, knownSecrets),
+        references: skill.references,
+        templates: skill.templates,
+        scripts: skill.scripts,
+      };
+    },
+  });
+
   const tools: ToolsInput = {
     search_qmd_memories: searchQmdMemoriesTool,
     read_project_deliverables: readProjectDeliverablesTool,
+    load_uzina_skill: loadUzinaSkillTool,
   };
 
   if (

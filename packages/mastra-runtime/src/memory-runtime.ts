@@ -6,6 +6,7 @@ import {
   AgencyActionExecutedSchema,
   AgencyAgentRoleSchema,
   AgencyThreadListResponseSchema,
+  AgencyWorkingMemorySchema,
   type AgencyThreadListResponse,
   type AgencyThreadMessageItem,
   type AgencyThreadSummary,
@@ -79,6 +80,7 @@ export interface CreateUzinaMemoryOptions {
   db: UzinaDb;
   masterKey?: Buffer | string | null;
   observationalMemoryEnabled?: boolean;
+  workingMemoryEnabled?: boolean;
   bufferTokens?: number | false;
   observationMessageTokens?: number;
   observationTokens?: number;
@@ -111,6 +113,15 @@ export async function createUzinaMemory(
     storage,
     options: {
       lastMessages: 24,
+      ...(options.workingMemoryEnabled !== false
+        ? {
+            workingMemory: {
+              enabled: true,
+              scope: "resource" as const,
+              schema: AgencyWorkingMemorySchema,
+            },
+          }
+        : {}),
       observationalMemory: omEnabled
         ? {
             enabled: true,
@@ -329,7 +340,8 @@ function safeIsoTimestamp(value: unknown): string {
 }
 
 function mapMastraMessageToThreadItem(
-  msg: MastraDBMessage
+  msg: MastraDBMessage,
+  knownSecrets: readonly string[] = []
 ): AgencyThreadMessageItem | null {
   if (msg.role !== "user" && msg.role !== "assistant") {
     return null;
@@ -341,7 +353,7 @@ function mapMastraMessageToThreadItem(
   const item: AgencyThreadMessageItem = {
     id: msg.id,
     role: msg.role,
-    content: redactSensitiveText(text),
+    content: redactSensitiveText(text, knownSecrets),
     createdAt: safeIsoTimestamp(msg.createdAt),
   };
 
@@ -427,6 +439,7 @@ export async function listAgencyThreadsScoped(
     threadId?: string;
     dataDir?: string;
     databaseUrl?: string;
+    masterKey?: Buffer | string | null;
   }
 ): Promise<AgencyThreadListResponse> {
   if (params.projectId) {
@@ -436,6 +449,11 @@ export async function listAgencyThreadsScoped(
       params.organizationId
     );
   }
+
+  const knownSecrets = await collectOrganizationKnownSecrets(db, {
+    organizationId: params.organizationId,
+    masterKey: params.masterKey,
+  }).catch(() => [] as string[]);
 
   const resourceId = buildAgencyResourceId(
     params.organizationId,
@@ -476,7 +494,7 @@ export async function listAgencyThreadsScoped(
     summaries.push({
       threadId: t.id,
       projectId: params.projectId ?? null,
-      title: t.title ? redactSensitiveText(t.title) : null,
+      title: t.title ? redactSensitiveText(t.title, knownSecrets) : null,
       updatedAt: safeIsoTimestamp(t.updatedAt),
       messageCount: recallRes.total ?? recallRes.messages.length,
     });
@@ -494,7 +512,7 @@ export async function listAgencyThreadsScoped(
       orderBy: { field: "createdAt", direction: "ASC" },
     });
     messages = recalled.messages
-      .map(mapMastraMessageToThreadItem)
+      .map((m) => mapMastraMessageToThreadItem(m, knownSecrets))
       .filter((item): item is AgencyThreadMessageItem => item !== null);
   }
 
@@ -513,6 +531,7 @@ export async function getAgencyThreadMessagesScoped(
     threadId: string;
     dataDir?: string;
     databaseUrl?: string;
+    masterKey?: Buffer | string | null;
   }
 ): Promise<AgencyThreadMessageItem[]> {
   const res = await listAgencyThreadsScoped(db, params);

@@ -140,3 +140,14 @@
   - [x] Ponte real `advance_cycle` → `deliverableLifecycleWorkflow` (`agency.ts`), `MastraWorkspaceExecutorAdapter` (`codingExecutorMode`), automação por coluna `Manual | Auto`, trava HITL em `decision_pending` e pausa inteligente `budget_cap_pause` com retomada `newBudgetCapUsd`
   - [x] Controles Warm Stone na UI (switches `role="switch"` no Kanban, `Teto Orçamento (USD)`, badge `Tarefas em 2º plano`, `Intervir (Steer)` / `Abortar` / `Aprovar Plano` no Chat, `budget_cap_pause` em Decisões e `Executor de Codificação` em FinOps), MSW + Contract Drift + RBAC completos
   - [x] Gate final pós-remediações verde: `check-no-ee` (`0`), `audit:tests` (`70` arquivos, `224` testes, `0` violações), `pnpm verify` (`34/34` tasks, `558 passed | 1 skipped` `postgres-live.test.ts`), `UZINA_STANDALONE=1` + build padrão (`0`), Playwright `test:e2e` (`2 passed`) e QA visual (`browser` **PASS** em Dark/Light Stone e Mobile) (`feat/slice-19-agent-controller-workflow-bridge-kanban-auto`)
+
+
+- [x] **Slices 20–25 — Plano Mestre P0–P3** (`docs/planos/plano-mestre-p0-p3-slices-20-25.md`)
+  - [x] Finalize Git real, Switcher sincronizado, Estúdio Visual LLM, QMD isolado, Mobile `390px`/A11y, Tool Trace SSE resumível, Semantic Diff, Worktrees GC, AST Symbol Lock, Docker Hot-Reload, Tool Policies (`Allow`/`Ask`/`Deny`) e GitHub PAT Draft PR (`main`)
+
+- [x] **Slice 26 — Controller Dinâmico, SkillsLoader v2 (`agentskills.io`), Playbooks Sênior & Guardrails** (`docs/slices/slice-26-controller-model-resolver-skills-loader-v2.md`)
+  - [x] Remoção de `"openai/gpt-4o-mini"` hardcoded em `controller.ts` (`resolveControllerModelForMode` + `dynamicControllerModel` + `getControllerBackingAgent()` + validação IDOR)
+  - [x] `skills-loader.ts` v2 (`references/`, `templates/`, `scripts/`, budgets `64`/`1024`/`500`, `loadSkillResource` seguro, `selectNonConflictingSkillsForStage`)
+  - [x] Playbooks Sênior (`getRolePlaybookInstructions`) + `createUzinaSkillsCatalogProcessor` + tool `load_uzina_skill`
+  - [x] `WorkingMemory` tipada (`AgencyWorkingMemorySchema`) + `SemanticRecall` QMD multi-tenant + `PromptInjectionGuardProcessor` (`NFKC`/zero-width, `processInput`, `processInputStep`, `processToolResult` preservando redação)
+  - [x] Verify Gate verde: `check-no-ee` (`0`), `audit-tests` (`84` arquivos, `275` testes, `0` violações), `pnpm verify` (`34/34` tasks), `test-critic`, `appsec-auditor` e `factory-verifier` (**PASS**) (`fix/slice-26-controller-model-resolver-skills-loader-v2`)
