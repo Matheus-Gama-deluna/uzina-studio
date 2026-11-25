@@ -22,6 +22,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { DecisionRiskBriefingCard } from "./decision-risk-briefing-card";
 import { ToolTraceTimeline } from "./tool-trace-timeline";
 
 type StatusFilter = "all" | DecisionStatus;
@@ -650,6 +651,14 @@ export function DecisionsWorkbench() {
               )}
 
               <ToolTraceTimeline deliverableId={selectedDecision.deliverableId} />
+
+              {(selectedDecision.decisionType === "pr_evidence_approve" ||
+                Boolean(selectedDecision.payloadJson?.riskBriefing) ||
+                Boolean(selectedDecision.payloadJson?.twoStageVerifierOutput)) && (
+                <DecisionRiskBriefingCard
+                  payloadJson={selectedDecision.payloadJson}
+                />
+              )}
 
               {selectedDecision.status === "pending" && (
                 <div className="space-y-3 border-t border-border-subtle pt-4">
