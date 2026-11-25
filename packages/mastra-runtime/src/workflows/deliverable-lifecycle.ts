@@ -17,6 +17,7 @@ import {
   StuckAlertSchema,
   VerifierVerdictOutputSchema,
   VerifyCheckSummarySchema,
+  ToolCallTracePayloadSchema,
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorktreeHandleSchema,
@@ -45,6 +46,7 @@ import {
   consolidateDiscoverySummary,
   estimateTokenCostUsd,
   generateDesignMdContract,
+  parseUnifiedDiffSemantic,
   redactSensitiveText,
   routeDevelopmentStrategy,
   scanRepositoryBrownfield,
@@ -90,6 +92,7 @@ import {
   resolveHierarchicalMemories,
 } from "../memories.js";
 import { recordDeliverableProvenance } from "../codebase.js";
+import { collectOrganizationKnownSecrets } from "../model-resolver.js";
 import { createCodingExecutorAdapter } from "../workspace-adapter.js";
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -2570,6 +2573,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           signal: heartbeat.signal,
           db,
           projectId: row.projectId,
+          deliverableId: row.id,
+          stage: "stage_contract_and_tests",
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
           ...(deps.codingModelOverride
@@ -2968,6 +2973,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           signal: heartbeat.signal,
           db,
           projectId: row.projectId,
+          deliverableId: row.id,
+          stage: "stage_build",
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
           ...(deps.codingModelOverride
@@ -3415,25 +3422,93 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       } catch {
         rawDiff = "";
       }
+      const verifyKnownSecrets = await collectOrganizationKnownSecrets(db, {
+        organizationId: currentState.organizationId,
+        masterKey: deps.masterKey,
+      }).catch(() => [] as string[]);
       const changedFiles = parseChangedFilesFromDiff(rawDiff);
-      const redactedDiffPreview = redactSensitiveText(rawDiff).slice(0, 8192);
+      const redactedDiffPreview = redactSensitiveText(
+        rawDiff,
+        verifyKnownSecrets
+      ).slice(0, 8192);
+
+      const semanticFileDiffs = parseUnifiedDiffSemantic(rawDiff, {
+        knownSecrets: verifyKnownSecrets,
+      });
+
+      const emitVerifyToolTrace = async (input: {
+        phase: "start" | "result";
+        toolName: string;
+        targetPath?: string;
+        durationMs?: number;
+        status: "running" | "ok" | "error";
+        summary?: string;
+      }) => {
+        const parsed = ToolCallTracePayloadSchema.parse({
+          phase: input.phase,
+          toolName: input.toolName,
+          ...(input.targetPath
+            ? {
+                targetPath: redactSensitiveText(
+                  input.targetPath,
+                  verifyKnownSecrets
+                ).slice(0, 512),
+              }
+            : {}),
+          ...(typeof input.durationMs === "number"
+            ? { durationMs: Math.max(0, Math.round(input.durationMs)) }
+            : {}),
+          status: input.status,
+          ...(input.summary
+            ? {
+                summary: redactSensitiveText(
+                  input.summary,
+                  verifyKnownSecrets
+                ).slice(0, 1000),
+              }
+            : {}),
+        });
+        await recordExecutionEvent(db, {
+          deliverableId: row.id,
+          stage: "stage_verify",
+          actorRole: "verifier",
+          eventType: "tool_call",
+          payload: parsed,
+        });
+      };
 
       try {
         // 1) TestAuditor estático
         const auditStarted = Date.now();
+        await emitVerifyToolTrace({
+          phase: "start",
+          toolName: "audit:tests",
+          targetPath: worktreeHandle.workspacePath,
+          status: "running",
+        });
         const auditReport = auditTestDirectory(worktreeHandle.workspacePath);
         testAuditPassed = auditReport.passed;
         testAuditViolationsCount = auditReport.violations.length;
+        const auditDurationMs = Math.max(1, Date.now() - auditStarted);
+        const auditCheckSummary = auditReport.passed
+          ? `${auditReport.scannedTests} testes auditados sem anti-patterns.`
+          : auditReport.violations
+              .slice(0, 5)
+              .map((v) => `${v.filePath}:${v.line} (${v.rule})`)
+              .join("; ");
         verifyChecks.push({
           name: "audit:tests",
           passed: auditReport.passed,
-          durationMs: Math.max(1, Date.now() - auditStarted),
-          summary: auditReport.passed
-            ? `${auditReport.scannedTests} testes auditados sem anti-patterns.`
-            : auditReport.violations
-                .slice(0, 5)
-                .map((v) => `${v.filePath}:${v.line} (${v.rule})`)
-                .join("; "),
+          durationMs: auditDurationMs,
+          summary: auditCheckSummary,
+        });
+        await emitVerifyToolTrace({
+          phase: "result",
+          toolName: "audit:tests",
+          targetPath: worktreeHandle.workspacePath,
+          durationMs: auditDurationMs,
+          status: auditReport.passed ? "ok" : "error",
+          summary: auditCheckSummary,
         });
         if (!auditReport.passed) {
           failureReasons.push(
@@ -3443,6 +3518,13 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
 
         // 2) Comandos determinísticos (somente se TestAuditor passou)
         if (failureReasons.length === 0) {
+          const verifyRunnerStarted = Date.now();
+          await emitVerifyToolTrace({
+            phase: "start",
+            toolName: "verify_runner",
+            targetPath: worktreeHandle.workspacePath,
+            status: "running",
+          });
           const runner = deps.verifyRunner ?? defaultVerifyRunner;
           const cmdChecks = await runner({
             deliverableId: row.id,
@@ -3452,7 +3534,21 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             signal: heartbeat.signal,
           });
           verifyChecks.push(...cmdChecks);
+          const verifyRunnerDurationMs = Math.max(
+            1,
+            Date.now() - verifyRunnerStarted
+          );
           const failedCmd = cmdChecks.find((c) => !c.passed);
+          await emitVerifyToolTrace({
+            phase: "result",
+            toolName: "verify_runner",
+            targetPath: worktreeHandle.workspacePath,
+            durationMs: verifyRunnerDurationMs,
+            status: failedCmd ? "error" : "ok",
+            summary: failedCmd
+              ? `${failedCmd.name}: ${failedCmd.summary}`
+              : `${cmdChecks.length} check(s) determinístico(s) aprovado(s).`,
+          });
           if (failedCmd) {
             failureReasons.push(
               `Verify runner falhou em '${failedCmd.name}': ${failedCmd.summary}`
@@ -3462,6 +3558,13 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
 
         // 3) Security Engine incremental no diff (somente se 1-2 passaram)
         if (failureReasons.length === 0) {
+          const secStarted = Date.now();
+          await emitVerifyToolTrace({
+            phase: "start",
+            toolName: "security-engine",
+            targetPath: worktreeHandle.branchName,
+            status: "running",
+          });
           scanResult = await runSecurityScan(
             {
               mode: "embedded",
@@ -3529,19 +3632,30 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           );
 
           securityGatePassed = blockingFindings.length === 0;
+          const secDurationMs = Math.max(
+            1,
+            scanResult.scannerStatuses.reduce((acc, s) => acc + s.durationMs, 0) ||
+              Date.now() - secStarted
+          );
+          const secSummary = securityGatePassed
+            ? `${scanResult.findings.length} achados totais (0 bloqueantes critical/high); scanners pulados: ${scanResult.summaryCountsJson.skippedScannersCount}`
+            : `${blockingFindings.length} achado(s) critical/high bloqueante(s): ${blockingFindings
+                .slice(0, 3)
+                .map((b) => `${b.ruleId}@${b.filePath ?? "repo"}`)
+                .join(", ")}`;
           verifyChecks.push({
             name: "security-engine",
             passed: securityGatePassed,
-            durationMs: Math.max(
-              1,
-              scanResult.scannerStatuses.reduce((acc, s) => acc + s.durationMs, 0)
-            ),
-            summary: securityGatePassed
-              ? `${scanResult.findings.length} achados totais (0 bloqueantes critical/high); scanners pulados: ${scanResult.summaryCountsJson.skippedScannersCount}`
-              : `${blockingFindings.length} achado(s) critical/high bloqueante(s): ${blockingFindings
-                  .slice(0, 3)
-                  .map((b) => `${b.ruleId}@${b.filePath ?? "repo"}`)
-                  .join(", ")}`,
+            durationMs: secDurationMs,
+            summary: secSummary,
+          });
+          await emitVerifyToolTrace({
+            phase: "result",
+            toolName: "security-engine",
+            targetPath: worktreeHandle.branchName,
+            durationMs: secDurationMs,
+            status: securityGatePassed ? "ok" : "error",
+            summary: secSummary,
           });
 
           if (!securityGatePassed) {
@@ -3597,6 +3711,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             outputSchema: VerifierVerdictOutputSchema,
             db,
             projectId: row.projectId,
+            deliverableId: row.id,
+            stage: "stage_verify",
             budgetCapUsd: budgetCapUsd ?? undefined,
             workspaceKind: verifyEngineCfg.config.workspaceKind,
             ...(deps.verifierModelOverride
@@ -3763,6 +3879,18 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       );
 
       const verifyPassed = failureReasons.length === 0;
+      const testCommandOutput =
+        verifyChecks.length > 0
+          ? redactSensitiveText(
+              verifyChecks
+                .map(
+                  (c) =>
+                    `[${c.passed ? "PASS" : "FAIL"}] ${c.name} (${c.durationMs}ms): ${c.summary}`
+                )
+                .join("\n"),
+              verifyKnownSecrets
+            ).slice(0, 16384)
+          : undefined;
       const evidencePack = EvidencePackSchema.parse({
         deliverableId: row.id,
         branchName: worktreeHandle.branchName,
@@ -3776,7 +3904,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           filesChanged: changedFiles.length,
           diffBytes: Buffer.byteLength(rawDiff, "utf8"),
           preview: redactedDiffPreview,
+          fileDiffs: semanticFileDiffs,
         },
+        ...(testCommandOutput ? { testCommandOutput } : {}),
         securitySummary,
         tokenSummary: {
           totalInputTokens: totalTokensInput,

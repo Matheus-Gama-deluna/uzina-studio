@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { getDb } from "@uzina/db";
 import { getExecutionEventBus } from "@uzina/mastra-runtime";
 import { isUuid, jsonError } from "@/lib/api-utils";
@@ -6,6 +7,11 @@ import {
   listDeliverableEventsScoped,
 } from "@/lib/operations-queries";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
+
+const EventsQuerySchema = z.object({
+  afterEventId: z.uuid().optional(),
+  snapshot: z.enum(["true", "false"]).optional(),
+});
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,9 +45,24 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const afterEventId =
-    request.headers.get("last-event-id") ?? url.searchParams.get("afterEventId");
-  const snapshotOnly = url.searchParams.get("snapshot") === "true";
+  const rawAfter =
+    (
+      request.headers.get("last-event-id") ??
+      url.searchParams.get("afterEventId")
+    )?.trim() || undefined;
+  const rawSnapshot = url.searchParams.get("snapshot") ?? undefined;
+  const parsedQuery = EventsQuerySchema.safeParse({
+    afterEventId: rawAfter,
+    snapshot: rawSnapshot,
+  });
+  if (!parsedQuery.success) {
+    return jsonError(400, {
+      error: "afterEventId ou parâmetro de query inválido.",
+      code: "VALIDATION_ERROR",
+    });
+  }
+  const afterEventId = parsedQuery.data.afterEventId;
+  const snapshotOnly = parsedQuery.data.snapshot === "true";
 
   const initialEvents = await listDeliverableEventsScoped(db, deliverableId, {
     afterEventId,

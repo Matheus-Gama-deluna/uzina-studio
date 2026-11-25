@@ -7,7 +7,7 @@ import {
   type DecisionListResponse,
   type DecisionStatus,
   type EvidencePack,
-  type ExecutionEvent,
+  type SemanticDiffCategory,
 } from "@uzina/contracts";
 import {
   AlertCircle,
@@ -21,9 +21,25 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { ToolTraceTimeline } from "./tool-trace-timeline";
 
 type StatusFilter = "all" | DecisionStatus;
+type DiffCategoryFilter = "all" | SemanticDiffCategory;
+
+const DIFF_CATEGORY_LABELS: Record<SemanticDiffCategory, string> = {
+  code: "Código",
+  test: "Testes",
+  config: "Config",
+  docs: "Docs",
+};
+
+const DIFF_CATEGORY_BADGE: Record<SemanticDiffCategory, string> = {
+  code: "border-accent/40 bg-accent-subtle text-accent",
+  test: "border-status-ok/40 bg-status-ok/10 text-status-ok",
+  config: "border-status-warn/40 bg-status-warn/10 text-status-warn",
+  docs: "border-status-info/40 bg-status-info/10 text-status-info",
+};
 
 const GATE_LABELS: Record<string, string> = {
   discovery_confirm: "Discovery",
@@ -81,12 +97,11 @@ export function DecisionsWorkbench() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
+  const [diffCategoryFilter, setDiffCategoryFilter] =
+    useState<DiffCategoryFilter>("all");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [eventsState, setEventsState] = useState<{
-    deliverableId: string | null;
-    items: ExecutionEvent[];
-  }>({ deliverableId: null, items: [] });
+  const feedbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const decisionsQuery = useQuery({
     queryKey: ["decisions", statusFilter],
@@ -103,66 +118,25 @@ export function DecisionsWorkbench() {
     return items.find((item) => item.id === selectedId) ?? items[0] ?? null;
   }, [items, selectedId]);
 
-  const liveEvents = useMemo(() => {
-    if (!selectedDecision) return [];
-    return eventsState.deliverableId === selectedDecision.deliverableId
-      ? eventsState.items
-      : [];
-  }, [selectedDecision, eventsState]);
-
   const evidencePack = useMemo(
     () => parseEvidencePack(selectedDecision),
     [selectedDecision]
   );
 
-  useEffect(() => {
-    if (!selectedDecision) {
-      return;
-    }
-
-    const activeDeliverableId = selectedDecision.deliverableId;
-    let cancelled = false;
-
-    const source = new EventSource(
-      `/api/deliverables/${activeDeliverableId}/events`
-    );
-
-    const handleEvent = (rawEvent: MessageEvent<string>) => {
-      if (cancelled) return;
-      try {
-        const parsed = JSON.parse(rawEvent.data) as ExecutionEvent;
-        if (parsed?.id) {
-          setEventsState((prev) => {
-            const base =
-              prev.deliverableId === activeDeliverableId ? prev.items : [];
-            if (base.some((e) => e.id === parsed.id)) return prev;
-            return {
-              deliverableId: activeDeliverableId,
-              items: [...base.slice(-29), parsed],
-            };
-          });
-        }
-      } catch {
-        // Ignora frames não-JSON como snapshot_end
+  const handleRequestFileFix = (filePath: string) => {
+    const marker = `[Arquivo: ${filePath}] `;
+    setFeedbackText((prev) => {
+      if (prev.includes(marker.trim())) {
+        return prev;
       }
-    };
-
-    for (const evType of [
-      "stage_change",
-      "tool_call",
-      "stuck_alert",
-      "verify_result",
-      "token_usage",
-      "error",
-    ]) {
-      source.addEventListener(evType, handleEvent as EventListener);
+      return prev.trim() ? `${prev.trimEnd()}\n${marker}` : marker;
+    });
+    const el = feedbackTextareaRef.current;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.focus();
     }
-
-    return () => {
-      cancelled = true;
-      source.close();
-    };
-  }, [selectedDecision]);
+  };
 
   const resolveMutation = useMutation({
     mutationFn: async (params: {
@@ -520,15 +494,151 @@ export function DecisionsWorkbench() {
                       </strong>{" "}
                       {evidencePack.verifierNotes}
                     </p>
-                    {evidencePack.diffSummary.preview && (
-                      <>
-                        <pre className="mt-3 max-h-44 max-w-full overflow-auto whitespace-pre rounded border border-border-subtle bg-canvas p-2.5 font-mono text-xs text-fg-secondary">
-                          {evidencePack.diffSummary.preview}
+                    {evidencePack.diffSummary.fileDiffs &&
+                    evidencePack.diffSummary.fileDiffs.length > 0 ? (
+                      <div
+                        data-testid="semantic-diff-viewer"
+                        className="mt-3 space-y-2.5 border-t border-border-subtle pt-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                            Diff Semântico por Arquivo
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {(
+                              [
+                                "all",
+                                "code",
+                                "test",
+                                "config",
+                                "docs",
+                              ] as const
+                            ).map((cat) => {
+                              const count =
+                                cat === "all"
+                                  ? evidencePack.diffSummary.fileDiffs!.length
+                                  : evidencePack.diffSummary.fileDiffs!.filter(
+                                      (f) => f.category === cat
+                                    ).length;
+                              if (cat !== "all" && count === 0) return null;
+                              const active = diffCategoryFilter === cat;
+                              return (
+                                <button
+                                  key={cat}
+                                  type="button"
+                                  onClick={() => setDiffCategoryFilter(cat)}
+                                  className={`rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors ${
+                                    active
+                                      ? "border-accent bg-accent-subtle text-accent"
+                                      : "border-border-subtle bg-surface text-fg-secondary hover:border-border-default"
+                                  }`}
+                                >
+                                  {cat === "all"
+                                    ? "Todos"
+                                    : DIFF_CATEGORY_LABELS[cat]}{" "}
+                                  ({count})
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          {evidencePack.diffSummary.fileDiffs
+                            .filter(
+                              (f) =>
+                                diffCategoryFilter === "all" ||
+                                f.category === diffCategoryFilter
+                            )
+                            .map((file) => (
+                              <div
+                                key={file.filePath}
+                                className="min-w-0 rounded border border-border-subtle bg-surface p-2.5"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <span
+                                      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase ${DIFF_CATEGORY_BADGE[file.category]}`}
+                                    >
+                                      {DIFF_CATEGORY_LABELS[file.category]}
+                                    </span>
+                                    <span className="break-all font-mono text-xs text-fg-primary">
+                                      {file.filePath}
+                                    </span>
+                                    <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                                      <span className="text-status-ok">
+                                        +{file.additions}
+                                      </span>{" "}
+                                      <span className="text-status-error">
+                                        -{file.deletions}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  {selectedDecision.status === "pending" && (
+                                    <button
+                                      type="button"
+                                      data-testid="btn-request-file-fix"
+                                      onClick={() =>
+                                        handleRequestFileFix(file.filePath)
+                                      }
+                                      className="inline-flex shrink-0 items-center rounded border border-border-default bg-inset px-2 py-1 text-[11px] font-medium text-fg-secondary transition-colors hover:border-accent hover:text-accent"
+                                    >
+                                      Pedir ajuste neste arquivo
+                                    </button>
+                                  )}
+                                </div>
+                                {file.hunkPreview && (
+                                  <pre className="mt-2 max-h-52 max-w-full overflow-auto whitespace-pre rounded border border-border-subtle bg-canvas p-2 font-mono text-xs leading-relaxed">
+                                    {file.hunkPreview
+                                      .split("\n")
+                                      .map((line, lineIdx) => {
+                                        const lineClass = line.startsWith("+")
+                                          ? "block bg-status-ok/10 text-status-ok"
+                                          : line.startsWith("-")
+                                            ? "block bg-status-error/10 text-status-error"
+                                            : line.startsWith("@@")
+                                              ? "block text-accent"
+                                              : "block text-fg-secondary";
+                                        return (
+                                          <span
+                                            key={`${file.filePath}-L${lineIdx}`}
+                                            className={lineClass}
+                                          >
+                                            {line || " "}
+                                          </span>
+                                        );
+                                      })}
+                                  </pre>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : (
+                      evidencePack.diffSummary.preview && (
+                        <>
+                          <pre className="mt-3 max-h-44 max-w-full overflow-auto whitespace-pre rounded border border-border-subtle bg-canvas p-2.5 font-mono text-xs text-fg-secondary">
+                            {evidencePack.diffSummary.preview}
+                          </pre>
+                          <p className="mt-1.5 text-[11px] text-fg-muted sm:hidden">
+                            Deslize horizontalmente para visualizar o diff completo.
+                          </p>
+                        </>
+                      )
+                    )}
+
+                    {evidencePack.testCommandOutput && (
+                      <details
+                        data-testid="evidence-test-output"
+                        className="mt-3 rounded border border-border-subtle bg-surface px-3 py-2"
+                      >
+                        <summary className="cursor-pointer text-xs font-medium text-fg-secondary hover:text-fg-primary">
+                          Saída dos Comandos de Verificação
+                        </summary>
+                        <pre className="mt-2 max-h-48 max-w-full overflow-auto whitespace-pre rounded border border-border-subtle bg-canvas p-2 font-mono text-xs text-fg-secondary">
+                          {evidencePack.testCommandOutput}
                         </pre>
-                        <p className="mt-1.5 text-[11px] text-fg-muted sm:hidden">
-                          Deslize horizontalmente para visualizar o diff completo.
-                        </p>
-                      </>
+                      </details>
                     )}
                   </div>
                 </div>
@@ -538,32 +648,7 @@ export function DecisionsWorkbench() {
                 </pre>
               )}
 
-              <div className="rounded-md border border-border-subtle bg-inset p-3.5">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-secondary">
-                  Timeline de Execução (SSE)
-                </h3>
-                {liveEvents.length === 0 ? (
-                  <p className="mt-2 text-xs text-fg-muted">
-                    Nenhum evento registrado ou stream aguardando novos eventos.
-                  </p>
-                ) : (
-                  <ul className="mt-2 max-h-36 space-y-1 overflow-auto font-mono text-xs">
-                    {liveEvents.map((ev) => (
-                      <li
-                        key={ev.id}
-                        className="flex items-center justify-between text-fg-secondary tabular-nums"
-                      >
-                        <span>
-                          [{ev.stage}] {ev.eventType} ({ev.actorRole})
-                        </span>
-                        <span className="text-fg-muted">
-                          {new Date(ev.createdAt).toLocaleTimeString("pt-BR")}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <ToolTraceTimeline deliverableId={selectedDecision.deliverableId} />
 
               {selectedDecision.status === "pending" && (
                 <div className="space-y-3 border-t border-border-subtle pt-4">
@@ -574,6 +659,7 @@ export function DecisionsWorkbench() {
                     Orientação / Racional (obrigatório ao solicitar ajustes)
                   </label>
                   <textarea
+                    ref={feedbackTextareaRef}
                     id="decision-feedback"
                     rows={3}
                     value={feedbackText}

@@ -45,6 +45,7 @@ import {
   useActiveProjectId,
 } from "@/lib/active-project-store";
 import { MarkdownProse } from "./markdown-prose";
+import { ToolTraceTimeline } from "./tool-trace-timeline";
 
 const STAGE_COLUMNS: Array<{ id: DeliverableStatus; label: string }> = [
   { id: "discovery", label: "Descoberta" },
@@ -1412,6 +1413,13 @@ export function DeliverablesDocsHub() {
                                     </button>
                                   )}
                               </div>
+                            )}
+
+                            {activeSlice.deliverableId && (
+                              <ToolTraceTimeline
+                                deliverableId={activeSlice.deliverableId}
+                                compact
+                              />
                             )}
 
                             {activeDeliverable?.worktreePath &&

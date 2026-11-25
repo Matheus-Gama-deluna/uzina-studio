@@ -32,7 +32,7 @@ import type {
   ExecutedSecurityScanOutput,
   FindingSuppressionLookup,
 } from "@uzina/security-engine";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 const SEVERITY_RANK: Record<SecuritySeverity, number> = {
   critical: 0,
@@ -769,7 +769,7 @@ export async function listDeliverableEventsScoped(
     .select()
     .from(executionEvents)
     .where(eq(executionEvents.deliverableId, deliverableId))
-    .orderBy(executionEvents.createdAt);
+    .orderBy(asc(executionEvents.createdAt), asc(executionEvents.id));
 
   const mapped = rows.map((row) =>
     ExecutionEventSchema.parse({
