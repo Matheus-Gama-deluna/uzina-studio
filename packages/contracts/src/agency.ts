@@ -260,6 +260,7 @@ export const AgencyChatRequestSchema = z
     localPath: z.string().trim().min(1).max(500).optional(),
     preferredStrategy: DevelopmentStrategySchema.optional(),
     defaultRiskLevel: RiskLevelSchema.optional(),
+    voiceMode: z.boolean().optional(),
   })
   .strict();
 export type AgencyChatRequest = z.infer<typeof AgencyChatRequestSchema>;
@@ -519,6 +520,7 @@ export const AgencyChatResponseSchema = z.object({
   toolsUsed: z.array(z.string()).optional(),
   omStatus: ObservationalMemoryStatusSchema.nullable().optional(),
   reply: z.string().min(1),
+  spokenSummary: z.string().max(600).optional(),
   actionsExecuted: z.array(AgencyActionExecutedSchema),
   projectState: AgencyProjectStateSchema.nullable(),
   readiness: SystemReadinessStatusSchema,

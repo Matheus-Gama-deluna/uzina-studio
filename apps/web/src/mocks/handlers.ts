@@ -43,8 +43,11 @@ import {
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
   IngestSecurityScanSchema,
+  MarkNotificationsReadRequestSchema,
   MemoryListResponseSchema,
   MemorySchema,
+  NotificationListResponseSchema,
+  NotificationPreferencesSchema,
   ProjectListResponseSchema,
   ProjectSchema,
   ProjectStageAutomationSchema,
@@ -52,6 +55,8 @@ import {
   ProviderProfileListResponseSchema,
   ProviderProfilePublicSchema,
   ProvenanceListResponseSchema,
+  PushSubscriptionDeleteSchema,
+  PushSubscriptionInputSchema,
   QmdReindexRequestSchema,
   QmdReindexResponseSchema,
   QmdSearchRequestSchema,
@@ -75,8 +80,13 @@ import {
   UpdateEngineConfigSchema,
   UpdateFindingTriageSchema,
   UpdateMemorySchema,
+  UpdateNotificationPreferencesRequestSchema,
   UpdateProjectSchema,
   UpdatePrototypeApprovalSchema,
+  VapidPublicKeyResponseSchema,
+  VoiceSpeakFallbackResponseSchema,
+  VoiceSpeakRequestSchema,
+  VoiceTranscribeResponseSchema,
   WorkflowAbortInputSchema,
   WorkflowAbortResponseSchema,
   WorkflowResumeInputSchema,
@@ -1480,5 +1490,141 @@ export const handlers = [
         error: null,
       })
     );
+  }),
+
+  http.post("*/api/voice/transcribe", () => {
+    return HttpResponse.json(
+      VoiceTranscribeResponseSchema.parse({
+        text: "Transcrição simulada em modo preview.",
+        language: "pt",
+        providerType: "openai_compatible",
+        model: "gpt-4o-mini-transcribe",
+        estimatedCostUsd: 0.003,
+      })
+    );
+  }),
+
+  http.post("*/api/voice/speak", async ({ request }) => {
+    const parsed = VoiceSpeakRequestSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({
+          error: parsed.error.issues[0]?.message ?? "Payload de voz inválido",
+          code: "VALIDATION_ERROR",
+        }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(
+      VoiceSpeakFallbackResponseSchema.parse({
+        fallback: "browser_speech",
+        reason: "msw_preview",
+        text: parsed.data.text,
+      })
+    );
+  }),
+
+  http.get("*/api/notifications", () => {
+    return HttpResponse.json(
+      NotificationListResponseSchema.parse({
+        items: [],
+        unreadCount: 0,
+      })
+    );
+  }),
+
+  http.post("*/api/notifications/read", async ({ request }) => {
+    const parsed = MarkNotificationsReadRequestSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json({ ok: true, unreadCount: 0 });
+  }),
+
+  http.get("*/api/notifications/preferences", () => {
+    return HttpResponse.json(
+      NotificationPreferencesSchema.parse({
+        pushEnabled: true,
+        enabledEvents: {
+          decision_pending: true,
+          deliverable_completed: true,
+          deliverable_failed: true,
+          security_critical: true,
+          budget_cap_pause: true,
+          agent_reply_ready: true,
+          exec_delivery_ready: true,
+        },
+        quietHoursEnabled: false,
+        quietHoursStart: "22:00",
+        quietHoursEnd: "08:00",
+        timezone: "America/Sao_Paulo",
+        allowCriticalDuringQuietHours: false,
+      })
+    );
+  }),
+
+  http.put("*/api/notifications/preferences", async ({ request }) => {
+    const parsed = UpdateNotificationPreferencesRequestSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Preferências inválidas", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json(NotificationPreferencesSchema.parse(parsed.data));
+  }),
+
+  http.get("*/api/notifications/vapid-public-key", () => {
+    return HttpResponse.json(
+      VapidPublicKeyResponseSchema.parse({
+        publicKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U",
+        configured: true,
+      })
+    );
+  }),
+
+  http.post("*/api/notifications/subscriptions", async ({ request }) => {
+    const parsed = PushSubscriptionInputSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Subscription inválida", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json({ ok: true }, { status: 201 });
+  }),
+
+  http.delete("*/api/notifications/subscriptions", async ({ request }) => {
+    const parsed = PushSubscriptionDeleteSchema.safeParse(
+      await request.json().catch(() => ({}))
+    );
+    if (!parsed.success) {
+      return HttpResponse.json(
+        ApiErrorSchema.parse({ error: "Payload inválido", code: "VALIDATION_ERROR" }),
+        { status: 400 }
+      );
+    }
+    return HttpResponse.json({ ok: true });
+  }),
+
+  http.post("*/api/notifications/test", () => {
+    return HttpResponse.json({
+      ok: true,
+      createdCount: 1,
+      pushedCount: 0,
+      suppressedByQuietHours: 0,
+      purgedSubscriptions: 0,
+    });
   }),
 ];

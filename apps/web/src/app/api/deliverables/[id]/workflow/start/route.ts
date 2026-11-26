@@ -1,6 +1,8 @@
 import { WorkflowStartInputSchema } from "@uzina/contracts";
+import { getDb } from "@uzina/db";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
+import { notifyFromWorkflowState } from "@/lib/notifications-service";
 import { WORKSPACE_WRITE_ROLES, requireOrgRole } from "@/lib/rbac";
 import {
   getWebWorkflowRuntime,
@@ -35,6 +37,17 @@ export async function POST(
       organizationId: auth.actor.organizationId,
       input: parsed.data,
     });
+    void getDb()
+      .then(({ db }) =>
+        notifyFromWorkflowState(db, {
+          organizationId: auth.actor.organizationId,
+          deliverableId,
+          workflowStatus: state.workflowStatus,
+          deliverableStatus: state.deliverableStatus,
+          gate: state.gate,
+        })
+      )
+      .catch(() => undefined);
     return NextResponse.json(state, { status: 200 });
   } catch (err) {
     return handleWorkflowRouteError(err);

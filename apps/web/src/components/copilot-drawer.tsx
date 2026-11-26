@@ -21,12 +21,16 @@ import {
   X,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { useVisualViewportKeyboard } from "@/lib/mobile-resilience";
 import { MarkdownProse } from "./markdown-prose";
+import { MessageAudioPlayer } from "./message-audio-player";
+import { VoiceComposerControls } from "./voice-composer-controls";
 
 interface ChatEntry {
   id: string;
   role: "user" | "assistant";
   content: string;
+  spokenSummary?: string;
   toolsUsed?: string[];
 }
 
@@ -53,7 +57,10 @@ export function CopilotDrawer({
   const [inputText, setInputText] = useState("");
   const [draftTitle, setDraftTitle] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [autoPlaySignal, setAutoPlaySignal] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { keyboardHeight } = useVisualViewportKeyboard();
   const [messages, setMessages] = useState<ChatEntry[]>([
     {
       id: "welcome",
@@ -119,6 +126,7 @@ export function CopilotDrawer({
           ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
           ...(threadId ? { threadId } : {}),
           ...(action ? { action } : {}),
+          ...(voiceMode ? { voiceMode: true } : {}),
         }),
       });
 
@@ -165,9 +173,18 @@ export function CopilotDrawer({
             }
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantId ? { ...m, toolsUsed: ev.toolsUsed } : m
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      toolsUsed: ev.toolsUsed,
+                      spokenSummary: ev.spokenSummary,
+                    }
+                  : m
               )
             );
+            if (voiceMode) {
+              setAutoPlaySignal(assistantId);
+            }
           } else if (ev.type === "error") {
             setMessages((prev) =>
               prev.filter((m) => !(m.id === assistantId && !m.content))
@@ -356,9 +373,24 @@ export function CopilotDrawer({
                 }`}
               >
                 {msg.role === "assistant" ? (
-                  <MarkdownProse
-                    content={msg.content || (streaming ? "Processando..." : "")}
-                  />
+                  <>
+                    <MarkdownProse
+                      content={msg.content || (streaming ? "Processando..." : "")}
+                    />
+                    {msg.content && (
+                      <div className="mt-2">
+                        <MessageAudioPlayer
+                          text={msg.spokenSummary ?? msg.content}
+                          title="Co-piloto Executivo"
+                          autoPlaySignal={
+                            voiceMode && autoPlaySignal === msg.id
+                              ? msg.id
+                              : null
+                          }
+                        />
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <p className="whitespace-pre-wrap">{msg.content}</p>
                 )}
@@ -383,28 +415,50 @@ export function CopilotDrawer({
 
           <form
             onSubmit={handleSubmit}
-            className="flex items-center gap-2 border-t border-border-subtle p-3"
+            style={
+              keyboardHeight > 0
+                ? { paddingBottom: `${keyboardHeight}px` }
+                : undefined
+            }
+            className="space-y-2 border-t border-border-subtle p-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]"
           >
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Pergunte ao Co-piloto Executivo..."
-              aria-label="Mensagem ao Co-piloto"
-              className="flex-1 rounded-md border border-border-default bg-inset px-3 py-2 text-xs text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Pergunte ao Co-piloto Executivo..."
+                aria-label="Mensagem ao Co-piloto"
+                className="min-h-10 flex-1 rounded-md border border-border-default bg-inset px-3 py-2 text-xs text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={streaming || !inputText.trim()}
+                aria-label="Enviar mensagem"
+                className="inline-flex size-10 items-center justify-center rounded-md bg-accent text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {streaming ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Send className="size-3.5" />
+                )}
+              </button>
+            </div>
+            <VoiceComposerControls
+              compact
+              disabled={streaming}
+              voiceMode={voiceMode}
+              onVoiceModeChange={setVoiceMode}
+              onTranscribed={(text, opts) => {
+                if (opts.autoSend) {
+                  void runCopilotTurn(text);
+                } else {
+                  setInputText((prev) =>
+                    prev.trim() ? `${prev.trim()} ${text}` : text
+                  );
+                }
+              }}
             />
-            <button
-              type="submit"
-              disabled={streaming || !inputText.trim()}
-              aria-label="Enviar mensagem"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-base transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {streaming ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Send className="size-3.5" />
-              )}
-            </button>
           </form>
         </Dialog.Content>
       </Dialog.Portal>

@@ -31,6 +31,7 @@ export const CopilotChatRequestSchema = z
     clientId: z.uuid().optional(),
     projectId: z.uuid().optional(),
     action: CopilotActionRequestSchema.optional(),
+    voiceMode: z.boolean().optional(),
   })
   .strict();
 export type CopilotChatRequest = z.infer<typeof CopilotChatRequestSchema>;
@@ -69,6 +70,7 @@ export const CopilotStreamEventSchema = z.discriminatedUnion("type", [
       finishReason: z.enum(["completed", "aborted"]),
       threadId: z.string().min(1).max(160).optional(),
       executionMode: LlmExecutionModeSchema.optional(),
+      spokenSummary: z.string().max(600).optional(),
     })
     .strict(),
   z

@@ -36,6 +36,7 @@ export default defineConfig({
       ...process.env,
       UZINA_DATA_DIR: e2eDataDir,
       BETTER_AUTH_URL: "http://127.0.0.1:3046",
+      UZINA_E2E_DISABLE_RATE_LIMIT: "1",
       NODE_ENV: "production",
     },
   },

@@ -21,8 +21,10 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Volume2,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 
 const PROVIDER_LABELS: Record<ProviderType, string> = {
@@ -511,6 +513,63 @@ export function ProvidersManager() {
             </span>
           </button>
         ))}
+      </section>
+
+      {/* Presets Rápidos de Voz (STT / TTS) via OpenAI-compatible */}
+      <section className="uzina-card flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-surface p-4">
+        <div className="min-w-0 space-y-1">
+          <p className="flex items-center gap-2 text-sm font-semibold text-fg-primary">
+            <Volume2 className="size-4 text-accent" strokeWidth={1.75} />
+            <span>Presets de Voz (STT &amp; TTS via Cofre AES-256-GCM)</span>
+          </p>
+          <p className="text-xs text-fg-secondary">
+            Adicione um provedor compatível para transcrição rápida e narração
+            natural, ou configure voz nativa gratuita em{" "}
+            <Link href="/app/settings" className="text-accent hover:underline">
+              Celular &amp; Alertas
+            </Link>
+            .
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="preset-voice-groq"
+            onClick={() => {
+              openCreateModal("openai_compatible");
+              setName("Groq Whisper Turbo (STT)");
+              setBaseUrl("https://api.groq.com/openai/v1");
+            }}
+            className="inline-flex min-h-9 items-center rounded-md border border-border-default bg-inset px-3 text-xs font-medium text-fg-primary hover:border-border-strong"
+          >
+            + Groq Whisper Turbo
+          </button>
+          <button
+            type="button"
+            data-testid="preset-voice-openai"
+            onClick={() => {
+              openCreateModal("openai_compatible");
+              setName("OpenAI Áudio (STT + TTS)");
+              setBaseUrl("https://api.openai.com/v1");
+            }}
+            className="inline-flex min-h-9 items-center rounded-md border border-border-default bg-inset px-3 text-xs font-medium text-fg-primary hover:border-border-strong"
+          >
+            + OpenAI STT/TTS
+          </button>
+          <button
+            type="button"
+            data-testid="preset-voice-kokoro"
+            onClick={() => {
+              openCreateModal("openai_compatible");
+              setName("Kokoro-82M TTS Local (VPS)");
+              setBaseUrl("http://kokoro-tts:8880/v1");
+            }}
+            className="inline-flex min-h-9 items-center rounded-md border border-border-default bg-inset px-3 text-xs font-medium text-fg-primary hover:border-border-strong"
+          >
+            + Kokoro Local (Grátis)
+          </button>
+        </div>
       </section>
 
       {providersQuery.isLoading && (

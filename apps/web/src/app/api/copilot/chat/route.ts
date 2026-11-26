@@ -1,7 +1,7 @@
 import { CopilotChatRequestSchema } from "@uzina/contracts";
 import { redactSensitiveText } from "@uzina/core";
 import { getDb } from "@uzina/db";
-import { streamExecutiveCopilot } from "@uzina/mastra-runtime";
+import { buildSpokenSummary, streamExecutiveCopilot } from "@uzina/mastra-runtime";
 import { parseJsonBody } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
 import { tryGetServerMasterKey } from "@/lib/vault";
@@ -50,6 +50,7 @@ export async function POST(request: Request): Promise<Response> {
       abortController.signal.addEventListener("abort", onAbort, { once: true });
 
       try {
+        let accumulatedReply = "";
         for await (const event of streamExecutiveCopilot({
           db,
           actor: {
@@ -62,7 +63,18 @@ export async function POST(request: Request): Promise<Response> {
           signal: abortController.signal,
         })) {
           if (closed || abortController.signal.aborted) break;
-          const chunk = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+          if (event.type === "token") {
+            accumulatedReply += event.text;
+          }
+          const enrichedEvent =
+            event.type === "done"
+              ? {
+                  ...event,
+                  spokenSummary:
+                    event.spokenSummary ?? buildSpokenSummary(accumulatedReply),
+                }
+              : event;
+          const chunk = `event: ${enrichedEvent.type}\ndata: ${JSON.stringify(enrichedEvent)}\n\n`;
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {

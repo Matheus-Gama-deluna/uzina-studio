@@ -21,3 +21,5 @@ export * from "./handoffs-v2.js";
 export * from "./agent-evals.js";
 export * from "./security-v2.js";
 export * from "./governance-v2.js";
+export * from "./voice.js";
+export * from "./notifications.js";

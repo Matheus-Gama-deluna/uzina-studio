@@ -1,0 +1,21 @@
+{$UZINA_DOMAIN} {
+  encode zstd gzip
+
+  request_body {
+    max_size 20MB
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    Content-Security-Policy "frame-ancestors 'self'"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  reverse_proxy uzina:3000 {
+    flush_interval -1
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-Host {host}
+  }
+}
