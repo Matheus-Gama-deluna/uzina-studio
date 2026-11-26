@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Agent } from "@mastra/core/agent";
 import { AgentController, type Session } from "@mastra/core/agent-controller";
 import type { MastraModelConfig } from "@mastra/core/llm";
+import type { ProcessInputStepArgs } from "@mastra/core/processors";
 import { RequestContext } from "@mastra/core/request-context";
 import {
   AgencySessionControlResponseSchema,
@@ -17,14 +18,26 @@ import { redactSensitiveText } from "@uzina/core";
 import { clients, deliverables, projects, type UzinaDb } from "@uzina/db";
 import { and, eq } from "drizzle-orm";
 import { WorkflowRuntimeError } from "./errors.js";
-import { createUzinaMemory } from "./memory-runtime.js";
+import {
+  assertProjectBelongsToOrganization,
+  buildAgencyResourceId,
+  createUzinaMemory,
+} from "./memory-runtime.js";
+import {
+  collectOrganizationKnownSecrets,
+  createTenantModelResolver,
+  type ResolvedOrganizationModel,
+} from "./model-resolver.js";
 import {
   createUzinaErrorProcessors,
   createUzinaInputProcessors,
   createUzinaOutputProcessors,
+  createUzinaSemanticRecallProcessor,
+  createUzinaSkillsCatalogProcessor,
 } from "./processors.js";
 import { getMastraStorageSingleton, type UzinaMastraStore } from "./storage.js";
-import { createWorkspaceToolsForRole } from "./tools/workspace-tools.js";
+import { createAllControllerWorkspaceTools } from "./tools/workspace-tools.js";
+import { getRolePlaybookInstructions } from "./agents/engineering-agents.js";
 
 const CONTROLLER_SINGLETON_KEY = Symbol.for("@uzina/mastra/controller-v1");
 const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
@@ -43,10 +56,47 @@ export const AGENCY_ROLE_TO_CONTROLLER_MODE: Record<
   qa_appsec: "review",
 };
 
+export const CONTROLLER_MODE_TO_AGENCY_ROLE: Record<
+  AgencyControllerModeId,
+  AgencyAgentRole
+> = {
+  discovery: "product_discovery",
+  architect: "software_architect",
+  visual: "ux_designer",
+  build: "tech_lead",
+  review: "qa_appsec",
+};
+
+export async function resolveControllerModelForMode(params: {
+  db: UzinaDb;
+  organizationId: string;
+  mode: AgencyControllerModeId;
+  masterKey?: Buffer | string | null;
+}): Promise<ResolvedOrganizationModel> {
+  const resolver = createTenantModelResolver({
+    db: params.db,
+    masterKey: params.masterKey,
+  });
+  const role = CONTROLLER_MODE_TO_AGENCY_ROLE[params.mode];
+  const resolved = await resolver.resolveForRole(params.organizationId, role);
+  if (!resolved) {
+    throw new WorkflowRuntimeError({
+      statusCode: 400,
+      code: "MISSING_PRECONDITION",
+      message:
+        "AGENT_PROVIDER_UNAVAILABLE: Organização sem provedor LLM ativo configurado no Cofre de Provedores.",
+    });
+  }
+  return resolved;
+}
+
 export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
   discovery: [
     "search_qmd_memories",
     "read_project_deliverables",
+    "check_requirement_conflicts",
+    "read_finops_and_risk_digest",
+    "load_uzina_skill",
     "ask_user",
     "submit_plan",
     "task_write",
@@ -59,7 +109,12 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
     "create_qmd_memory",
+    "load_uzina_skill",
     "ask_user",
     "submit_plan",
     "task_write",
@@ -70,6 +125,10 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
   visual: [
     "search_qmd_memories",
     "read_project_deliverables",
+    "read_design_system_contract",
+    "inspect_prototype_version",
+    "validate_color_contrast_and_tokens",
+    "load_uzina_skill",
     "ask_user",
     "task_write",
     "task_update",
@@ -81,7 +140,12 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
     "create_qmd_memory",
+    "load_uzina_skill",
     "task_write",
     "task_update",
     "task_complete",
@@ -92,6 +156,14 @@ export const CONTROLLER_MODE_TOOLS: Record<AgencyControllerModeId, string[]> = {
     "read_project_deliverables",
     "inspect_codebase_skeleton",
     "query_codebase_symbols",
+    "trace_symbol_call_graph",
+    "analyze_change_impact",
+    "read_symbol_source_slice",
+    "check_dependency_boundaries",
+    "read_security_scan_findings",
+    "read_deliverable_evidence_and_diff",
+    "run_test_anti_pattern_audit",
+    "load_uzina_skill",
     "task_check",
   ],
 };
@@ -118,6 +190,7 @@ export interface ManagedControllerSession {
 
 interface ControllerRuntimeSingleton {
   controller: AgentController | null;
+  backingAgent: Agent | null;
   sessions: Map<string, ManagedControllerSession>;
   threadLocks: Map<string, ThreadLockEntry>;
   sweeperTimer: ReturnType<typeof setInterval> | null;
@@ -132,6 +205,7 @@ function getControllerRegistry(): ControllerRuntimeSingleton {
   }
   const created: ControllerRuntimeSingleton = {
     controller: null,
+    backingAgent: null,
     sessions: new Map(),
     threadLocks: new Map(),
     sweeperTimer: null,
@@ -139,6 +213,10 @@ function getControllerRegistry(): ControllerRuntimeSingleton {
   };
   g[CONTROLLER_SINGLETON_KEY] = created;
   return created;
+}
+
+export function getControllerBackingAgent(): Agent | null {
+  return getControllerRegistry().backingAgent;
 }
 
 function ensureSweeperStarted(registry: ControllerRuntimeSingleton): void {
@@ -189,7 +267,7 @@ export async function getOrCreateUzinaAgentController(params: {
   modelOverride?: MastraModelConfig;
 }): Promise<AgentController> {
   const registry = getControllerRegistry();
-  const key = `${params.databaseUrl ?? ""}|${params.dataDir ?? "default"}|${params.modelOverride ? "mock" : "live"}`;
+  const key = `${params.databaseUrl ?? ""}|${params.dataDir ?? "default"}|${params.modelOverride ? "mock" : "live"}|${params.masterKey ? "keyed" : "nokey"}`;
 
   if (registry.controller && registry.initKey === key) {
     return registry.controller;
@@ -216,22 +294,93 @@ export async function getOrCreateUzinaAgentController(params: {
     modelOverride: params.modelOverride,
   });
 
-  const sharedTools = createWorkspaceToolsForRole({
+  const sharedTools = createAllControllerWorkspaceTools({
     db: params.db,
-    role: "software_architect",
-    actorRole: "developer",
     masterKey: params.masterKey,
+    dataDir: params.dataDir,
   });
+
+  const dynamicControllerModel:
+    | MastraModelConfig
+    | (({
+        requestContext,
+      }: {
+        requestContext: { get: (key: string) => unknown };
+      }) => Promise<MastraModelConfig>) = params.modelOverride
+    ? params.modelOverride
+    : async ({ requestContext }) => {
+        const actor = requestContext.get("actor") as
+          | { organizationId?: string }
+          | undefined;
+        const orgId = actor?.organizationId;
+        if (!orgId) {
+          throw new Error(
+            "CONTROLLER_ORG_REQUIRED: organizationId ausente no RequestContext."
+          );
+        }
+        const rawMode = requestContext.get("controllerMode") as
+          | AgencyControllerModeId
+          | undefined;
+        const mode: AgencyControllerModeId =
+          rawMode && rawMode in CONTROLLER_MODE_TO_AGENCY_ROLE
+            ? rawMode
+            : "discovery";
+        const resolved = await resolveControllerModelForMode({
+          db: params.db,
+          organizationId: orgId,
+          mode,
+          masterKey: params.masterKey,
+        });
+        return resolved.mastraModel.model;
+      };
+
+  const modePlaybookProcessor = {
+    id: "uzina-controller-mode-playbook",
+    name: "Uzina Controller Mode Playbook",
+    async processInputStep({
+      systemMessages,
+      requestContext,
+    }: ProcessInputStepArgs) {
+      const rawMode = requestContext?.get("controllerMode") as
+        | AgencyControllerModeId
+        | undefined;
+      const mode: AgencyControllerModeId =
+        rawMode && rawMode in CONTROLLER_MODE_TO_AGENCY_ROLE
+          ? rawMode
+          : "discovery";
+      const role = CONTROLLER_MODE_TO_AGENCY_ROLE[mode];
+      const playbook = getRolePlaybookInstructions(role);
+      const already = systemMessages.some(
+        (m) =>
+          typeof m.content === "string" &&
+          m.content.includes("### Step 0 Obrigatório")
+      );
+      if (already) {
+        return { systemMessages };
+      }
+      return {
+        systemMessages: [
+          ...systemMessages,
+          { role: "system" as const, content: playbook },
+        ],
+      };
+    },
+  };
 
   const backingAgent = new Agent({
     id: "uzina_controller_backing",
     name: "Uzina Engineering Controller",
     instructions:
       "Você é o controlador central de engenharia do Uzina Studio. Responda em Português do Brasil respeitando o escopo do projeto e nunca vaze segredos.",
-    model: (params.modelOverride ?? "openai/gpt-4o-mini") as MastraModelConfig,
+    model: dynamicControllerModel as MastraModelConfig,
     tools: sharedTools,
     memory,
-    inputProcessors: createUzinaInputProcessors({ toolsCatalog: sharedTools }),
+    inputProcessors: [
+      ...createUzinaInputProcessors({ toolsCatalog: sharedTools }),
+      modePlaybookProcessor,
+      createUzinaSkillsCatalogProcessor({ role: "software_architect" }),
+      createUzinaSemanticRecallProcessor({ db: params.db }),
+    ],
     outputProcessors: createUzinaOutputProcessors({}),
     errorProcessors: createUzinaErrorProcessors(),
   });
@@ -298,6 +447,7 @@ export async function getOrCreateUzinaAgentController(params: {
 
   await controller.initStorage();
   registry.controller = controller;
+  registry.backingAgent = backingAgent;
   registry.initKey = key;
   ensureSweeperStarted(registry);
 
@@ -319,6 +469,33 @@ export async function createControlledAgencySession(params: {
   storage?: UzinaMastraStore;
   modelOverride?: MastraModelConfig;
 }): Promise<ManagedControllerSession> {
+  if (params.projectId) {
+    await assertProjectBelongsToOrganization(
+      params.db,
+      params.projectId,
+      params.organizationId
+    );
+  }
+  const expectedAgencyPrefix = buildAgencyResourceId(
+    params.organizationId,
+    params.projectId
+  );
+  const expectedLegacyPrefix = params.projectId
+    ? `agency:${params.organizationId}:${params.projectId}`
+    : `agency:${params.organizationId}`;
+  const isValidScopedResource =
+    params.resourceId === expectedAgencyPrefix ||
+    params.resourceId.startsWith(`${expectedAgencyPrefix}:`) ||
+    params.resourceId === expectedLegacyPrefix ||
+    params.resourceId.startsWith(`${expectedLegacyPrefix}:`);
+  if (!isValidScopedResource) {
+    throw new WorkflowRuntimeError({
+      statusCode: 403,
+      code: "FORBIDDEN_PROJECT_SCOPE",
+      message: "resourceId fora do escopo da organização/projeto autenticado.",
+    });
+  }
+
   const registry = getControllerRegistry();
   enforceLruCap(registry);
 
@@ -330,6 +507,11 @@ export async function createControlledAgencySession(params: {
     storage: params.storage,
     modelOverride: params.modelOverride,
   });
+
+  const knownSecrets = await collectOrganizationKnownSecrets(params.db, {
+    organizationId: params.organizationId,
+    masterKey: params.masterKey,
+  }).catch(() => [] as string[]);
 
   const sessionId = crypto.randomUUID();
   const safeMode: AgencyControllerModeId =
@@ -343,6 +525,9 @@ export async function createControlledAgencySession(params: {
     userId: params.createdByUserId,
     role: params.actorRole,
   });
+  rc.set("controllerMode", safeMode);
+  rc.set("agencyRole", CONTROLLER_MODE_TO_AGENCY_ROLE[safeMode]);
+  rc.set("knownSecrets", knownSecrets);
   if (params.projectId) {
     rc.set("projectId", params.projectId);
   }
@@ -481,6 +666,8 @@ export async function steerSessionScoped(
   if (record.session.getCurrentRunId()) {
     const rc = new RequestContext();
     rc.set("actor", params.actor);
+    rc.set("controllerMode", record.currentMode);
+    rc.set("agencyRole", CONTROLLER_MODE_TO_AGENCY_ROLE[record.currentMode]);
     if (record.projectId) rc.set("projectId", record.projectId);
     void record.session
       .steer({ content: cleanMessage, requestContext: rc })
@@ -663,6 +850,7 @@ export async function destroyAgentController(): Promise<void> {
   registry.sessions.clear();
   registry.threadLocks.clear();
   registry.controller = null;
+  registry.backingAgent = null;
   registry.initKey = null;
 }
 

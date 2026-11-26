@@ -12,10 +12,18 @@ const EXPECTED_SKILL_NAMES = [
   "architecture-blueprint",
   "brownfield-archaeology",
   "contract-first-msw",
+  "differential-appsec-sharp-edges",
   "discovery-interview",
+  "domain-event-storming-bdd",
+  "openspec-brownfield-delta",
+  "property-based-and-mutation-qa",
+  "release-briefing-and-retro",
   "safe-db-migrations",
   "secure-code-audit",
+  "systematic-debugging-3-strikes",
   "test-quality-engineering",
+  "threat-modeling-stride-fmea",
+  "ui-design-critique-a11y",
   "visual-design-md",
 ];
 
@@ -30,14 +38,14 @@ afterEach(() => {
   }
 });
 
-describe("skills-loader — 8 skills nativas SKILL.md", () => {
-  test("carrega e valida todas as 8 skills reais de packages/skills/", () => {
-    const skills = loadNativeSkills();
+describe("skills-loader — 16 skills nativas SKILL.md", () => {
+  test("carrega e valida todas as 16 skills reais de packages/skills/", () => {
+    const skills = loadNativeSkills({ strictBudgets: true });
     expect(skills.map((s) => s.name)).toEqual(EXPECTED_SKILL_NAMES);
     for (const skill of skills) {
       expect(skill.description.length).toBeGreaterThan(10);
       expect(skill.appliesToRoles.length).toBeGreaterThanOrEqual(1);
-      expect(skill.content).toContain("#");
+      expect(skill.content).toContain("## Iron Law");
     }
   });
 
@@ -45,7 +53,9 @@ describe("skills-loader — 8 skills nativas SKILL.md", () => {
     const builderSkills = loadNativeSkills({ roles: ["builder"] });
     expect(builderSkills.map((s) => s.name)).toEqual([
       "contract-first-msw",
+      "property-based-and-mutation-qa",
       "safe-db-migrations",
+      "systematic-debugging-3-strikes",
       "test-quality-engineering",
     ]);
 

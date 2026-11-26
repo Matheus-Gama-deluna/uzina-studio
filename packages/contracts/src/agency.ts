@@ -612,3 +612,17 @@ export const AgencyStreamEventSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 export type AgencyStreamEvent = z.infer<typeof AgencyStreamEventSchema>;
+
+export const AgencyWorkingMemorySchema = z.object({
+  activeDeliverableId: z.string().max(120).nullable().optional(),
+  activePhase: ProjectLifecyclePhaseSchema.nullable().optional(),
+  strategyDecision: DevelopmentStrategySchema.nullable().optional(),
+  lockedDecisions: z
+    .array(z.string().trim().min(1).max(300))
+    .max(20)
+    .optional(),
+  openRisks: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  currentHypothesis: z.string().trim().max(600).nullable().optional(),
+  lastTestFailureSummary: z.string().trim().max(600).nullable().optional(),
+});
+export type AgencyWorkingMemory = z.infer<typeof AgencyWorkingMemorySchema>;

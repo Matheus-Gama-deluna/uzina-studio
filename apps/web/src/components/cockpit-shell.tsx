@@ -246,16 +246,18 @@ export function CockpitShell({
               />
               <span className="truncate text-sm font-semibold text-fg-primary">
                 {projectsQuery.isLoading
-                  ? "Carregando..."
+                  ? "Sincronizando..."
                   : currentProject?.name ?? "Sem projeto ativo"}
               </span>
             </div>
             <p className="mt-0.5 truncate pl-4 text-xs text-fg-muted">
-              {currentProject
-                ? `${currentClient?.name ?? "Internos"}${
-                    projectState ? ` · Ciclo #${projectState.cycleNumber}` : ""
-                  }`
-                : "Crie sua primeira ideia"}
+              {projectsQuery.isLoading
+                ? "Carregando projetos"
+                : currentProject
+                  ? `${currentClient?.name ?? "Internos"}${
+                      projectState ? ` · Ciclo #${projectState.cycleNumber}` : ""
+                    }`
+                  : "Crie sua primeira ideia"}
             </p>
           </div>
           <ChevronsUpDown
@@ -618,9 +620,9 @@ export function CockpitShell({
 
   return (
     <div className="flex min-h-screen bg-canvas text-fg-primary">
-      {/* Sidebar Desktop recolhível (248px <-> 0px) */}
+      {/* Sidebar Desktop recolhível (248px <-> 0px), fixa na altura da viewport */}
       {!sidebarCollapsed && (
-        <aside className="hidden w-62 shrink-0 border-r border-border-subtle lg:block">
+        <aside className="hidden w-62 shrink-0 border-r border-border-subtle lg:sticky lg:top-0 lg:block lg:h-screen">
           {renderSidebarContent(false)}
         </aside>
       )}

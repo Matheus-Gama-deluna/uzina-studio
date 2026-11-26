@@ -3,11 +3,13 @@ import path from "node:path";
 import type { MastraDBMessage, ToolsInput } from "@mastra/core/agent";
 import {
   AgentsMDInjector,
+  PromptInjectionDetector,
   TokenLimiterProcessor,
   ToolSearchProcessor,
   defaultStabilityErrorProcessors,
   formatSkillsCatalog,
   type ErrorProcessorOrWorkflow,
+  type InputProcessor,
   type InputProcessorOrWorkflow,
   type OutputProcessorOrWorkflow,
   type ProcessInputArgs,
@@ -18,21 +20,25 @@ import {
   type ProcessToolResultArgs,
   type SkillCatalogEntry,
 } from "@mastra/core/processors";
+import type { MastraModelConfig } from "@mastra/core/llm";
+import type { AgencyAgentRole, AgentRole } from "@uzina/contracts";
 import {
   assertPathInsideWorkspace,
   estimateTokenCostUsd,
   loadNativeSkills,
   redactSensitiveText,
   redactSensitiveValue,
+  selectNonConflictingSkillsForStage,
 } from "@uzina/core";
 import type { UzinaDb } from "@uzina/db";
 import { getProjectAccumulatedCostUsd } from "./finops.js";
+import { searchQmdScoped } from "./qmd.js";
 
 const DEFAULT_STREAM_HOLDBACK_CHARS = 256;
 const TOOL_SEARCH_THRESHOLD = 8;
 
 const CONTROL_TAG_RE =
-  /<\/?(?:system-reminder|system_instruction|assistant|tool_call|system)(?:\s[^>]*)?>/gi;
+  /<\s*\/?\s*(?:system-reminder|system_instruction|assistant|tool_call|system)(?:\s[^>]*)?>/gi;
 
 const SUSPICIOUS_TAIL_RE =
   /(?:sk(?:-[A-Za-z0-9_-]*)?|gh(?:[pousr]_[A-Za-z0-9_]*)?|github_pat_[A-Za-z0-9_]*|xox(?:[baprs]-[A-Za-z0-9-]*)?|AIz(?:a[0-9A-Za-z_-]*)?|AK(?:I(?:A[0-9A-Z]*)?)?|AS(?:I(?:A[0-9A-Z]*)?)?|ey(?:J[A-Za-z0-9_.-]*)?|Bear(?:e(?:r(?:\s+[A-Za-z0-9._~+/-]*)?)?)?|-----(?:BEGIN[\s\S]*)?|(?:password|passwd|secret|api_key|apikey|token|authorization)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]*|[a-z][a-z0-9+.-]*:\/\/[^\s]*|s)$/i;
@@ -163,19 +169,32 @@ export function createSecretRedactionProcessor(
     options.holdbackChars ?? DEFAULT_STREAM_HOLDBACK_CHARS
   );
 
-  const getSecrets = (): readonly string[] => {
-    if (!options.knownSecrets) return [];
-    return typeof options.knownSecrets === "function"
-      ? options.knownSecrets()
-      : options.knownSecrets;
+  const getSecrets = (requestContext?: {
+    get?: (key: string) => unknown;
+  }): readonly string[] => {
+    const base = !options.knownSecrets
+      ? []
+      : typeof options.knownSecrets === "function"
+        ? options.knownSecrets()
+        : options.knownSecrets;
+    const rcSecrets = requestContext?.get?.("knownSecrets");
+    if (Array.isArray(rcSecrets)) {
+      const extra = rcSecrets.filter((s): s is string => typeof s === "string");
+      return extra.length > 0 ? [...base, ...extra] : base;
+    }
+    return base;
   };
 
   return {
     id: "uzina-secret-redaction",
     name: "Uzina Secret Redaction & Prompt Guard",
 
-    async processInput({ messages, messageList }: ProcessInputArgs) {
-      const secrets = getSecrets();
+    async processInput({
+      messages,
+      messageList,
+      requestContext,
+    }: ProcessInputArgs) {
+      const secrets = getSecrets(requestContext);
       for (const msg of messages) {
         const cleaned = redactMastraDbMessage(msg, secrets);
         if (cleaned !== msg) {
@@ -190,11 +209,28 @@ export function createSecretRedactionProcessor(
       toolCallId,
       args,
       result,
+      messages,
       messageList,
+      requestContext,
     }: ProcessToolResultArgs) {
-      const secrets = getSecrets();
+      const secrets = getSecrets(requestContext);
       const sanitizedResult = sanitizeUntrustedToolOutput(result, secrets);
       const sanitizedArgs = redactSensitiveValue(args, secrets);
+      for (const msg of messages) {
+        const parts = msg.content?.parts;
+        if (!Array.isArray(parts)) continue;
+        for (const part of parts) {
+          if (
+            part.type === "tool-invocation" &&
+            part.toolInvocation?.toolCallId === toolCallId
+          ) {
+            part.toolInvocation = redactSensitiveValue(
+              part.toolInvocation,
+              secrets
+            );
+          }
+        }
+      }
       messageList.updateToolInvocation({
         type: "tool-invocation",
         toolInvocation: {
@@ -208,8 +244,12 @@ export function createSecretRedactionProcessor(
       return messageList;
     },
 
-    async processOutputStream({ part, state }: ProcessOutputStreamArgs) {
-      const secrets = getSecrets();
+    async processOutputStream({
+      part,
+      state,
+      requestContext,
+    }: ProcessOutputStreamArgs) {
+      const secrets = getSecrets(requestContext);
       const stateKey = "__uzinaHoldbackBuffer";
       const currentBuffer =
         typeof state[stateKey] === "string" ? (state[stateKey] as string) : "";
@@ -262,14 +302,443 @@ export function createSecretRedactionProcessor(
       messages,
       messageList,
       state,
+      requestContext,
     }: ProcessOutputResultArgs) {
-      const secrets = getSecrets();
+      const secrets = getSecrets(requestContext);
       state["__uzinaHoldbackBuffer"] = "";
       state["__uzinaTailFlushed"] = "";
 
       for (const msg of messages) {
         const cleaned = redactMastraDbMessage(msg, secrets);
         msg.content = cleaned.content;
+      }
+      return messageList;
+    },
+  };
+}
+
+export interface UzinaPromptInjectionGuardOptions {
+  untrustedCheckout?: boolean;
+  strategy?: "rewrite" | "block";
+  knownSecrets?: readonly string[] | (() => readonly string[]);
+  onDetection?: (info: { reason: string; phase: string }) => void;
+}
+
+const PROMPT_INJECTION_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
+  {
+    reason: "instruction_override",
+    pattern:
+      /\b(?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:previous|prior|above|system)\s+(?:instructions?|prompts?|rules?|directives?)\b/gi,
+  },
+  {
+    reason: "secret_exfiltration_command",
+    pattern:
+      /(?:reveal|print|dump|cat|exfiltrate|send)\s+(?:the\s+)?(?:\.master-key|\.env(?:\.[a-z]+)?|api[_ -]?key|secret)/gi,
+  },
+  {
+    reason: "shell_exfiltration",
+    pattern:
+      /\b(?:curl|wget|Invoke-WebRequest)\b[^\n]*(?:\.env|\.master-key|\|\s*(?:sh|bash|pwsh))/gi,
+  },
+  {
+    reason: "system_delimiter_injection",
+    pattern: CONTROL_TAG_RE,
+  },
+];
+
+function normalizeForInjectionScan(text: string): string {
+  return text.normalize("NFKC").replace(/\p{Cf}/gu, "");
+}
+
+function neutralizePromptInjectionText(text: string): {
+  text: string;
+  matchedReasons: string[];
+} {
+  let out = normalizeForInjectionScan(text);
+  const matchedReasons: string[] = [];
+  for (const rule of PROMPT_INJECTION_PATTERNS) {
+    rule.pattern.lastIndex = 0;
+    if (rule.pattern.test(out)) {
+      matchedReasons.push(rule.reason);
+      rule.pattern.lastIndex = 0;
+      out = out.replace(rule.pattern, "[prompt-injection-neutralized]");
+    }
+  }
+  return { text: out, matchedReasons };
+}
+
+function neutralizePromptInjectionValue(value: unknown): {
+  value: unknown;
+  matchedReasons: string[];
+} {
+  if (typeof value === "string") {
+    const res = neutralizePromptInjectionText(value);
+    return { value: res.text, matchedReasons: res.matchedReasons };
+  }
+  if (Array.isArray(value)) {
+    const reasons = new Set<string>();
+    const items = value.map((item) => {
+      const sub = neutralizePromptInjectionValue(item);
+      for (const r of sub.matchedReasons) reasons.add(r);
+      return sub.value;
+    });
+    return { value: items, matchedReasons: Array.from(reasons) };
+  }
+  if (value && typeof value === "object") {
+    const reasons = new Set<string>();
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      const sub = neutralizePromptInjectionValue(v);
+      for (const r of sub.matchedReasons) reasons.add(r);
+      out[k] = sub.value;
+    }
+    return { value: out, matchedReasons: Array.from(reasons) };
+  }
+  return { value, matchedReasons: [] };
+}
+
+export function createUzinaPromptInjectionGuardProcessor(
+  options: UzinaPromptInjectionGuardOptions = {}
+): InputProcessor {
+  const strategy = options.strategy ?? "rewrite";
+  const resolveSecrets = (requestContext?: {
+    get?: (key: string) => unknown;
+  }): readonly string[] => {
+    const base = !options.knownSecrets
+      ? []
+      : typeof options.knownSecrets === "function"
+        ? options.knownSecrets()
+        : options.knownSecrets;
+    const rcSecrets = requestContext?.get?.("knownSecrets");
+    if (Array.isArray(rcSecrets)) {
+      const extra = rcSecrets.filter((s): s is string => typeof s === "string");
+      return extra.length > 0 ? [...base, ...extra] : base;
+    }
+    return base;
+  };
+
+  return {
+    id: "uzina-prompt-injection-guard",
+    name: "Uzina Prompt Injection Guard",
+
+    async processInput({
+      messages,
+      messageList,
+      requestContext,
+      abort,
+    }: ProcessInputArgs) {
+      const untrusted =
+        options.untrustedCheckout === true ||
+        requestContext?.get("untrustedCheckout") === true;
+      if (!untrusted) {
+        return messageList;
+      }
+
+      for (const msg of messages) {
+        const content = msg.content;
+        if (!content) continue;
+        const reasons: string[] = [];
+
+        if (typeof content.content === "string") {
+          const res = neutralizePromptInjectionText(content.content);
+          if (res.matchedReasons.length > 0) {
+            reasons.push(...res.matchedReasons);
+            content.content = res.text;
+          }
+        }
+        if (Array.isArray(content.parts)) {
+          content.parts = content.parts.map((part) => {
+            if (part.type === "text" && typeof part.text === "string") {
+              const res = neutralizePromptInjectionText(part.text);
+              if (res.matchedReasons.length > 0) {
+                reasons.push(...res.matchedReasons);
+                return { ...part, text: res.text };
+              }
+            }
+            return part;
+          });
+        }
+
+        if (reasons.length > 0) {
+          options.onDetection?.({
+            reason: reasons.join(","),
+            phase: "processInput",
+          });
+          if (strategy === "block") {
+            abort(`PROMPT_INJECTION_BLOCKED:${reasons[0]}`);
+          }
+        }
+      }
+
+      return messageList;
+    },
+
+    async processInputStep({
+      systemMessages,
+      requestContext,
+      abort,
+    }: ProcessInputStepArgs) {
+      const untrusted =
+        options.untrustedCheckout === true ||
+        requestContext?.get("untrustedCheckout") === true;
+      if (!untrusted) {
+        return { systemMessages };
+      }
+      const nextSystem = systemMessages.map((msg) => {
+        if (msg.role !== "system" || typeof msg.content !== "string") return msg;
+        const res = neutralizePromptInjectionText(msg.content);
+        if (res.matchedReasons.length > 0) {
+          options.onDetection?.({
+            reason: res.matchedReasons.join(","),
+            phase: "processInputStep",
+          });
+          if (strategy === "block") {
+            abort(`PROMPT_INJECTION_SYSTEM_BLOCKED:${res.matchedReasons[0]}`);
+          }
+          return { ...msg, content: res.text };
+        }
+        return msg;
+      });
+      return { systemMessages: nextSystem };
+    },
+
+    async processToolResult({
+      toolName,
+      toolCallId,
+      args,
+      result,
+      messages,
+      messageList,
+      requestContext,
+      abort,
+    }: ProcessToolResultArgs) {
+      const secrets = resolveSecrets(requestContext);
+      const neutralized = neutralizePromptInjectionValue(result);
+      if (neutralized.matchedReasons.length > 0) {
+        options.onDetection?.({
+          reason: neutralized.matchedReasons.join(","),
+          phase: "processToolResult",
+        });
+        if (strategy === "block") {
+          abort(`PROMPT_INJECTION_TOOL_BLOCKED:${neutralized.matchedReasons[0]}`);
+        }
+        const safeResult = sanitizeUntrustedToolOutput(
+          neutralized.value,
+          secrets
+        );
+        const safeArgs = redactSensitiveValue(args, secrets);
+        for (const msg of messages) {
+          const parts = msg.content?.parts;
+          if (!Array.isArray(parts)) continue;
+          for (const part of parts) {
+            if (
+              part.type === "tool-invocation" &&
+              part.toolInvocation?.toolCallId === toolCallId
+            ) {
+              part.toolInvocation = {
+                ...part.toolInvocation,
+                args: safeArgs,
+              };
+            }
+          }
+        }
+        messageList.updateToolInvocation({
+          type: "tool-invocation",
+          toolInvocation: {
+            state: "result",
+            toolCallId,
+            toolName,
+            args: safeArgs,
+            result: safeResult,
+          },
+        });
+      }
+      return messageList;
+    },
+  };
+}
+
+export function createOptionalLlmPromptInjectionDetector(
+  model?: MastraModelConfig
+): PromptInjectionDetector | null {
+  if (!model) return null;
+  return new PromptInjectionDetector({
+    model,
+    strategy: "rewrite",
+    threshold: 0.75,
+  });
+}
+
+function mapAgencyRoleToSkillRole(role?: AgencyAgentRole): AgentRole | undefined {
+  switch (role) {
+    case "product_discovery":
+      return "discovery";
+    case "software_architect":
+      return "architect";
+    case "ux_designer":
+      return "visual";
+    case "tech_lead":
+      return "builder";
+    case "qa_appsec":
+      return "security";
+    case "orchestrator":
+      return "copilot";
+    default:
+      return undefined;
+  }
+}
+
+export function createUzinaSkillsCatalogProcessor(params: {
+  role?: AgencyAgentRole;
+  skillsDir?: string;
+  preferredLeadName?: string;
+  includeCritique?: boolean;
+}) {
+  return {
+    id: "uzina-skills-catalog",
+    name: "Uzina Progressive Skills Catalog",
+    async processInputStep({
+      systemMessages,
+      requestContext,
+    }: ProcessInputStepArgs) {
+      const dynamicRole =
+        (requestContext?.get("agencyRole") as AgencyAgentRole | undefined) ??
+        params.role;
+      const skillRole = mapAgencyRoleToSkillRole(dynamicRole);
+      const rolesFilter: AgentRole[] | undefined = skillRole
+        ? skillRole === "security"
+          ? ["security", "verifier"]
+          : [skillRole]
+        : undefined;
+
+      const preferredLeadFromCtx = requestContext?.get("preferredLeadSkill");
+      const preferredLeadName =
+        typeof preferredLeadFromCtx === "string" && preferredLeadFromCtx.trim()
+          ? preferredLeadFromCtx.trim()
+          : params.preferredLeadName;
+
+      const includeCritiqueFromCtx = requestContext?.get("includeCritique");
+      const includeCritique =
+        typeof includeCritiqueFromCtx === "boolean"
+          ? includeCritiqueFromCtx
+          : (params.includeCritique ??
+            (dynamicRole === "qa_appsec" ||
+              dynamicRole === "ux_designer" ||
+              requestContext?.get("controllerMode") === "review"));
+
+      const ctx = createUzinaSkillsContext(params.skillsDir, rolesFilter, {
+        preferredLeadName,
+        includeCritique,
+      });
+      if (!ctx.catalogMarkdown) {
+        return { systemMessages };
+      }
+
+      const catalogMessageContent = [
+        ctx.catalogMarkdown,
+        "Quando uma tarefa corresponder a uma skill acima, chame a tool `load_uzina_skill` com `skillName` (e opcionalmente `resourcePath` para `references/` ou `templates/`) antes de executar.",
+      ].join("\n\n");
+
+      const alreadyInjected = systemMessages.some(
+        (m) =>
+          typeof m.content === "string" &&
+          m.content.includes("<available_skills>")
+      );
+      if (alreadyInjected) {
+        return { systemMessages };
+      }
+
+      return {
+        systemMessages: [
+          ...systemMessages,
+          { role: "system" as const, content: catalogMessageContent },
+        ],
+      };
+    },
+  };
+}
+
+export function createUzinaSemanticRecallProcessor(params: {
+  db: UzinaDb;
+  topK?: number;
+}) {
+  const topK = Math.max(1, Math.min(10, params.topK ?? 4));
+  return {
+    id: "uzina-semantic-recall",
+    name: "Uzina Multi-Tenant Semantic Recall (QMD)",
+    async processInput({
+      messages,
+      messageList,
+      requestContext,
+    }: ProcessInputArgs) {
+      const actor = requestContext?.get("actor") as
+        | { organizationId?: string }
+        | undefined;
+      const organizationId = actor?.organizationId;
+      if (!organizationId) {
+        return messageList;
+      }
+
+      const projectIdRaw = requestContext?.get("projectId");
+      const projectId =
+        typeof projectIdRaw === "string" && projectIdRaw.length > 0
+          ? projectIdRaw
+          : undefined;
+
+      const lastUserMsg = [...messages]
+        .reverse()
+        .find((m) => m.role === "user");
+      if (!lastUserMsg) {
+        return messageList;
+      }
+
+      let queryText = "";
+      if (typeof lastUserMsg.content?.content === "string") {
+        queryText = lastUserMsg.content.content;
+      } else if (Array.isArray(lastUserMsg.content?.parts)) {
+        queryText = lastUserMsg.content.parts
+          .map((p) => (p.type === "text" && typeof p.text === "string" ? p.text : ""))
+          .join(" ");
+      }
+      const trimmedQuery = queryText.trim().slice(0, 320);
+      if (trimmedQuery.length < 3) {
+        return messageList;
+      }
+
+      const res = await searchQmdScoped(params.db, {
+        organizationId,
+        request: {
+          query: trimmedQuery,
+          projectId,
+          limit: topK,
+        },
+      }).catch(() => null);
+
+      if (!res || res.hits.length === 0) {
+        return messageList;
+      }
+
+      const rcSecrets = requestContext?.get("knownSecrets");
+      const secrets = Array.isArray(rcSecrets)
+        ? rcSecrets.filter((s): s is string => typeof s === "string")
+        : [];
+      const sanitizeMemoryText = (raw: string): string => {
+        const redacted = redactSensitiveText(raw, secrets).replace(
+          CONTROL_TAG_RE,
+          "[control-tag-escaped]"
+        );
+        return neutralizePromptInjectionText(redacted).text;
+      };
+
+      const lines = res.hits.map(
+        (h) =>
+          `- [${h.scopeType}] ${sanitizeMemoryText(h.headingPath)}: ${sanitizeMemoryText(h.snippet).slice(0, 260)}`
+      );
+      const recallBlock = `<uzina_semantic_recall>\n${lines.join("\n")}\n</uzina_semantic_recall>`;
+
+      const existingRecall = messageList.getSystemMessages("uzina-semantic-recall");
+      if (existingRecall.length === 0) {
+        messageList.addSystem(recallBlock, "uzina-semantic-recall");
       }
       return messageList;
     },
@@ -287,10 +756,23 @@ export function createUzinaInputProcessors(params: {
   knownSecrets?: readonly string[] | (() => readonly string[]);
   toolsCatalog?: ToolsInput;
   providerType?: string;
+  untrustedCheckout?: boolean;
+  promptInjectionModel?: MastraModelConfig;
 }): InputProcessorOrWorkflow[] {
   const processors: InputProcessorOrWorkflow[] = [
+    createUzinaPromptInjectionGuardProcessor({
+      untrustedCheckout: params.untrustedCheckout,
+      knownSecrets: params.knownSecrets,
+    }),
     createSecretRedactionProcessor({ knownSecrets: params.knownSecrets }),
   ];
+
+  const llmDetector = createOptionalLlmPromptInjectionDetector(
+    params.promptInjectionModel
+  );
+  if (llmDetector) {
+    processors.push(llmDetector);
+  }
 
   const toolsCount = params.toolsCatalog
     ? Object.keys(params.toolsCatalog).length
@@ -438,12 +920,22 @@ export function createUzinaAgentsMdInjector(options: {
   });
 }
 
-export function createUzinaSkillsContext(skillsDir?: string): {
+export function createUzinaSkillsContext(
+  skillsDir?: string,
+  roles?: AgentRole[],
+  stageSelection?: {
+    preferredLeadName?: string;
+    includeCritique?: boolean;
+  }
+): {
   entries: SkillCatalogEntry[];
   catalogMarkdown: string;
 } {
   try {
-    const definitions = loadNativeSkills({ skillsDir });
+    const rawDefinitions = loadNativeSkills({ skillsDir, roles });
+    const definitions = stageSelection
+      ? selectNonConflictingSkillsForStage(rawDefinitions, stageSelection)
+      : rawDefinitions;
     const entries: SkillCatalogEntry[] = definitions
       .map((skill) => ({
         name: skill.name,

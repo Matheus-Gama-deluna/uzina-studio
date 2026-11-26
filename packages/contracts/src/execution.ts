@@ -119,12 +119,46 @@ export const ExecResultSchema = z.object({
 });
 export type ExecResult = z.infer<typeof ExecResultSchema>;
 
+export const SkillLifecyclePhaseSchema = z.enum([
+  "discovery",
+  "architecture",
+  "visual",
+  "build",
+  "verify",
+  "release",
+]);
+export type SkillLifecyclePhase = z.infer<typeof SkillLifecyclePhaseSchema>;
+
+export const SkillRoleCategorySchema = z.enum([
+  "lead",
+  "reference",
+  "critique",
+]);
+export type SkillRoleCategory = z.infer<typeof SkillRoleCategorySchema>;
+
+export const SkillBudgetMetricsSchema = z.object({
+  nameLength: z.number().int().nonnegative(),
+  descriptionLength: z.number().int().nonnegative(),
+  bodyLines: z.number().int().nonnegative(),
+  withinBudgets: z.boolean(),
+});
+export type SkillBudgetMetrics = z.infer<typeof SkillBudgetMetricsSchema>;
+
 export const SkillDefinitionSchema = z.object({
   name: z.string().regex(/^[a-z0-9-]+$/, "Nome da skill deve ser kebab-case"),
   description: z.string().trim().min(1),
   appliesToRoles: z.array(AgentRoleSchema).min(1),
   content: z.string().trim().min(1),
   filePath: z.string().trim().min(1),
+  version: z.string().trim().min(1).max(32).optional(),
+  license: z.string().trim().min(1).max(64).optional(),
+  phase: SkillLifecyclePhaseSchema.optional(),
+  roleCategory: SkillRoleCategorySchema.default("reference"),
+  ironLaw: z.string().trim().min(1).max(500).optional(),
+  references: z.array(z.string().trim().min(1)).default([]),
+  templates: z.array(z.string().trim().min(1)).default([]),
+  scripts: z.array(z.string().trim().min(1)).default([]),
+  budgets: SkillBudgetMetricsSchema.optional(),
 });
 export type SkillDefinition = z.infer<typeof SkillDefinitionSchema>;
 

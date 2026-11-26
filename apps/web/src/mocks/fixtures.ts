@@ -2,6 +2,7 @@ import {
   AgencyChatResponseSchema,
   AgencyOverviewResponseSchema,
   AgencyThreadListResponseSchema,
+  AgentEffectivenessMetricsSchema,
   BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
   ClientListResponseSchema,
@@ -9,7 +10,10 @@ import {
   CodebaseTreeResponseSchema,
   DEFAULT_PROJECT_STAGE_AUTOMATION,
   DecisionListResponseSchema,
+  DecisionRiskBriefingSchema,
+  EntropyAuditReportSchema,
   ProvenanceListResponseSchema,
+  SkillsLockManifestSchema,
   SymbolGraphResponseSchema,
   SymbolSliceResponseSchema,
   DeliverableListResponseSchema,
@@ -27,6 +31,7 @@ import {
   SecurityScanListResponseSchema,
   SecurityScanResultSchema,
   StitchMcpSyncResponseSchema,
+  VerifierTwoStageOutputSchema,
 } from "@uzina/contracts";
 
 const NOW = "2026-11-21T17:00:00.000Z";
@@ -328,6 +333,60 @@ export const mockDecisions = DecisionListResponseSchema.parse({
           verifierNotes: "Verifier independente validou contratos Zod e RBAC.",
           finalizeInfo: null,
         },
+        riskBriefing: DecisionRiskBriefingSchema.parse({
+          riskLevel: "high",
+          confidenceScore: 92,
+          changedSurface: {
+            dbMigrations: false,
+            authOrRbac: true,
+            cryptoOrSecrets: true,
+            newDependencies: [],
+            newEnvVars: ["MASTER_ENCRYPTION_KEY"],
+          },
+          rollbackPlan:
+            "Invalidar sessões/chaves afetadas caso haja rotação e executar git revert na branch base.",
+          finopsSummary: {
+            tokensTotal: 5320,
+            estimatedCostUsd: 0.029,
+          },
+        }),
+        twoStageVerifierOutput: VerifierTwoStageOutputSchema.parse({
+          verdict: "approved",
+          summary: "Aprovado nos 2 estágios (2 critérios cobertos, Confidence Score 92/100).",
+          issues: [],
+          stage1SpecCompliance: {
+            passed: true,
+            matrix: [
+              {
+                criterionId: "AC-1",
+                criterionText: "Cifrar credenciais de provedores com AES-256-GCM",
+                testFile: "tests/vault.test.ts",
+                testLine: 4,
+                sourceFile: "src/vault/crypto.ts",
+                sourceLine: 12,
+                status: "covered",
+              },
+              {
+                criterionId: "AC-2",
+                criterionText: "Bloquear acesso cross-tenant via RBAC server-side",
+                testFile: "tests/vault.test.ts",
+                testLine: 18,
+                sourceFile: "src/vault/crypto.ts",
+                sourceLine: 40,
+                status: "covered",
+              },
+            ],
+          },
+          stage2QualityAndSecurity: {
+            passed: true,
+            refutingChecksPerformed: [
+              "Inspeção de diff semântico: 1 arquivo de código e 1 arquivo de teste.",
+              "Gate AppSec SARIF: critical=0, high=0, pulados=1.",
+            ],
+            survivingMutantRisks: [],
+          },
+          confidenceScore: 92,
+        }),
       },
       status: "pending",
       humanFeedback: null,
@@ -969,3 +1028,82 @@ export const mockBackgroundTasksResponse =
     projectId: MOCK_PROJECT_ID,
     items: [],
   });
+
+export const mockAgentEffectivenessMetrics = AgentEffectivenessMetricsSchema.parse({
+  firstPassVerifyRate: 84.5,
+  averageVerifyAttempts: 1.18,
+  skillAdherenceRate: 93.0,
+  averageConfidenceScore: 89.2,
+  reworkCostUsd: 0.0124,
+  byRole: {
+    orchestrator: { runs: 4, avgTokens: 1200, avgLatencyMs: 650, failureRate: 0 },
+    product_discovery: { runs: 6, avgTokens: 1850, avgLatencyMs: 920, failureRate: 0 },
+    software_architect: { runs: 5, avgTokens: 3200, avgLatencyMs: 1450, failureRate: 0.1 },
+    ux_designer: { runs: 4, avgTokens: 2800, avgLatencyMs: 1320, failureRate: 0 },
+    tech_lead: { runs: 12, avgTokens: 4600, avgLatencyMs: 2150, failureRate: 0.15 },
+    qa_appsec: { runs: 8, avgTokens: 2100, avgLatencyMs: 1100, failureRate: 0.05 },
+  },
+});
+
+export const mockSkillsCatalog = {
+  skills: [
+    {
+      name: "discovery-interview",
+      description: "Conduz descoberta socrática e ShapeSpec com Non-Goals e BDD.",
+      version: "2.0.0",
+      license: "Apache-2.0",
+      phase: "discovery",
+      roleCategory: "lead",
+      appliesToRoles: ["discovery", "copilot"],
+      resourcesCount: 1,
+      sha256: "a".repeat(64),
+      verified: true,
+      enabled: true,
+    },
+    {
+      name: "secure-code-audit",
+      description: "Auditoria diferencial SAST, secrets, RBAC e triagem SARIF.",
+      version: "2.0.0",
+      license: "Apache-2.0",
+      phase: "verify",
+      roleCategory: "critique",
+      appliesToRoles: ["security", "verifier"],
+      resourcesCount: 1,
+      sha256: "b".repeat(64),
+      verified: true,
+      enabled: true,
+    },
+  ],
+  lockManifest: SkillsLockManifestSchema.parse({
+    lockVersion: 1,
+    skills: [
+      {
+        name: "discovery-interview",
+        source: "packages/skills/discovery-interview",
+        version: "2.0.0",
+        license: "Apache-2.0",
+        sha256: "a".repeat(64),
+        verified: true,
+        enabled: true,
+      },
+      {
+        name: "secure-code-audit",
+        source: "packages/skills/secure-code-audit",
+        version: "2.0.0",
+        license: "Apache-2.0",
+        sha256: "b".repeat(64),
+        verified: true,
+        enabled: true,
+      },
+    ],
+  }),
+  lockValid: true,
+  lockIssues: [] as string[],
+};
+
+export const mockEntropyAuditReport = EntropyAuditReportSchema.parse({
+  deadCodeCandidates: [],
+  docSpecDrifts: [],
+  orphanWorktrees: [],
+  unusedDependencies: [],
+});

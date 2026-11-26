@@ -16,3 +16,8 @@ export * from "./codebase.js";
 export * from "./prototypes.js";
 export * from "./finops.js";
 export * from "./agency.js";
+export * from "./role-tools.js";
+export * from "./handoffs-v2.js";
+export * from "./agent-evals.js";
+export * from "./security-v2.js";
+export * from "./governance-v2.js";

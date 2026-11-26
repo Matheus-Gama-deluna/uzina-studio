@@ -8,6 +8,7 @@ import {
   AgencySessionSteerRequestSchema,
   AgencyStreamEventSchema,
   AgencyThreadListResponseSchema,
+  AgentEffectivenessMetricsSchema,
   ApiErrorSchema,
   BackgroundTaskListResponseSchema,
   BrownfieldMapSchema,
@@ -37,6 +38,7 @@ import {
   DesignPrototypeListResponseSchema,
   DesignPrototypeSchema,
   EngineConfigResponseSchema,
+  EntropyAuditReportSchema,
   FinopsSummarySchema,
   GenerateDesignMdInputSchema,
   GenerateDesignMdResponseSchema,
@@ -94,6 +96,7 @@ import {
   mockAgencyChatResponse,
   mockAgencyOverviewResponse,
   mockAgencyThreadListResponse,
+  mockAgentEffectivenessMetrics,
   mockBackgroundTasksResponse,
   mockBrownfieldMap,
   mockClients,
@@ -104,6 +107,7 @@ import {
   mockDesignAssets,
   mockDesignPrototypes,
   mockEngineConfigResponse,
+  mockEntropyAuditReport,
   mockExecutionEvents,
   mockFinopsSummary,
   mockMemories,
@@ -114,6 +118,7 @@ import {
   mockQmdSearchResponse,
   mockSecurityScanDetail,
   mockSecurityScans,
+  mockSkillsCatalog,
   mockStitchSyncResponse,
   mockSymbolGraphResponse,
   mockSymbolSliceResponse,
@@ -1193,6 +1198,22 @@ export const handlers = [
 
   http.get("*/api/finops/summary", () => {
     return HttpResponse.json(FinopsSummarySchema.parse(mockFinopsSummary));
+  }),
+
+  http.get("*/api/finops/effectiveness", () => {
+    return HttpResponse.json(
+      AgentEffectivenessMetricsSchema.parse(mockAgentEffectivenessMetrics)
+    );
+  }),
+
+  http.get("*/api/skills/catalog", () => {
+    return HttpResponse.json(mockSkillsCatalog);
+  }),
+
+  http.get("*/api/projects/:id/entropy", () => {
+    return HttpResponse.json(
+      EntropyAuditReportSchema.parse(mockEntropyAuditReport)
+    );
   }),
 
   http.post("*/api/finops/summary", async ({ request }) => {

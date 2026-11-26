@@ -49,11 +49,20 @@ import {
   createUzinaOutputProcessors,
 } from "../processors.js";
 import type { UzinaMastraStore } from "../storage.js";
+import { createRoleSpecializedToolsMap } from "../tools/role-specialized-tools.js";
+
+export const EXECUTIVE_COPILOT_CORE_CAPABILITY_TOOL_IDS = [
+  "read_workspace_overview",
+  "draft_deliverable",
+  "trigger_security_scan",
+] as const;
 
 export const EXECUTIVE_COPILOT_TOOL_IDS = [
   "read_workspace_overview",
   "draft_deliverable",
   "trigger_security_scan",
+  "read_finops_and_risk_digest",
+  "check_requirement_conflicts",
 ] as const;
 
 export const EXECUTIVE_COPILOT_FORBIDDEN_CAPABILITIES = [
@@ -422,7 +431,7 @@ function resolveTrustedCopilotActor(
   );
 }
 
-export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
+export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps): Agent {
   const resolver = createTenantModelResolver({
     db: deps.db,
     masterKey: deps.masterKey,
@@ -513,10 +522,17 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
         return resolved.mastraModel.model;
       };
 
+  const specializedTools = createRoleSpecializedToolsMap({
+    db: deps.db,
+    masterKey: deps.masterKey,
+  });
+
   const tools = {
     read_workspace_overview: readOverviewTool,
     draft_deliverable: draftDeliverableTool,
     trigger_security_scan: triggerSecurityScanTool,
+    read_finops_and_risk_digest: specializedTools.read_finops_and_risk_digest!,
+    check_requirement_conflicts: specializedTools.check_requirement_conflicts!,
   };
 
   return new Agent({
@@ -526,7 +542,8 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
       "Você é o Co-piloto Executivo da Uzina Studio.",
       "Responda sempre em português do Brasil com Markdown limpo e objetivo.",
       "Antes de responder sobre o status do workspace, chame read_workspace_overview e cite nominalmente os projetos reais, clientes, contagens de entregas e pendências HITL retornados.",
-      "Você só possui acesso de leitura ao workspace, criação de rascunho de entrega ('discovery') e disparo de scan de segurança.",
+      "Use read_finops_and_risk_digest para diagnósticos de custo/risco e check_requirement_conflicts antes de rascunhar novas entregas.",
+      "Você só possui acesso de leitura ao workspace, consulta de risco/FinOps/conflitos, criação de rascunho de entrega ('discovery') e disparo de scan de segurança.",
       "Você NÃO escreve arquivos em disco, NÃO executa comandos shell/git e NÃO altera status para 'merged'.",
     ].join("\n"),
     model: dynamicModel as MastraModelConfig,
@@ -539,10 +556,14 @@ export function createExecutiveCopilotAgent(deps: ExecutiveCopilotDeps) {
     }),
     outputProcessors: createUzinaOutputProcessors({
       knownSecrets: deps.knownSecrets,
-      onTailFlushed: deps.onTailFlushed,
+      onTailFlushed: paramsOnTailFlushed(deps.onTailFlushed),
     }),
     errorProcessors: createUzinaErrorProcessors(),
   });
+}
+
+function paramsOnTailFlushed(cb?: (flushedTail: string) => void) {
+  return cb;
 }
 
 export function getExecutiveCopilotCapabilities(
@@ -550,7 +571,7 @@ export function getExecutiveCopilotCapabilities(
 ): CopilotCapabilities {
   return {
     agentId: "executive_copilot",
-    allowedTools: [...EXECUTIVE_COPILOT_TOOL_IDS],
+    allowedTools: [...EXECUTIVE_COPILOT_CORE_CAPABILITY_TOOL_IDS],
     forbiddenCapabilities: [...EXECUTIVE_COPILOT_FORBIDDEN_CAPABILITIES],
     actorRole,
   };

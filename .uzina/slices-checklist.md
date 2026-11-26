@@ -140,3 +140,55 @@
   - [x] Ponte real `advance_cycle` → `deliverableLifecycleWorkflow` (`agency.ts`), `MastraWorkspaceExecutorAdapter` (`codingExecutorMode`), automação por coluna `Manual | Auto`, trava HITL em `decision_pending` e pausa inteligente `budget_cap_pause` com retomada `newBudgetCapUsd`
   - [x] Controles Warm Stone na UI (switches `role="switch"` no Kanban, `Teto Orçamento (USD)`, badge `Tarefas em 2º plano`, `Intervir (Steer)` / `Abortar` / `Aprovar Plano` no Chat, `budget_cap_pause` em Decisões e `Executor de Codificação` em FinOps), MSW + Contract Drift + RBAC completos
   - [x] Gate final pós-remediações verde: `check-no-ee` (`0`), `audit:tests` (`70` arquivos, `224` testes, `0` violações), `pnpm verify` (`34/34` tasks, `558 passed | 1 skipped` `postgres-live.test.ts`), `UZINA_STANDALONE=1` + build padrão (`0`), Playwright `test:e2e` (`2 passed`) e QA visual (`browser` **PASS** em Dark/Light Stone e Mobile) (`feat/slice-19-agent-controller-workflow-bridge-kanban-auto`)
+
+
+- [x] **Slices 20–25 — Plano Mestre P0–P3** (`docs/planos/plano-mestre-p0-p3-slices-20-25.md`)
+  - [x] Finalize Git real, Switcher sincronizado, Estúdio Visual LLM, QMD isolado, Mobile `390px`/A11y, Tool Trace SSE resumível, Semantic Diff, Worktrees GC, AST Symbol Lock, Docker Hot-Reload, Tool Policies (`Allow`/`Ask`/`Deny`) e GitHub PAT Draft PR (`main`)
+
+- [x] **Slice 26 — Controller Dinâmico, SkillsLoader v2 (`agentskills.io`), Playbooks Sênior & Guardrails** (`docs/slices/slice-26-controller-model-resolver-skills-loader-v2.md`)
+  - [x] Remoção de `"openai/gpt-4o-mini"` hardcoded em `controller.ts` (`resolveControllerModelForMode` + `dynamicControllerModel` + `getControllerBackingAgent()` + validação IDOR)
+  - [x] `skills-loader.ts` v2 (`references/`, `templates/`, `scripts/`, budgets `64`/`1024`/`500`, `loadSkillResource` seguro, `selectNonConflictingSkillsForStage`)
+  - [x] Playbooks Sênior (`getRolePlaybookInstructions`) + `createUzinaSkillsCatalogProcessor` + tool `load_uzina_skill`
+  - [x] `WorkingMemory` tipada (`AgencyWorkingMemorySchema`) + `SemanticRecall` QMD multi-tenant + `PromptInjectionGuardProcessor` (`NFKC`/zero-width, `processInput`, `processInputStep`, `processToolResult` preservando redação)
+  - [x] Verify Gate verde: `check-no-ee` (`0`), `audit-tests` (`84` arquivos, `275` testes, `0` violações), `pnpm verify` (`34/34` tasks), `test-critic`, `appsec-auditor` e `factory-verifier` (**PASS**) (`fix/slice-26-controller-model-resolver-skills-loader-v2`)
+
+---
+
+## Evolução Agêntica v2 — Slices 27 a 34 (`feat/slices-27-34-agentic-evolution-v2`)
+> Plano Mestre: `docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md` · Retomada da Onda 3: `docs/status/HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md`
+
+- [x] **Contratos Zod Consolidados (Slices 27–34)** (`ff08845`)
+  - [x] `packages/contracts/src/{role-tools,handoffs-v2,agent-evals,security-v2,governance-v2}.ts` + `tests/slices-27-34-contracts.test.ts` (`14 files, 269 tests passed`)
+
+- [x] **Slice 27 — Biblioteca de 16 Skills Autorais `Apache-2.0` (`docs/slices/slice-27-skills-library-v2-iron-laws-16-skills.md`)** (`4cf36b1`)
+  - [x] 8 skills evoluídas + 8 novas skills autorais com Iron Laws, tabelas Red Flags, `references/`, `templates/` e `scripts/check-migration-ddl.mjs`
+  - [x] `slice27-skills-catalog-integrity.test.ts` + atualização de `skills-loader.test.ts` (`34 tests passed`)
+
+- [x] **Slice 28 — 14 Tools Especializadas por Papel & RBAC (`docs/slices/slice-28-role-workspace-tools-codebase-design-appsec.md`)** (`4b3ea02`)
+  - [x] `role-specialized-tools.ts`, `workspace-tools.ts`, `executive-copilot.ts`, `engineering-agents.ts`, `controller.ts` (`review` read-only + `ToolSearchProcessor`), `processors.ts` (`selectNonConflictingSkillsForStage`)
+  - [x] `slice28-workspace-tools-rbac.test.ts` (`49 tests passed`)
+
+- [x] **Slice 33 (Onda 2) — AppSec v2 (`docs/slices/slice-33-appsec-v2-dast-reachability-sbom-agentic-guard.md`)** (`0961fee`)
+  - [x] `dast-passive.ts` (+ Nuclei opcional), `reachability.ts` nativo, `sbom.ts` (CycloneDX 1.5 + `syft`), `scanAgenticPromptInjectionNative` (`14/14 passed`)
+
+- [x] **Slice 29 — Handoffs Imutáveis Fases 1, 2 & 2.5 (`docs/slices/slice-29-discovery-architect-ux-structured-handoffs.md`)** (`769d943`)
+  - [x] `structured-handoffs.ts` (`ShapeSpec`, `ArchitectBlueprintV2`, UX 3 estágios + `PrototypeComponentManifest`) + `agency.ts` LLM + fallback + wiring `deliverable-lifecycle.ts` (`8/8 passed`)
+
+- [x] **Slice 30 — Builder Harness (`docs/slices/slice-30-builder-harness-test-lock-micro-loop-debug.md`)** (`36fe585`)
+  - [x] `migration-safety.ts`, 3-Strikes (`stuck-detector.ts` + `runner.ts`), `Test Lock` + micro-loop allowlisted (`workspace-adapter.ts`) + wiring `deliverable-lifecycle.ts` (`28/28 passed`)
+
+- [x] **Slice 31 — Two-Stage Verifier, Risk Briefing & Retro QMD (`docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md`)** (`71cad82`, `b5faf27`)
+  - [x] `two-stage-verifier.ts`, `github-pr.ts`, retro QMD, `syncOpenSpecArchive` e wiring completo em `deliverable-lifecycle.ts` (`71cad82`, `9/9 passed`)
+  - [x] UI em `/app/decisions` (`DecisionRiskBriefingCard` em `decisions-workbench.tsx` + `slices-31-32-34-ui.test.ts`, `b5faf27`)
+
+- [x] **Slice 32 — CI Evals de Trajetória & Efetividade Agêntica (`docs/slices/slice-32-agentic-ci-evals-trajectory-gates.md`)** (`8475fcd`)
+  - [x] `evals/trajectory-evals.ts`, `computeAgentEffectivenessMetricsScoped` (`finops.ts`), `scripts/audit-agent-trajectories.mjs` (`4/4 passed`), API `/api/finops/effectiveness` + `AgentEffectivenessPanel` em `/app/finops` + testes (`slice32-trajectory-evals.test.ts` + `slices-31-32-34-ui.test.ts`)
+
+- [x] **Slice 34 — QA Visual A11y, Mutation/PBT, `skills-lock.json` & Entropia (`docs/slices/slice-34-visual-a11y-mutation-pbt-and-skills-registry.md`)** (`c0ac693`)
+  - [x] `skills-lock.ts` (SHA-256), `mutation-pbt.ts`, `visual-a11y-verify.ts` + hook `stageVerify`, `entropy.ts`, CLI `uzina doctor --entropy`, APIs `/api/skills/catalog` e `/api/projects/[id]/entropy` + `SkillsCatalogPanel` + testes (`slice34-skills-lock-entropy.test.ts`, `slice34-visual-a11y-verify.test.ts`, `slices-31-32-34-ui.test.ts`)
+  - [x] Gate Final Onda 4: `pnpm verify` (**34/34 OK**), `check-no-ee` (`0`), `audit-tests` (**95 arquivos, 338 testes, 2 suprimidos, 0 violações**), `audit-agent-trajectories.mjs` (**4/4 passed**), auditoria consolidada e atualização dos dossiês 31/32/34 e `docs/planos/dossie-agentes-por-fase-v2.md`
+
+- [x] **Slice 35 — Polimento Visual/UX Pós-QA Real no Navegador & E2E Playwright Populado** (`feat/slices-27-34-agentic-evolution-v2`)
+  - [x] Correções P1/P2 em `cockpit-shell.tsx`, `agency-command-center.tsx`, `agency.ts`, `visual-studio-workspace.tsx`, `deliverables-docs-hub.tsx`, `decisions-workbench.tsx`, `finops-dashboard.tsx`, `engine-config-panel.tsx`, `skills-catalog-panel.tsx`, `security-audit-console.tsx`, `providers-manager.tsx`, `memories-manager.tsx`
+  - [x] `/*turbopackIgnore: true*/` em `visual-a11y-verify.ts` (**0 warnings Turbopack**) + `apps/web/tests/slice35-qa-polish.test.ts` (`10/10`) + `apps/web/e2e/slices-31-35-qa-polish.spec.ts` (`2/2`)
+  - [x] Verify Gate Final: `pnpm verify` (**34/34 OK**), `audit-tests` (**96 arquivos, 343 testes, 2 suprimidos, 0 violações**), `pnpm test:e2e` (**4/4 passed**)

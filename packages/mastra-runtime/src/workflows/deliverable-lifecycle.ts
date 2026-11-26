@@ -4,36 +4,43 @@ import fs from "node:fs";
 import path from "node:path";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import {
+  ArchitectBlueprintV2Schema,
   DEFAULT_PROJECT_STAGE_AUTOMATION,
+  DecisionRiskBriefingSchema,
   DeliverableStatusSchema,
-  DesignAssetSchema,
   DevelopmentStrategySchema,
   DiscoveryAnswerSchema,
   DiscoveryRoundSchema,
   EvidencePackSchema,
   ProjectFinalizePolicySchema,
   ProjectStageAutomationSchema,
+  PrototypeComponentManifestSchema,
+  ShapeSpecSchema,
   StrategyRouterOutputSchema,
   StuckAlertSchema,
+  VerifierTwoStageOutputSchema,
   VerifierVerdictOutputSchema,
   VerifyCheckSummarySchema,
   ToolCallTracePayloadSchema,
   WorkflowGateTypeSchema,
   WorkflowResumeInputSchema,
   WorktreeHandleSchema,
+  type ArchitectBlueprintV2,
+  type BddScenario,
   type CustomModelPricingMap,
   type DecisionStatus,
   type DecisionType,
   type DeliverableStatus,
-  type DesignAsset,
   type DevelopmentStrategy,
   type DiscoveryAnswer,
   type DiscoveryRound,
+  type DiscoverySummary,
   type EvidencePack,
   type ProjectFinalizePolicy,
   type ProjectStageAutomation,
   type ProviderType,
   type RoleBindings,
+  type ShapeSpec,
   type StrategyRouterOutput,
   type VerifyCheckSummary,
   type WorktreeHandle,
@@ -48,7 +55,6 @@ import {
   generateDesignMdContract,
   parseUnifiedDiffSemantic,
   redactSensitiveText,
-  routeDevelopmentStrategy,
   scanRepositoryBrownfield,
 } from "@uzina/core";
 import {
@@ -92,6 +98,7 @@ import {
 import {
   createGitHubDraftPrViaApi,
   parseGitHubOwnerRepo,
+  renderDraftPrBodyWithRiskBriefing,
   resolveOrganizationGitHubPat,
 } from "../github-pr.js";
 import {
@@ -100,6 +107,22 @@ import {
 } from "../memories.js";
 import { recordDeliverableProvenance } from "../codebase.js";
 import { collectOrganizationKnownSecrets } from "../model-resolver.js";
+import {
+  generateArchitectBlueprintV2,
+  runVisualStudioThreeStagePipeline,
+  validateAndBuildShapeSpec,
+} from "../stages/structured-handoffs.js";
+import {
+  computeDecisionRiskBriefing,
+  distillRetrospectiveToQmd,
+  evaluateTwoStageVerifier,
+  syncOpenSpecArchive,
+} from "../stages/two-stage-verifier.js";
+import {
+  runVisualA11yVerify,
+  type VisualA11yViewportRunner,
+} from "../stages/visual-a11y-verify.js";
+import { SymbolLockManager } from "../symbol-locks.js";
 import { createCodingExecutorAdapter } from "../workspace-adapter.js";
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
@@ -137,6 +160,12 @@ export const WorkflowRuntimeStateSchema = z.object({
   humanFeedback: z.string().nullable().default(null),
   rejected: z.boolean().default(false),
   overrideStrategy: DevelopmentStrategySchema.optional(),
+  shapeSpec: ShapeSpecSchema.nullable().optional(),
+  architectBlueprintV2: ArchitectBlueprintV2Schema.nullable().optional(),
+  prototypeManifest: PrototypeComponentManifestSchema.nullable().optional(),
+  twoStageVerifierOutput: VerifierTwoStageOutputSchema.nullable().optional(),
+  decisionRiskBriefing: DecisionRiskBriefingSchema.nullable().optional(),
+  lastDiffSimplificationNote: z.string().nullable().optional(),
 });
 export type WorkflowRuntimeState = z.infer<typeof WorkflowRuntimeStateSchema>;
 
@@ -204,11 +233,14 @@ export type FinalizeRunner = (ctx: {
 export interface DeliverableWorkflowDeps {
   db: UzinaDb;
   masterKey?: Buffer;
+  symbolLockManager?: SymbolLockManager;
   workspaceFactory?: () => ExecutionWorkspace;
   dockerProbe?: () => Promise<DockerProbeResult>;
   githubFetchImpl?: typeof fetch;
   transportFactory?: () => OpenCodeTransport;
   verifyRunner?: VerifyRunner;
+  visualA11yVerifyRunner?: VisualA11yViewportRunner;
+  visualPreviewUrl?: string;
   securityRunnerDeps?: RunSecurityScanDeps;
   finalizeRunner?: FinalizeRunner;
   worktreesRootDir?: string;
@@ -1343,25 +1375,6 @@ function runWithLockHeartbeat(
   };
 }
 
-function mapDesignAssetRow(row: typeof designAssets.$inferSelect): DesignAsset {
-  return DesignAssetSchema.parse({
-    id: row.id,
-    projectId: row.projectId,
-    deliverableId: row.deliverableId,
-    assetType: row.assetType,
-    title: row.title,
-    sourceUrl: row.sourceUrl,
-    assetUrl: row.storagePath ? `/api/assets/${row.id}` : null,
-    mimeType: row.mimeType,
-    sizeBytes: row.sizeBytes,
-    intentionTags: row.intentionTags,
-    notes: row.notes,
-    approved: row.approved,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  });
-}
-
 function extractContractTestFiles(
   structuredOutput: unknown,
   touchedFiles: readonly string[],
@@ -1391,8 +1404,46 @@ function extractContractTestFiles(
   return touchedFiles.map(toRelativePosix);
 }
 
+function buildShapeSpecFromDiscoverySummary(
+  summary: DiscoverySummary,
+  knownSecrets?: readonly string[]
+): ShapeSpec {
+  const nonGoals =
+    summary.outOfScope.length > 0
+      ? summary.outOfScope
+      : ["Alterações fora do escopo definido no ShapeSpec desta entrega."];
+  const bddScenarios: BddScenario[] =
+    summary.acceptanceCriteria.length > 0
+      ? summary.acceptanceCriteria.slice(0, 12).map((criterion, index) => ({
+          id: `BDD-${index + 1}`,
+          title: criterion.slice(0, 140),
+          given: summary.objective.slice(0, 400),
+          when: "O sistema executa o fluxo principal especificado para o entregável",
+          then: criterion.slice(0, 400),
+          roleRequired: "developer",
+        }))
+      : [
+          {
+            id: "BDD-1",
+            title: summary.objective.slice(0, 140),
+            given: "Organização autenticada e projeto configurado no workspace",
+            when: "O entregável é executado conforme a especificação consolidada",
+            then: "Todos os critérios funcionais e de isolamento multi-tenant são atendidos",
+            roleRequired: "developer",
+          },
+        ];
+
+  return validateAndBuildShapeSpec({
+    summary,
+    nonGoals,
+    bddScenarios,
+    knownSecrets,
+  });
+}
+
 export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps) {
   const { db } = deps;
+  const symbolLockManager = deps.symbolLockManager ?? new SymbolLockManager();
 
   const stageDiscovery = createStep({
     id: "stage_discovery",
@@ -1491,6 +1542,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             answers: mergedAutoAnswers,
             brownfieldSummary,
           });
+          const shapeSpec = buildShapeSpecFromDiscoverySummary(summary);
           if (initialDiscoveryStatus !== "spec_review") {
             assertValidTransition(initialDiscoveryStatus, "spec_review", {
               hasUi: currentState.hasUi,
@@ -1515,6 +1567,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             discoveryRounds: [round1],
             allAnswers: mergedAutoAnswers,
             specMarkdown: summary.specMarkdown,
+            shapeSpec,
             stageHistory: nextHistory,
           });
           await recordExecutionEvent(db, {
@@ -1522,7 +1575,12 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             stage: "stage_discovery",
             actorRole: "discovery",
             eventType: "stage_change",
-            payload: { mode: "auto", nextStatus: "spec_review" },
+            payload: {
+              mode: "auto",
+              nextStatus: "spec_review",
+              shapeSpecBddCount: shapeSpec.bddScenarios.length,
+              ambiguityScore: shapeSpec.ambiguityCheck.score,
+            },
           });
           return {
             deliverableId: row.id,
@@ -1684,6 +1742,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         answers: mergedAnswers,
         brownfieldSummary,
       });
+      const shapeSpec = buildShapeSpecFromDiscoverySummary(summary);
 
       assertValidTransition(currentStatus, "spec_review", {
         hasUi: effectiveHasUi,
@@ -1707,6 +1766,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         hasUi: effectiveHasUi,
         allAnswers: mergedAnswers,
         specMarkdown: summary.specMarkdown,
+        shapeSpec,
         humanFeedback: resumeData.feedback ?? null,
         stageHistory: nextHistory,
       });
@@ -1758,7 +1818,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       const computeBlueprint = async (
         hasUiFlag: boolean,
         overrideStrategy?: DevelopmentStrategy
-      ): Promise<StrategyRouterOutput> => {
+      ): Promise<{
+        blueprint: StrategyRouterOutput;
+        blueprintV2: ArchitectBlueprintV2;
+      }> => {
         const repo = await resolveProjectRepository(db, row.repositoryId);
         let isBrownfield = false;
         let maturityScore: number | undefined;
@@ -1771,18 +1834,32 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             isBrownfield = false;
           }
         }
-        return routeDevelopmentStrategy({
+        const blueprintV2 = await generateArchitectBlueprintV2({
+          db,
+          organizationId: currentState.organizationId,
+          projectId: row.projectId,
+          deliverableId: row.id,
           title: row.title,
           description: row.description,
+          shapeSpec: currentState.shapeSpec ?? undefined,
+          originKind: isBrownfield ? "brownfield" : "greenfield",
           hasUi: hasUiFlag,
           riskLevel:
             row.riskLevel === "medium" || row.riskLevel === "high"
               ? row.riskLevel
               : "low",
-          isBrownfield,
-          maturityScore,
+          maturityScore: maturityScore ?? null,
           overrideStrategy,
+          symbolLockManager,
+          masterKey: deps.masterKey,
+          ...(deps.codingModelOverride
+            ? { modelOverride: deps.codingModelOverride }
+            : {}),
         });
+        return {
+          blueprint: StrategyRouterOutputSchema.parse(blueprintV2),
+          blueprintV2,
+        };
       };
 
       const initialBlueprintStatus = parseDeliverableStatus(row.status);
@@ -1790,16 +1867,26 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         const parsedExisting = StrategyRouterOutputSchema.safeParse(
           row.blueprintJson
         );
-        const existingBlueprint = parsedExisting.success
-          ? parsedExisting.data
+        const parsedExistingV2 = ArchitectBlueprintV2Schema.safeParse(
+          row.blueprintJson
+        );
+        const computedFallback = parsedExisting.success
+          ? null
           : await computeBlueprint(
               inputData.hasUi,
               parseDevelopmentStrategy(currentState.overrideStrategy)
             );
+        const existingBlueprint = parsedExisting.success
+          ? parsedExisting.data
+          : computedFallback!.blueprint;
+        const existingBlueprintV2 = parsedExistingV2.success
+          ? parsedExistingV2.data
+          : computedFallback?.blueprintV2 ?? currentState.architectBlueprintV2;
         await setState({
           ...currentState,
           hasUi: inputData.hasUi,
           blueprint: existingBlueprint,
+          architectBlueprintV2: existingBlueprintV2,
           stageHistory: appendStageHistory(
             currentState.stageHistory,
             "stage_blueprint"
@@ -1817,7 +1904,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           db,
           row.projectId
         );
-        const blueprint = await computeBlueprint(
+        const { blueprint, blueprintV2 } = await computeBlueprint(
           inputData.hasUi,
           parseDevelopmentStrategy(currentState.overrideStrategy)
         );
@@ -1838,7 +1925,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             .update(deliverables)
             .set({
               status: nextAutoStatus,
-              blueprintJson: blueprint,
+              blueprintJson: blueprintV2,
               developmentStrategy: blueprint.developmentStrategy,
               tacticalPattern: blueprint.tacticalPattern,
               updatedAt: new Date(),
@@ -1848,6 +1935,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             ...currentState,
             hasUi: inputData.hasUi,
             blueprint,
+            architectBlueprintV2: blueprintV2,
             stageHistory: nextHistory,
           });
           await recordExecutionEvent(db, {
@@ -1855,7 +1943,12 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             stage: "stage_blueprint",
             actorRole: "architect",
             eventType: "stage_change",
-            payload: { mode: "auto", nextStatus: nextAutoStatus },
+            payload: {
+              mode: "auto",
+              nextStatus: nextAutoStatus,
+              storyShardsCount: blueprintV2.storyShards.length,
+              hasOpenSpecDelta: Boolean(blueprintV2.openSpecDelta),
+            },
           });
           return {
             deliverableId: row.id,
@@ -1867,7 +1960,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         await db
           .update(deliverables)
           .set({
-            blueprintJson: blueprint,
+            blueprintJson: blueprintV2,
             developmentStrategy: blueprint.developmentStrategy,
             tacticalPattern: blueprint.tacticalPattern,
             updatedAt: new Date(),
@@ -1878,6 +1971,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           ...currentState,
           hasUi: inputData.hasUi,
           blueprint,
+          architectBlueprintV2: blueprintV2,
           stageHistory: nextHistory,
         };
         await setState(nextState);
@@ -1890,6 +1984,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           payloadJson: {
             gate: "blueprint_approve",
             blueprint,
+            architectBlueprintV2: blueprintV2,
             hasUi: inputData.hasUi,
           },
         });
@@ -1956,17 +2051,17 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         });
       }
 
-      const updatedBlueprint = await computeBlueprint(
-        effectiveHasUi,
-        effectiveOverride
-      );
+      const {
+        blueprint: updatedBlueprint,
+        blueprintV2: updatedBlueprintV2,
+      } = await computeBlueprint(effectiveHasUi, effectiveOverride);
 
       if (resumeData.decision === "changes_requested") {
         await db
           .update(deliverables)
           .set({
             hasUi: effectiveHasUi,
-            blueprintJson: updatedBlueprint,
+            blueprintJson: updatedBlueprintV2,
             developmentStrategy: updatedBlueprint.developmentStrategy,
             tacticalPattern: updatedBlueprint.tacticalPattern,
             updatedAt: new Date(),
@@ -1978,6 +2073,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           hasUi: effectiveHasUi,
           overrideStrategy: effectiveOverride,
           blueprint: updatedBlueprint,
+          architectBlueprintV2: updatedBlueprintV2,
           humanFeedback: resumeData.feedback ?? null,
           stageHistory: appendStageHistory(
             currentState.stageHistory,
@@ -1993,6 +2089,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           payloadJson: {
             gate: "blueprint_approve",
             blueprint: updatedBlueprint,
+            architectBlueprintV2: updatedBlueprintV2,
             hasUi: effectiveHasUi,
           },
         });
@@ -2016,7 +2113,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         .set({
           status: nextStatus,
           hasUi: effectiveHasUi,
-          blueprintJson: updatedBlueprint,
+          blueprintJson: updatedBlueprintV2,
           developmentStrategy: updatedBlueprint.developmentStrategy,
           tacticalPattern: updatedBlueprint.tacticalPattern,
           updatedAt: new Date(),
@@ -2028,6 +2125,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         hasUi: effectiveHasUi,
         overrideStrategy: effectiveOverride,
         blueprint: updatedBlueprint,
+        architectBlueprintV2: updatedBlueprintV2,
         humanFeedback: resumeData.feedback ?? null,
         stageHistory: appendStageHistory(
           currentState.stageHistory,
@@ -2107,16 +2205,28 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           .select()
           .from(designAssets)
           .where(eq(designAssets.projectId, projectRow.id));
-        const referenceAssets = assetRows
-          .filter((a) => a.assetType !== "design_md")
-          .map(mapDesignAssetRow);
-
-        const markdown = generateDesignMdContract({
-          projectName: projectRow.name,
-          themePreference: "dual_theme",
-          assets: referenceAssets,
-          notes,
+        const referenceAssets = assetRows.filter(
+          (a) => a.assetType !== "design_md"
+        );
+        const repo = await resolveProjectRepository(db, row.repositoryId);
+        const visualPipeline = await runVisualStudioThreeStagePipeline({
+          db,
+          organizationId: currentState.organizationId,
+          projectId: projectRow.id,
+          deliverableId: row.id,
+          title: row.title,
+          shapeSpec: currentState.shapeSpec ?? undefined,
+          workspaceRoot: repo?.localPath,
+          masterKey: deps.masterKey,
+          skillsDir: deps.skillsDir,
+          ...(deps.codingModelOverride
+            ? { modelOverride: deps.codingModelOverride }
+            : {}),
         });
+
+        const markdown = notes?.trim()
+          ? `${visualPipeline.designMdMarkdown}\n\n## Notas de Revisão\n${notes.trim()}`
+          : visualPipeline.designMdMarkdown;
 
         const existingDesignMd = assetRows.find(
           (a) => a.assetType === "design_md"
@@ -2150,6 +2260,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         return {
           markdown,
           assetCount: referenceAssets.length,
+          manifest: visualPipeline.manifest,
+          critiquePassed: visualPipeline.critiquePassed,
+          wcagPassed: visualPipeline.wcagContrastReport.allPassed,
         };
       };
 
@@ -2193,7 +2306,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           db,
           row.projectId
         );
-        const { markdown, assetCount } = await generateAndPersistDesignMd();
+        const { markdown, assetCount, manifest, critiquePassed, wcagPassed } =
+          await generateAndPersistDesignMd();
         const nextHistory = appendStageHistory(
           currentState.stageHistory,
           "stage_visual_studio"
@@ -2222,6 +2336,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           await setState({
             ...currentState,
             designMdContent: markdown,
+            prototypeManifest: manifest,
             stageHistory: nextHistory,
           });
           await recordExecutionEvent(db, {
@@ -2229,7 +2344,14 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             stage: "stage_visual_studio",
             actorRole: "visual",
             eventType: "stage_change",
-            payload: { mode: "auto", nextStatus: "contract_tests", assetCount },
+            payload: {
+              mode: "auto",
+              nextStatus: "contract_tests",
+              assetCount,
+              critiquePassed,
+              wcagPassed,
+              sectionsCount: manifest.sections.length,
+            },
           });
           return {
             deliverableId: row.id,
@@ -2241,6 +2363,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         await setState({
           ...currentState,
           designMdContent: markdown,
+          prototypeManifest: manifest,
           stageHistory: nextHistory,
         });
 
@@ -2252,6 +2375,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           payloadJson: {
             gate: "visual_approve",
             designMdContent: markdown,
+            prototypeManifest: manifest,
+            critiquePassed,
+            wcagPassed,
             assetCount,
           },
         });
@@ -2312,12 +2438,12 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       }
 
       if (resumeData.decision === "changes_requested") {
-        const { markdown, assetCount } = await generateAndPersistDesignMd(
-          resumeData.feedback
-        );
+        const { markdown, assetCount, manifest, critiquePassed, wcagPassed } =
+          await generateAndPersistDesignMd(resumeData.feedback);
         await setState({
           ...currentState,
           designMdContent: markdown,
+          prototypeManifest: manifest,
           humanFeedback: resumeData.feedback ?? null,
           stageHistory: appendStageHistory(
             currentState.stageHistory,
@@ -2333,6 +2459,9 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           payloadJson: {
             gate: "visual_approve",
             designMdContent: markdown,
+            prototypeManifest: manifest,
+            critiquePassed,
+            wcagPassed,
             assetCount,
           },
         });
@@ -2362,9 +2491,15 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
-      const finalMarkdown =
-        currentState.designMdContent ??
-        (await generateAndPersistDesignMd(resumeData.feedback)).markdown;
+      const visualResult =
+        currentState.designMdContent && currentState.prototypeManifest
+          ? {
+              markdown: currentState.designMdContent,
+              manifest: currentState.prototypeManifest,
+            }
+          : await generateAndPersistDesignMd(resumeData.feedback);
+      const finalMarkdown = visualResult.markdown;
+      const finalManifest = visualResult.manifest;
 
       await db
         .update(designAssets)
@@ -2396,6 +2531,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       await setState({
         ...currentState,
         designMdContent: finalMarkdown,
+        prototypeManifest: finalManifest,
         humanFeedback: resumeData.feedback ?? null,
         stageHistory: appendStageHistory(
           currentState.stageHistory,
@@ -2759,6 +2895,27 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       });
       const contractMemoriesText = formatMemoriesForPrompt(contractMemories);
 
+      const contractShardsSummary =
+        currentState.architectBlueprintV2?.storyShards &&
+        currentState.architectBlueprintV2.storyShards.length > 0
+          ? `StoryShards do Blueprint V2:\n${currentState.architectBlueprintV2.storyShards
+              .map(
+                (s) =>
+                  `- ${s.sliceName}: ${s.objective} (símbolos: ${s.targetSymbols.join(", ") || "nenhum"}; seq=${String(s.sequential)})`
+              )
+              .join("\n")}`
+          : "";
+      const contractManifestSummary =
+        currentState.prototypeManifest?.sections &&
+        currentState.prototypeManifest.sections.length > 0
+          ? `PrototypeComponentManifest (data-slot & 5 estados):\n${currentState.prototypeManifest.sections
+              .map(
+                (sec) =>
+                  `- ${sec.sectionName}: slots=[${sec.dataSlots.join(", ")}] states=[${sec.statesCovered.join(", ")}]`
+              )
+              .join("\n")}`
+          : "";
+
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       let sessionResult;
       try {
@@ -2789,6 +2946,8 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           prompt: [
             `stage_contract_and_tests para entregável '${row.title}'.`,
             currentState.specMarkdown ?? "",
+            contractShardsSummary,
+            contractManifestSummary,
             contractMemoriesText,
             "Escreva contratos e testes automatizados que falham inicialmente (RED) antes da implementação.",
           ]
@@ -3232,9 +3391,32 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       });
       const buildMemoriesText = formatMemoriesForPrompt(buildMemories);
 
+      const buildShardsSummary =
+        currentState.architectBlueprintV2?.storyShards &&
+        currentState.architectBlueprintV2.storyShards.length > 0
+          ? `StoryShards:\n${currentState.architectBlueprintV2.storyShards
+              .map(
+                (s) =>
+                  `- ${s.sliceName}: ${s.objective} (${s.targetSymbols.join(", ") || "sem símbolos"})`
+              )
+              .join("\n")}`
+          : null;
+      const buildManifestSummary =
+        currentState.prototypeManifest?.sections &&
+        currentState.prototypeManifest.sections.length > 0
+          ? `PrototypeComponentManifest:\n${currentState.prototypeManifest.sections
+              .map(
+                (sec) =>
+                  `- ${sec.sectionName}: slots=[${sec.dataSlots.join(", ")}]`
+              )
+              .join("\n")}`
+          : null;
+
       const promptParts = [
         `stage_build para entregável '${row.title}'.`,
         currentState.specMarkdown ?? "",
+        buildShardsSummary,
+        buildManifestSummary,
         buildMemoriesText || null,
         `Arquivos de contrato/teste pré-criados: ${inputData.contractTestFiles.join(", ") || "(nenhum listado)"}.`,
         nextFeedback
@@ -3258,6 +3440,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           budgetCapUsd,
           workspaceKind: engineCfg.config.workspaceKind,
           toolPolicies: effectiveBuildToolPolicies,
+          lockedReadOnlyPaths: inputData.contractTestFiles,
           ...(deps.codingModelOverride
             ? { modelOverride: deps.codingModelOverride }
             : {}),
@@ -3426,6 +3609,23 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         );
       }
 
+      let diffSimplificationNote: string | null = null;
+      try {
+        const preVerifyDiff = await workspace.getDiff(worktreeHandle.baseBranch);
+        if (preVerifyDiff.trim().length > 0) {
+          const semanticPreDiff = parseUnifiedDiffSemantic(preVerifyDiff);
+          const oversizedFiles = semanticPreDiff.filter((f) => f.additions > 300);
+          diffSimplificationNote =
+            oversizedFiles.length > 0
+              ? `Simplificação recomendada antes do Verify: ${oversizedFiles
+                  .map((f) => `${f.filePath} (+${f.additions})`)
+                  .join(", ")}.`
+              : `Diff enxuto verificado (${semanticPreDiff.length} arquivo(s) alterados).`;
+        }
+      } catch {
+        diffSimplificationNote = null;
+      }
+
       assertValidTransition("building", "verifying", {
         hasUi: currentState.hasUi,
       });
@@ -3445,6 +3645,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
       await setState({
         ...currentState,
         worktreeHandle,
+        lastDiffSimplificationNote: diffSimplificationNote,
         humanFeedback: nextFeedback,
         tokensInput:
           currentState.tokensInput + buildResult.tokenUsage.inputTokens,
@@ -3715,6 +3916,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
 
       const heartbeat = runWithLockHeartbeat(db, row.id, abortSignal);
       const verifyChecks: VerifyCheckSummary[] = [];
+      let lastAuditReport: ReturnType<typeof auditTestDirectory> | null = null;
       let testAuditPassed = true;
       let testAuditViolationsCount = 0;
       let scanResult: ExecutedSecurityScanOutput | null = null;
@@ -3802,6 +4004,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           status: "running",
         });
         const auditReport = auditTestDirectory(worktreeHandle.workspacePath);
+        lastAuditReport = auditReport;
         testAuditPassed = auditReport.passed;
         testAuditViolationsCount = auditReport.violations.length;
         const auditDurationMs = Math.max(1, Date.now() - auditStarted);
@@ -3887,6 +4090,78 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
               failureReasons.push(
                 `Verify runner falhou em '${failedCmd.name}': ${failedCmd.summary}`
               );
+            }
+          }
+        }
+
+        // 2B) QA Visual & A11y automatizado (quando hasUi === true e preview/runner configurado)
+        if (failureReasons.length === 0 && currentState.hasUi) {
+          let repoPreviewUrl: string | null = null;
+          let repoPreviewCommand: string | null = null;
+          if (row.repositoryId) {
+            const [repoRow] = await db
+              .select({ stackMetadataJson: projectRepositories.stackMetadataJson })
+              .from(projectRepositories)
+              .where(eq(projectRepositories.id, row.repositoryId))
+              .limit(1);
+            const meta = repoRow?.stackMetadataJson;
+            if (meta && typeof meta.previewUrl === "string") {
+              repoPreviewUrl = meta.previewUrl;
+            }
+            if (meta && typeof meta.previewCommand === "string") {
+              repoPreviewCommand = meta.previewCommand;
+            }
+          }
+
+          const configuredPreviewUrl =
+            deps.visualPreviewUrl?.trim() ||
+            process.env.UZINA_PREVIEW_URL?.trim() ||
+            repoPreviewUrl ||
+            (deps.visualA11yVerifyRunner ? "http://127.0.0.1:3000" : null);
+
+          if (
+            configuredPreviewUrl ||
+            repoPreviewCommand ||
+            deps.visualA11yVerifyRunner
+          ) {
+            const a11yStarted = Date.now();
+            await emitVerifyToolTrace({
+              phase: "start",
+              toolName: "visual:a11y",
+              targetPath: configuredPreviewUrl ?? worktreeHandle.workspacePath,
+              status: "running",
+            });
+            const a11yReport = await runVisualA11yVerify({
+              previewUrl: configuredPreviewUrl,
+              previewCommand: repoPreviewCommand,
+              workspacePath: worktreeHandle.workspacePath,
+              runner: deps.visualA11yVerifyRunner,
+              signal: heartbeat.signal,
+            });
+            const a11yDurationMs = Math.max(1, Date.now() - a11yStarted);
+            const a11yPassed = a11yReport.status !== "failed";
+            const a11ySummary =
+              a11yReport.status === "skipped_missing_binary"
+                ? "skipped_missing_binary: Playwright/Chromium indisponível no ambiente."
+                : a11yReport.status === "passed"
+                  ? `Aprovado nos viewports ${a11yReport.viewports.join(", ")} (0 overflow, 0 erros de console, 0 violações críticas/sérias).`
+                  : `Reprovado: overflow=${a11yReport.horizontalOverflowPx}px, consoleErrors=${a11yReport.consoleErrors.length}, axeViolations=${a11yReport.axeViolations.map((v) => `${v.id}(${v.impact})`).join(",")}`;
+            verifyChecks.push({
+              name: "visual:a11y",
+              passed: a11yPassed,
+              durationMs: a11yDurationMs,
+              summary: a11ySummary.slice(0, 4000),
+            });
+            await emitVerifyToolTrace({
+              phase: "result",
+              toolName: "visual:a11y",
+              targetPath: configuredPreviewUrl ?? worktreeHandle.workspacePath,
+              durationMs: a11yDurationMs,
+              status: a11yPassed ? "ok" : "error",
+              summary: a11ySummary,
+            });
+            if (!a11yPassed) {
+              failureReasons.push(`Visual/A11y gate reprovou: ${a11ySummary}`);
             }
           }
         }
@@ -4213,8 +4488,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         (currentState.estimatedCostUsd + verifyCostUsd).toFixed(6)
       );
 
-      const verifyPassed = failureReasons.length === 0;
-      const testCommandOutput =
+      const rawTestCommandOutput =
         verifyChecks.length > 0
           ? redactSensitiveText(
               verifyChecks
@@ -4226,6 +4500,63 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
               verifyKnownSecrets
             ).slice(0, 16384)
           : undefined;
+
+      const twoStageVerifierOutput = await evaluateTwoStageVerifier({
+        deliverableTitle: row.title,
+        specMarkdown: currentState.specMarkdown ?? row.description ?? null,
+        shapeSpec: currentState.shapeSpec ?? null,
+        semanticDiffs: semanticFileDiffs,
+        rawDiff,
+        verifyChecks,
+        testCommandOutput: rawTestCommandOutput ?? null,
+        testAuditReport: lastAuditReport,
+        securitySummary,
+        sarifFindings: (scanResult?.findings ?? []).map((f) => ({
+          ruleId: f.ruleId,
+          severity: f.severity,
+          title: f.title,
+          filePath: f.filePath,
+          triageVerdict: f.triageVerdict,
+          suppressedInMemory: f.suppressedInMemory,
+        })),
+        knownSecrets: verifyKnownSecrets,
+        evaluator: {
+          evaluateStage1: async ({ criteria, semanticDiffs }) => {
+            const stage1Passed =
+              failureReasons.length === 0 && verifierVerdict === "approved";
+            const firstCode = semanticDiffs.find((d) => d.category === "code");
+            const firstTest = semanticDiffs.find((d) => d.category === "test");
+            return {
+              matrix: criteria.map((c, idx) => ({
+                criterionId: c.id,
+                criterionText: c.text,
+                testFile: firstTest?.filePath ?? null,
+                testLine: null,
+                sourceFile: firstCode?.filePath ?? null,
+                sourceLine: null,
+                status: stage1Passed
+                  ? ("covered" as const)
+                  : idx === 0
+                    ? ("missing" as const)
+                    : ("covered" as const),
+              })),
+              summary: verifierNotes || undefined,
+            };
+          },
+        },
+      });
+
+      if (
+        failureReasons.length === 0 &&
+        twoStageVerifierOutput.verdict === "changes_required"
+      ) {
+        verifierVerdict = "changes_required";
+        verifierNotes = twoStageVerifierOutput.summary;
+        failureReasons.push(twoStageVerifierOutput.summary);
+      }
+
+      const verifyPassed = failureReasons.length === 0;
+      const testCommandOutput = rawTestCommandOutput;
       const evidencePack = EvidencePackSchema.parse({
         deliverableId: row.id,
         branchName: worktreeHandle.branchName,
@@ -4272,6 +4603,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           maxAttempts,
           verifyPassed,
           verifierVerdict,
+          confidenceScore: twoStageVerifierOutput.confidenceScore,
           failureReasons,
           scanId,
           ...(verifierModelUsed ? { modelId: verifierModelUsed } : {}),
@@ -4308,6 +4640,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             securitySummary,
             verifierVerdict,
             verifierNotes: evidencePack.verifierNotes,
+            twoStageVerifierOutput,
             evidencePack,
             tokensInput: totalTokensInput,
             tokensOutput: totalTokensOutput,
@@ -4403,6 +4736,7 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
         securitySummary,
         verifierVerdict,
         verifierNotes: evidencePack.verifierNotes,
+        twoStageVerifierOutput,
         evidencePack,
         tokensInput: totalTokensInput,
         tokensOutput: totalTokensOutput,
@@ -4478,8 +4812,35 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           currentState.stageHistory,
           "stage_decision"
         );
+        const riskBriefing = computeDecisionRiskBriefing({
+          semanticDiffs: evidencePack.diffSummary.fileDiffs,
+          rawDiff: evidencePack.diffSummary.preview,
+          confidenceScore:
+            currentState.twoStageVerifierOutput?.confidenceScore ??
+            (evidencePack.verifyPassed ? 85 : 40),
+          tokensTotal:
+            evidencePack.tokenSummary.totalInputTokens +
+            evidencePack.tokenSummary.totalOutputTokens,
+          estimatedCostUsd: evidencePack.tokenSummary.estimatedCostUsd,
+          securitySummary: evidencePack.securitySummary,
+        });
+        if (evidencePack.verifyAttempts >= 2) {
+          await distillRetrospectiveToQmd(db, {
+            organizationId: currentState.organizationId,
+            projectId: row.projectId,
+            deliverableId: row.id,
+            deliverableTitle: row.title,
+            verifyAttempts: evidencePack.verifyAttempts,
+            verifierNotes: evidencePack.verifierNotes,
+            hasSecurityFailure: !evidencePack.securitySummary.gatePassed,
+            securityFindingsCount:
+              evidencePack.securitySummary.critical +
+              evidencePack.securitySummary.high,
+          }).catch(() => undefined);
+        }
         await setState({
           ...currentState,
+          decisionRiskBriefing: riskBriefing,
           stageHistory: nextHistory,
         });
 
@@ -4491,6 +4852,10 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           payloadJson: {
             gate: "pr_evidence_approve",
             evidencePack,
+            riskBriefing,
+            ...(currentState.twoStageVerifierOutput
+              ? { twoStageVerifierOutput: currentState.twoStageVerifierOutput }
+              : {}),
           },
         });
         await recordExecutionEvent(db, {
@@ -4562,6 +4927,23 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           },
         });
 
+        if (evidencePack.verifyAttempts >= 2 || resumeData.feedback?.trim()) {
+          await distillRetrospectiveToQmd(db, {
+            organizationId: currentState.organizationId,
+            projectId: row.projectId,
+            deliverableId: row.id,
+            deliverableTitle: row.title,
+            verifyAttempts: evidencePack.verifyAttempts,
+            decision: "rejected",
+            feedback: resumeData.feedback ?? null,
+            verifierNotes: evidencePack.verifierNotes,
+            hasSecurityFailure: !evidencePack.securitySummary.gatePassed,
+            securityFindingsCount:
+              evidencePack.securitySummary.critical +
+              evidencePack.securitySummary.high,
+          }).catch(() => undefined);
+        }
+
         await setState({
           ...currentState,
           worktreeHandle: null,
@@ -4607,6 +4989,23 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             feedback,
           },
         });
+
+        if (evidencePack.verifyAttempts >= 2 || resumeData.feedback?.trim()) {
+          await distillRetrospectiveToQmd(db, {
+            organizationId: currentState.organizationId,
+            projectId: row.projectId,
+            deliverableId: row.id,
+            deliverableTitle: row.title,
+            verifyAttempts: evidencePack.verifyAttempts,
+            decision: "changes_requested",
+            feedback,
+            verifierNotes: evidencePack.verifierNotes,
+            hasSecurityFailure: !evidencePack.securitySummary.gatePassed,
+            securityFindingsCount:
+              evidencePack.securitySummary.critical +
+              evidencePack.securitySummary.high,
+          }).catch(() => undefined);
+        }
 
         await setState({
           ...currentState,
@@ -4866,9 +5265,15 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
             finalizePolicy,
             commitMessage: `feat(deliverable): ${row.title}`,
             prTitle: `[Uzina] ${row.title}`,
-            prBody: currentState.evidencePack
-              ? `Pacote de evidências aprovado (${currentState.evidencePack.verifyAttempts} tentativa(s) de verify).`
-              : row.description ?? row.title,
+            prBody: renderDraftPrBodyWithRiskBriefing({
+              summary: currentState.evidencePack
+                ? `Pacote de evidências aprovado (${currentState.evidencePack.verifyAttempts} tentativa(s) de verify).`
+                : row.description ?? row.title,
+              riskBriefing: currentState.decisionRiskBriefing,
+              specMatrix:
+                currentState.twoStageVerifierOutput?.stage1SpecCompliance
+                  .matrix,
+            }),
             githubPat,
             fetchImpl: deps.githubFetchImpl,
             signal: abortSignal ?? new AbortController().signal,
@@ -4942,6 +5347,21 @@ export function createDeliverableLifecycleWorkflow(deps: DeliverableWorkflowDeps
           updatedAt: new Date(),
         })
         .where(eq(deliverables.id, row.id));
+
+      if (currentState.architectBlueprintV2?.openSpecDelta) {
+        await syncOpenSpecArchive({
+          deliverableId: row.id,
+          deliverableTitle: row.title,
+          delta: currentState.architectBlueprintV2.openSpecDelta,
+          existingSpecMarkdown:
+            currentState.specMarkdown ?? row.specMarkdown ?? undefined,
+          workspaceRoot:
+            repo?.localPath ?? worktreeHandle.repoPath ?? undefined,
+          db,
+          organizationId: currentState.organizationId,
+          projectId: row.projectId,
+        }).catch(() => undefined);
+      }
 
       const [insertedMemory] = await db
         .insert(memories)

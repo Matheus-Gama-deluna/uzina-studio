@@ -1,5 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  AgenticPromptInjectionFindingSchema,
+  type AgenticPromptInjectionFinding,
+  type SecuritySeverity,
+} from "@uzina/contracts";
 import { redactSensitiveText } from "@uzina/core";
 import {
   computeFindingFingerprint,
@@ -453,4 +458,212 @@ export function scanSlopsquattingNative(
   }
 
   return findings;
+}
+
+const WORKFLOW_FILE_RE = /(?:^|\/)\.github\/workflows\/[^/]+\.ya?ml$/i;
+const AGENT_INSTRUCTION_FILE_RE = /(?:^|\/)(?:AGENTS|CLAUDE|SKILL)\.md$/i;
+const CI_SCRIPT_INJECTION_RE =
+  /\$\{\{\s*(?:github\.event\.[^}]+|github\.head_ref)\s*\}\}/;
+const CONTROL_TAG_RE =
+  /<\/?(?:system|instructions|prompt|developer|assistant|user)\s*>|<\|(?:im_start|im_end|endoftext|system|user|assistant)\|>|\[\/?INST\]|<<\/?SYS>>|<!--[\s\S]{0,200}(?:ignore\s+(?:all\s+)?previous\s+instructions|system\s+override|disregard\s+(?:all\s+)?rules)/i;
+const UNICODE_BIDI_OR_ZW_RE =
+  /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const EXFIL_FORWARD_RE =
+  /\b(?:curl|wget|Invoke-WebRequest|nc)\b.*(?:\$\{?\w*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL)\w*\}?|\$\{\{\s*secrets\.[^}]+\}\}|\.env\b|\.master-key\b)/i;
+const EXFIL_PIPE_RE =
+  /(?:\.env\b|\.master-key\b|\$\{\{\s*secrets\.[^}]+\}\}|\$\{?\w*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL)\w*\}?).*\b(?:curl|wget|Invoke-WebRequest|nc)\b/i;
+const UNSAFE_DIRECTIVE_RE =
+  /\b(?:(?:ignore|disregard|override)\s+(?:all\s+)?(?:previous|prior|system|safety)\s+(?:instructions|rules|constraints)|(?:bypass|disable|skip)\s+(?:all\s+)?(?:security|approval|sandbox|verification)\s+(?:checks?|gates?|guards?))\b/i;
+
+function formatVisibleUnicodeSnippet(line: string): string {
+  return line
+    .replace(UNICODE_BIDI_OR_ZW_RE, (ch) => {
+      const hex = ch.codePointAt(0)?.toString(16).toUpperCase().padStart(4, "0");
+      return `[U+${hex ?? "CTRL"}]`;
+    })
+    .trim();
+}
+
+function buildAgenticFinding(params: {
+  ruleId: string;
+  category: AgenticPromptInjectionFinding["category"];
+  severity: SecuritySeverity;
+  filePath: string;
+  line: number;
+  snippet: string;
+  message: string;
+}): AgenticPromptInjectionFinding {
+  const cleanSnippet =
+    redactSensitiveText(params.snippet).trim().slice(0, 400) || "(trecho)";
+  const cleanMessage = redactSensitiveText(params.message).trim().slice(0, 500);
+  return AgenticPromptInjectionFindingSchema.parse({
+    ruleId: params.ruleId,
+    category: params.category,
+    severity: params.severity,
+    filePath: params.filePath.slice(0, 500),
+    line: params.line,
+    matchedSnippet: cleanSnippet,
+    message: cleanMessage,
+  });
+}
+
+export function scanAgenticPromptInjectionNative(
+  files: readonly ScannableFile[]
+): AgenticPromptInjectionFinding[] {
+  const findings: AgenticPromptInjectionFinding[] = [];
+
+  for (const file of files) {
+    const normalizedPath = file.filePath.replace(/\\/g, "/");
+    const isWorkflow = WORKFLOW_FILE_RE.test(normalizedPath);
+    const isAgentInstruction = AGENT_INSTRUCTION_FILE_RE.test(normalizedPath);
+
+    if (!isWorkflow && !isAgentInstruction) {
+      continue;
+    }
+
+    const lines = file.content.split(/\r?\n/);
+    let inRunBlock = false;
+    let runBlockIndent = -1;
+
+    for (let idx = 0; idx < lines.length; idx += 1) {
+      const line = lines[idx] ?? "";
+      const lineNumber = idx + 1;
+      const trimmed = line.trim();
+
+      if (isWorkflow) {
+        const leadingSpaces = line.search(/\S/);
+        if (inRunBlock && trimmed && leadingSpaces <= runBlockIndent) {
+          inRunBlock = false;
+          runBlockIndent = -1;
+        }
+
+        const runMatch = line.match(/^(\s*(?:-\s*)?)run:\s*(.*)$/);
+        if (runMatch) {
+          const runIndent = line.search(/\S/);
+          const inlineBody = (runMatch[2] ?? "").trim();
+          if (/^[|>][+-]?$/.test(inlineBody)) {
+            inRunBlock = true;
+            runBlockIndent = runIndent;
+          } else {
+            inRunBlock = false;
+            runBlockIndent = -1;
+            if (CI_SCRIPT_INJECTION_RE.test(inlineBody)) {
+              findings.push(
+                buildAgenticFinding({
+                  ruleId: "uzina/agentic-ci-script-injection",
+                  category: "ci_script_injection",
+                  severity: "critical",
+                  filePath: normalizedPath,
+                  line: lineNumber,
+                  snippet: trimmed,
+                  message:
+                    "Injeção de script em GitHub Actions: expressão não confiável ${{ github.event.* }} interpolada diretamente em bloco run:.",
+                })
+              );
+            }
+          }
+        } else if (inRunBlock && CI_SCRIPT_INJECTION_RE.test(line)) {
+          findings.push(
+            buildAgenticFinding({
+              ruleId: "uzina/agentic-ci-script-injection",
+              category: "ci_script_injection",
+              severity: "critical",
+              filePath: normalizedPath,
+              line: lineNumber,
+              snippet: trimmed,
+              message:
+                "Injeção de script em GitHub Actions: expressão não confiável ${{ github.event.* }} interpolada em bloco run: multilinha.",
+            })
+          );
+        }
+      }
+
+      if (CONTROL_TAG_RE.test(line)) {
+        findings.push(
+          buildAgenticFinding({
+            ruleId: "uzina/agentic-hidden-control-tag",
+            category: "hidden_control_tags",
+            severity: "high",
+            filePath: normalizedPath,
+            line: lineNumber,
+            snippet: trimmed,
+            message:
+              "Tag de controle ou delimitador oculto de prompt (<system>, </instructions>, <|im_start|>) detectado em instrução/workflow.",
+          })
+        );
+      }
+
+      UNICODE_BIDI_OR_ZW_RE.lastIndex = 0;
+      if (UNICODE_BIDI_OR_ZW_RE.test(line)) {
+        findings.push(
+          buildAgenticFinding({
+            ruleId: "uzina/agentic-unicode-bidi-zw",
+            category: "hidden_control_tags",
+            severity: "high",
+            filePath: normalizedPath,
+            line: lineNumber,
+            snippet: formatVisibleUnicodeSnippet(line),
+            message:
+              "Caractere Unicode invisível (zero-width) ou de controle bidirecional (Trojan Source/prompt oculto) detectado.",
+          })
+        );
+      }
+
+      if (EXFIL_FORWARD_RE.test(line) || EXFIL_PIPE_RE.test(line)) {
+        findings.push(
+          buildAgenticFinding({
+            ruleId: "uzina/agentic-shell-exfiltration",
+            category: "shell_exfiltration",
+            severity: "critical",
+            filePath: normalizedPath,
+            line: lineNumber,
+            snippet: trimmed,
+            message:
+              "Possível exfiltração de segredos/credenciais via curl/wget/nc envolvendo secrets, .env ou .master-key.",
+          })
+        );
+      }
+
+      if (isAgentInstruction && UNSAFE_DIRECTIVE_RE.test(line)) {
+        findings.push(
+          buildAgenticFinding({
+            ruleId: "uzina/agentic-unsafe-tool-directive",
+            category: "unsafe_tool_directive",
+            severity: "high",
+            filePath: normalizedPath,
+            line: lineNumber,
+            snippet: trimmed,
+            message:
+              "Diretiva suspeita instruindo o agente a ignorar regras prévias ou contornar travas de segurança.",
+          })
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+export function promptInjectionFindingsToRaw(
+  findings: readonly AgenticPromptInjectionFinding[]
+): RawNormalizedFinding[] {
+  return findings.map((finding) => {
+    const fingerprint = computeFindingFingerprint({
+      ruleId: finding.ruleId,
+      scanner: "native_prompt_injection",
+      filePath: finding.filePath,
+      lineStart: finding.line,
+      rawSnippet: finding.matchedSnippet,
+    });
+    return redactFindingFields({
+      ruleId: finding.ruleId,
+      scanner: "native_prompt_injection",
+      severity: finding.severity,
+      filePath: finding.filePath,
+      lineStart: finding.line,
+      title: `Prompt/CI Injection (${finding.category})`,
+      description: `${finding.message} Trecho: ${finding.matchedSnippet}`,
+      fingerprint,
+    });
+  });
 }

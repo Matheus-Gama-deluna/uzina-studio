@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { Agent } from "@mastra/core/agent";
+import { Agent, type ToolsInput } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import { RequestContext } from "@mastra/core/request-context";
+import { createTool } from "@mastra/core/tools";
 import {
   LocalFilesystem,
   WORKSPACE_TOOLS,
@@ -19,14 +21,23 @@ import {
   type WriteOptions,
 } from "@mastra/core/workspace";
 import {
+  MigrationSafetyReportSchema,
   OpenCodeSessionResultSchema,
+  ScopedCheckResultSchema,
   ToolCallTracePayloadSchema,
   type CodingExecutorMode,
+  type MigrationSafetyReport,
   type OpenCodeRunSessionOptionsInput,
+  type ScopedCheckDiagnostic,
+  type ScopedCheckResult,
   type ToolPoliciesMap,
   type WorkspaceKind,
 } from "@uzina/contracts";
-import { assertPathInsideWorkspace, redactSensitiveText } from "@uzina/core";
+import {
+  assertPathInsideWorkspace,
+  redactSensitiveText,
+  validateMigrationSafety,
+} from "@uzina/core";
 import type { UzinaDb } from "@uzina/db";
 import {
   OpenCodeRunner,
@@ -214,9 +225,18 @@ export class UzinaContainedFilesystem extends LocalFilesystem {
 export function extractPatchTargetPaths(patchText: string): string[] {
   const targets: string[] = [];
   for (const line of patchText.split(/\r?\n/)) {
-    const headerMatch = /^(?:---|\+\+\+)\s+(?:[ab]\/)?(.+)$/.exec(line.trim());
+    const trimmed = line.trim();
+    const headerMatch = /^(?:---|\+\+\+)\s+(?:[ab]\/)?(.+)$/.exec(trimmed);
     if (headerMatch?.[1] && headerMatch[1] !== "/dev/null") {
       targets.push(headerMatch[1].trim());
+      continue;
+    }
+    const codexMatch =
+      /^\*\*\*\s+(?:Update File|Add File|Delete File|Move to):\s*(.+)$/.exec(
+        trimmed
+      );
+    if (codexMatch?.[1]) {
+      targets.push(codexMatch[1].trim());
     }
   }
   return targets;
@@ -226,7 +246,15 @@ function collectHookCandidatePaths(input: unknown): string[] {
   if (!input || typeof input !== "object") return [];
   const rec = input as Record<string, unknown>;
   const candidates: string[] = [];
-  for (const key of ["path", "src", "dest", "filePath", "directory"]) {
+  for (const key of [
+    "path",
+    "src",
+    "dest",
+    "filePath",
+    "directory",
+    "target",
+    "file",
+  ]) {
     if (typeof rec[key] === "string") {
       candidates.push(rec[key] as string);
     }
@@ -242,6 +270,517 @@ function collectHookCandidatePaths(input: unknown): string[] {
   return candidates;
 }
 
+function buildLockedPathsMatcher(
+  workspaceRoot: string,
+  lockedReadOnlyPaths?: readonly string[]
+): { isLocked: (candidate: string) => boolean; hasEntries: boolean } {
+  const lockedFileKeys = new Set<string>();
+  const lockedDirPrefixes: string[] = [];
+
+  for (const rawEntry of lockedReadOnlyPaths ?? []) {
+    const trimmed = rawEntry.trim();
+    if (!trimmed) continue;
+    const isDirEntry = trimmed.endsWith("/") || trimmed.endsWith("\\");
+    const key = normalizeTrackerKey(trimmed, workspaceRoot);
+    if (isDirEntry) {
+      const normalizedPrefix = key.endsWith(path.sep) ? key : `${key}${path.sep}`;
+      lockedDirPrefixes.push(normalizedPrefix);
+    } else {
+      lockedFileKeys.add(key);
+    }
+  }
+
+  return {
+    hasEntries: lockedFileKeys.size > 0 || lockedDirPrefixes.length > 0,
+    isLocked(candidate: string): boolean {
+      const key = normalizeTrackerKey(candidate, workspaceRoot);
+      if (lockedFileKeys.has(key)) {
+        return true;
+      }
+      return lockedDirPrefixes.some(
+        (prefix) => key === prefix.slice(0, -1) || key.startsWith(prefix)
+      );
+    },
+  };
+}
+
+const MAX_SCOPED_TIMEOUT_MS = 30_000;
+const MAX_SCOPED_OUTPUT_CHARS = 16_384;
+const ALLOWED_PACKAGE_RE =
+  /^(?:@uzina\/[a-z0-9-]+|apps\/(?:web|cli)|packages\/[a-z0-9-]+|web|cli)$/;
+const FORBIDDEN_ARG_CHARS_RE = /[;&|$`><(){}[\]\r\n\0]/;
+const ALLOWED_UNIT_TEST_EXT_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+
+export function assertAllowedTargetPackage(rawPackage: string): string {
+  const trimmed = rawPackage.trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("-") ||
+    trimmed.includes("..") ||
+    trimmed.includes("\\") ||
+    FORBIDDEN_ARG_CHARS_RE.test(trimmed) ||
+    !ALLOWED_PACKAGE_RE.test(trimmed)
+  ) {
+    throw new Error(
+      `Pacote alvo fora da allowlist fechada de micro-loop: '${rawPackage}'.`
+    );
+  }
+  return trimmed;
+}
+
+export function assertAllowedUnitTestPath(
+  workspaceRoot: string,
+  rawTestPath: string
+): string {
+  const trimmed = rawTestPath.trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("-") ||
+    FORBIDDEN_ARG_CHARS_RE.test(trimmed) ||
+    trimmed.split(/[\\/]+/).includes("..")
+  ) {
+    throw new Error(
+      `Caminho de teste unitário inválido ou com flag/traversal proibido: '${rawTestPath}'.`
+    );
+  }
+  const safeAbs = resolveCandidateInsideRoot(workspaceRoot, trimmed, false);
+  const rel = path.relative(workspaceRoot, safeAbs).replace(/\\/g, "/");
+  if (!rel || rel.startsWith("..") || !ALLOWED_UNIT_TEST_EXT_RE.test(rel)) {
+    throw new Error(
+      `Arquivo fora do escopo de teste unitário permitido (*.test.* / *.spec.*): '${rawTestPath}'.`
+    );
+  }
+  return rel;
+}
+
+function buildMinimalSubprocessEnv(): NodeJS.ProcessEnv {
+  const allowKeys = [
+    "PATH",
+    "Path",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "PATHEXT",
+    "COMSPEC",
+    "ComSpec",
+    "HOME",
+    "USERPROFILE",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "LANG",
+    "LC_ALL",
+    "NODE_ENV",
+    "npm_execpath",
+  ];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of allowKeys) {
+    const val = process.env[key];
+    if (typeof val === "string" && val.length > 0) {
+      env[key] = val;
+    }
+  }
+  return env;
+}
+
+function resolvePnpmSubprocessCommand(args: readonly string[]): {
+  binary: string;
+  args: string[];
+} {
+  const npmExecPath = process.env.npm_execpath?.trim();
+  if (
+    npmExecPath &&
+    /\.(?:[cm]?js)$/i.test(npmExecPath) &&
+    fs.existsSync(npmExecPath)
+  ) {
+    return {
+      binary: process.execPath,
+      args: [npmExecPath, ...args],
+    };
+  }
+  return {
+    binary: "pnpm",
+    args: [...args],
+  };
+}
+
+function parseTscDiagnostics(output: string): ScopedCheckDiagnostic[] {
+  const diagnostics: ScopedCheckDiagnostic[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    if (diagnostics.length >= 200) break;
+    const parenMatch =
+      /^(.+?)\((\d+),\d+\):\s+(?:error|warning)\s+(TS\d+):\s+(.+)$/.exec(
+        line.trim()
+      );
+    if (parenMatch?.[1] && parenMatch[2] && parenMatch[4]) {
+      diagnostics.push({
+        file: parenMatch[1].trim().slice(0, 500),
+        line: Number.parseInt(parenMatch[2], 10),
+        code: parenMatch[3],
+        message: parenMatch[4].trim().slice(0, 1000),
+      });
+      continue;
+    }
+    const colonMatch =
+      /^(.+?):(\d+):\d+\s+-\s+(?:error|warning)\s+(TS\d+):\s+(.+)$/.exec(
+        line.trim()
+      );
+    if (colonMatch?.[1] && colonMatch[2] && colonMatch[4]) {
+      diagnostics.push({
+        file: colonMatch[1].trim().slice(0, 500),
+        line: Number.parseInt(colonMatch[2], 10),
+        code: colonMatch[3],
+        message: colonMatch[4].trim().slice(0, 1000),
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function parseVitestDiagnostics(
+  output: string,
+  defaultFile: string
+): ScopedCheckDiagnostic[] {
+  const diagnostics: ScopedCheckDiagnostic[] = [];
+  for (const rawLine of output.split(/\r?\n/)) {
+    if (diagnostics.length >= 200) break;
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^(?:FAIL|AssertionError|Error:)/i.test(line)) {
+      diagnostics.push({
+        file: defaultFile.slice(0, 500),
+        line: null,
+        message: line.slice(0, 1000),
+      });
+    }
+  }
+  return diagnostics;
+}
+
+export interface ScopedSubprocessResult {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  timedOut: boolean;
+}
+
+export type ScopedSubprocessRunner = (
+  binary: string,
+  args: readonly string[],
+  options: {
+    cwd: string;
+    timeoutMs: number;
+    env: NodeJS.ProcessEnv;
+  }
+) => Promise<ScopedSubprocessResult>;
+
+function defaultScopedSubprocessRunner(
+  binary: string,
+  args: readonly string[],
+  options: {
+    cwd: string;
+    timeoutMs: number;
+    env: NodeJS.ProcessEnv;
+  }
+): Promise<ScopedSubprocessResult> {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    execFile(
+      binary,
+      [...args],
+      {
+        cwd: options.cwd,
+        env: options.env,
+        timeout: Math.min(options.timeoutMs, MAX_SCOPED_TIMEOUT_MS),
+        maxBuffer: 2 * 1024 * 1024,
+        shell: false,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        const errObj = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
+        const timedOut = Boolean(errObj?.killed);
+        const exitCode =
+          typeof errObj?.code === "number" ? errObj.code : error ? 1 : 0;
+        resolve({
+          exitCode,
+          stdout: typeof stdout === "string" ? stdout : "",
+          stderr: typeof stderr === "string" ? stderr : "",
+          durationMs: Date.now() - startedAt,
+          timedOut,
+        });
+      }
+    );
+  });
+}
+
+export interface ScopedMicroLoopToolsDeps {
+  workspaceRoot: string;
+  toolPolicies?: ToolPoliciesMap;
+  knownSecrets?: readonly string[];
+  db?: UzinaDb;
+  deliverableId?: string;
+  stage?: string;
+  actorRole?: string;
+  timeoutMs?: number;
+  runSubprocess?: ScopedSubprocessRunner;
+}
+
+export function createScopedMicroLoopTools(
+  deps: ScopedMicroLoopToolsDeps
+) {
+  const workspaceRoot = path.resolve(deps.workspaceRoot);
+  const boundedTimeoutMs = Math.min(
+    Math.max(100, deps.timeoutMs ?? MAX_SCOPED_TIMEOUT_MS),
+    MAX_SCOPED_TIMEOUT_MS
+  );
+  const secrets = [...(deps.knownSecrets ?? [])];
+  const runSubprocess = deps.runSubprocess ?? defaultScopedSubprocessRunner;
+
+  const recordToolEvent = async (params: {
+    toolName: string;
+    targetPath?: string;
+    durationMs: number;
+    status: "ok" | "error";
+    summary?: string;
+  }) => {
+    if (!deps.db || !deps.deliverableId) return;
+    try {
+      const payload = ToolCallTracePayloadSchema.parse({
+        phase: "result",
+        toolName: params.toolName,
+        ...(params.targetPath ? { targetPath: params.targetPath } : {}),
+        durationMs: params.durationMs,
+        status: params.status,
+        ...(params.summary
+          ? { summary: redactSensitiveText(params.summary, secrets).slice(0, 1000) }
+          : {}),
+      });
+      await recordExecutionEvent(deps.db, {
+        deliverableId: deps.deliverableId,
+        stage: deps.stage ?? "stage_build",
+        actorRole: deps.actorRole ?? "builder",
+        eventType: "tool_call",
+        payload,
+      });
+    } catch {
+      // Telemetria best-effort não interrompe micro-loop
+    }
+  };
+
+  const run_scoped_typecheck = createTool({
+    id: "run_scoped_typecheck",
+    description:
+      "Executa typecheck allowlisted (tsc --noEmit) em um único pacote do monorepo via execFile (shell: false, timeout <= 30s).",
+    inputSchema: z
+      .object({
+        targetPackage: z.string().trim().min(1).max(120),
+      })
+      .strict(),
+    outputSchema: ScopedCheckResultSchema,
+    execute: async (inputData): Promise<ScopedCheckResult> => {
+      const targetPackage = assertAllowedTargetPackage(inputData.targetPackage);
+      const commandLabel = `pnpm --filter ${targetPackage} typecheck`;
+      const policyAction = deps.toolPolicies?.runTests ?? "allow";
+
+      if (policyAction === "deny" || policyAction === "ask") {
+        const msg = `Execução bloqueada pela política granular 'runTests=${policyAction}'.`;
+        await recordToolEvent({
+          toolName: "run_scoped_typecheck",
+          targetPath: targetPackage,
+          durationMs: 0,
+          status: "error",
+          summary: msg,
+        });
+        return ScopedCheckResultSchema.parse({
+          passed: false,
+          command: commandLabel,
+          targetPackage,
+          diagnostics: [
+            {
+              file: targetPackage,
+              line: null,
+              code: "TOOL_POLICY_BLOCKED",
+              message: msg,
+            },
+          ],
+          durationMs: 0,
+          truncatedOutput: msg,
+        });
+      }
+
+      const cmd = resolvePnpmSubprocessCommand([
+        "--filter",
+        targetPackage,
+        "typecheck",
+      ]);
+      const res = await runSubprocess(cmd.binary, cmd.args, {
+        cwd: workspaceRoot,
+        timeoutMs: boundedTimeoutMs,
+        env: buildMinimalSubprocessEnv(),
+      });
+
+      const combined = redactSensitiveText(
+        [res.stdout, res.stderr].filter(Boolean).join("\n"),
+        secrets
+      );
+      const diagnostics = parseTscDiagnostics(combined);
+      const passed = res.exitCode === 0 && !res.timedOut;
+      const truncatedOutput = combined.slice(0, MAX_SCOPED_OUTPUT_CHARS);
+
+      await recordToolEvent({
+        toolName: "run_scoped_typecheck",
+        targetPath: targetPackage,
+        durationMs: res.durationMs,
+        status: passed ? "ok" : "error",
+        summary: passed
+          ? `typecheck aprovado em ${targetPackage}`
+          : truncatedOutput || `typecheck falhou (exit=${res.exitCode})`,
+      });
+
+      return ScopedCheckResultSchema.parse({
+        passed,
+        command: commandLabel,
+        targetPackage,
+        diagnostics,
+        durationMs: res.durationMs,
+        truncatedOutput,
+      });
+    },
+  });
+
+  const run_scoped_unit_test = createTool({
+    id: "run_scoped_unit_test",
+    description:
+      "Executa um único arquivo de teste unitário (*.test.* / *.spec.*) via execFile (shell: false, timeout <= 30s) respeitando toolPolicies.runTests.",
+    inputSchema: z
+      .object({
+        targetPackage: z.string().trim().min(1).max(120),
+        testFilePath: z.string().trim().min(1).max(300),
+      })
+      .strict(),
+    outputSchema: ScopedCheckResultSchema,
+    execute: async (inputData): Promise<ScopedCheckResult> => {
+      const targetPackage = assertAllowedTargetPackage(inputData.targetPackage);
+      const safeRelPath = assertAllowedUnitTestPath(
+        workspaceRoot,
+        inputData.testFilePath
+      );
+      const commandLabel = `pnpm --filter ${targetPackage} test -- ${safeRelPath}`;
+      const policyAction = deps.toolPolicies?.runTests ?? "allow";
+
+      if (policyAction === "deny" || policyAction === "ask") {
+        const msg = `Execução bloqueada pela política granular 'runTests=${policyAction}'.`;
+        await recordToolEvent({
+          toolName: "run_scoped_unit_test",
+          targetPath: safeRelPath,
+          durationMs: 0,
+          status: "error",
+          summary: msg,
+        });
+        return ScopedCheckResultSchema.parse({
+          passed: false,
+          command: commandLabel,
+          targetPackage,
+          diagnostics: [
+            {
+              file: safeRelPath,
+              line: null,
+              code: "TOOL_POLICY_BLOCKED",
+              message: msg,
+            },
+          ],
+          durationMs: 0,
+          truncatedOutput: msg,
+        });
+      }
+
+      const cmd = resolvePnpmSubprocessCommand([
+        "--filter",
+        targetPackage,
+        "test",
+        "--",
+        safeRelPath,
+      ]);
+      const res = await runSubprocess(cmd.binary, cmd.args, {
+        cwd: workspaceRoot,
+        timeoutMs: boundedTimeoutMs,
+        env: buildMinimalSubprocessEnv(),
+      });
+
+      const combined = redactSensitiveText(
+        [res.stdout, res.stderr].filter(Boolean).join("\n"),
+        secrets
+      );
+      const diagnostics = parseVitestDiagnostics(combined, safeRelPath);
+      const passed = res.exitCode === 0 && !res.timedOut;
+      const truncatedOutput = combined.slice(0, MAX_SCOPED_OUTPUT_CHARS);
+
+      await recordToolEvent({
+        toolName: "run_scoped_unit_test",
+        targetPath: safeRelPath,
+        durationMs: res.durationMs,
+        status: passed ? "ok" : "error",
+        summary: passed
+          ? `teste unitário aprovado (${safeRelPath})`
+          : truncatedOutput || `teste falhou (exit=${res.exitCode})`,
+      });
+
+      return ScopedCheckResultSchema.parse({
+        passed,
+        command: commandLabel,
+        targetPackage,
+        diagnostics,
+        durationMs: res.durationMs,
+        truncatedOutput,
+      });
+    },
+  });
+
+  const validate_migration_safety = createTool({
+    id: "validate_migration_safety",
+    description:
+      "Valida segurança DDL de migrações SQL/schema dentro do workspace, bloqueando DROP TABLE, DROP COLUMN, TRUNCATE, ADD COLUMN NOT NULL sem DEFAULT e ALTER COLUMN TYPE.",
+    inputSchema: z
+      .object({
+        filePath: z.string().trim().min(1).max(500),
+        content: z.string().max(512_000).optional(),
+      })
+      .strict(),
+    outputSchema: MigrationSafetyReportSchema,
+    execute: async (inputData): Promise<MigrationSafetyReport> => {
+      const startedAt = Date.now();
+      const safeAbs = resolveCandidateInsideRoot(
+        workspaceRoot,
+        inputData.filePath,
+        false
+      );
+      const relPath = path.relative(workspaceRoot, safeAbs).replace(/\\/g, "/");
+      const sqlContent =
+        inputData.content !== undefined
+          ? inputData.content
+          : fs.readFileSync(safeAbs, "utf8");
+
+      const report = validateMigrationSafety(sqlContent, relPath);
+      await recordToolEvent({
+        toolName: "validate_migration_safety",
+        targetPath: relPath,
+        durationMs: Date.now() - startedAt,
+        status: report.passed ? "ok" : "error",
+        summary: report.passed
+          ? `Migração segura (${report.issues.length} avisos)`
+          : `${report.issues.filter((i) => i.severity === "blocking").length} violações bloqueantes em ${relPath}`,
+      });
+      return report;
+    },
+  });
+
+  return {
+    run_scoped_typecheck,
+    run_scoped_unit_test,
+    validate_migration_safety,
+  } satisfies ToolsInput;
+}
+
 export interface CodingAdapterExecutionOptions<
   TSchema extends z.ZodTypeAny = z.ZodUnknown,
 > extends RunSessionExtraOptions<TSchema> {
@@ -253,6 +792,9 @@ export interface CodingAdapterExecutionOptions<
   workspaceKind?: WorkspaceKind;
   toolPolicies?: ToolPoliciesMap;
   modelOverride?: MastraModelConfig;
+  lockedReadOnlyPaths?: readonly string[];
+  scopedMicroLoopTimeoutMs?: number;
+  scopedSubprocessRunner?: ScopedSubprocessRunner;
 }
 
 export interface CodingExecutorAdapter {
@@ -376,6 +918,10 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
 
     const readFilesNormalized = new Set<string>();
     const touchedFilesSet = new Set<string>();
+    const lockedPathsMatcher = buildLockedPathsMatcher(
+      workspaceRoot,
+      options.lockedReadOnlyPaths
+    );
     const toolStartTimes = new Map<string, number[]>();
     let knownSecrets: string[] = [];
     let budgetExceeded = false;
@@ -478,6 +1024,29 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
         };
       }
 
+      if (isWriteOp && lockedPathsMatcher.hasEntries) {
+        for (const c of candidates) {
+          if (lockedPathsMatcher.isLocked(c)) {
+            const lockMsg = `Test Lock ativo: '${c}' está protegido somente-leitura (${ctx.workspaceToolName}). Corrija o código de produção em vez de alterar os testes de contrato (ou solicite revisão de contrato).`;
+            if (options.db && options.deliverableId) {
+              const targetPath = resolveTargetPathPreview(ctx.input);
+              await emitToolTrace({
+                phase: "result",
+                toolName: ctx.workspaceToolName,
+                ...(targetPath ? { targetPath } : {}),
+                durationMs: 0,
+                status: "error",
+                summary: lockMsg,
+              });
+            }
+            return {
+              proceed: false as const,
+              output: { error: lockMsg },
+            };
+          }
+        }
+      }
+
       if (isWriteOp) {
         for (const c of candidates) {
           const abs = path.isAbsolute(c)
@@ -561,6 +1130,9 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
           beforeToolCall: beforeToolHook,
           afterToolCall: afterToolHook,
         },
+        [WORKSPACE_TOOLS.FILESYSTEM.APPLY_PATCH]: {
+          enabled: options.mode !== "plan",
+        },
         [WORKSPACE_TOOLS.SANDBOX.EXECUTE_COMMAND]: { enabled: false },
         [WORKSPACE_TOOLS.SANDBOX.GET_PROCESS_OUTPUT]: { enabled: false },
         [WORKSPACE_TOOLS.SANDBOX.KILL_PROCESS]: { enabled: false },
@@ -628,12 +1200,28 @@ export class MastraWorkspaceExecutorAdapter implements CodingExecutorAdapter {
           : []),
       ];
 
+      const microLoopTools =
+        options.mode === "plan"
+          ? undefined
+          : createScopedMicroLoopTools({
+              workspaceRoot,
+              toolPolicies: options.toolPolicies,
+              knownSecrets,
+              db: options.db,
+              deliverableId: options.deliverableId,
+              stage: traceStage,
+              actorRole: options.role,
+              timeoutMs: options.scopedMicroLoopTimeoutMs,
+              runSubprocess: options.scopedSubprocessRunner,
+            });
+
       const agent = new Agent({
         id: `uzina_workspace_executor_${options.role}`,
         name: `Uzina Workspace ${options.role}`,
         instructions: systemInstructions,
         model: resolvedModel,
         workspace,
+        ...(microLoopTools ? { tools: microLoopTools } : {}),
         inputProcessors: [
           createSecretRedactionProcessor({ knownSecrets }),
           createUzinaAgentsMdInjector({ workspaceRoot }),

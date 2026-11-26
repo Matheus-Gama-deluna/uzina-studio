@@ -3,6 +3,7 @@ import {
   type AgentTurnObservation,
   type AgentTurnObservationInput,
   type StuckAlert,
+  type StuckAlertV2Extension,
 } from "@uzina/contracts";
 
 export interface StuckDetectorConfig {
@@ -11,6 +12,14 @@ export interface StuckDetectorConfig {
   actionObservationThreshold: number;
   pingPongThreshold: number;
   monologueThreshold: number;
+}
+
+export interface StuckThreeStrikeDirective {
+  strikeCount: number;
+  actionKey: string | null;
+  requiresRootCauseHypothesis: boolean;
+  directiveMessage: string | null;
+  escalateToArchitect: boolean;
 }
 
 export const DEFAULT_STUCK_DETECTOR_CONFIG: StuckDetectorConfig = {
@@ -65,21 +74,101 @@ function getPingPongSignature(obs: AgentTurnObservation): string | null {
 function buildAlert(
   pattern: StuckAlert["pattern"],
   reason: string,
-  turns: readonly AgentTurnObservation[]
-): StuckAlert {
+  turns: readonly AgentTurnObservation[],
+  options?: {
+    strikeCount?: number;
+    escalatedToArchitect?: boolean;
+    rootCauseHypothesis?: string;
+  }
+): StuckAlertV2Extension {
+  const strikeCount = Math.min(
+    10,
+    Math.max(1, options?.strikeCount ?? turns.length)
+  );
+  const rootCauseHypothesis = options?.rootCauseHypothesis?.trim().slice(0, 2000);
   return {
     detected: true,
     pattern,
     decisionType: "stuck_intervention",
     reason,
     evidenceTurns: turns.map((t) => t.turnIndex),
+    strikeCount,
+    escalatedToArchitect: Boolean(options?.escalatedToArchitect),
+    ...(rootCauseHypothesis ? { rootCauseHypothesis } : {}),
+  };
+}
+
+export function evaluateConsecutiveErrorStrike(
+  history: readonly AgentTurnObservationInput[],
+  partialConfig: Partial<StuckDetectorConfig> = {}
+): StuckThreeStrikeDirective {
+  const cfg: StuckDetectorConfig = {
+    ...DEFAULT_STUCK_DETECTOR_CONFIG,
+    ...partialConfig,
+  };
+  const parsed = history.map((item) => AgentTurnObservationSchema.parse(item));
+  const lastTurn = parsed[parsed.length - 1];
+  const lastKey = lastTurn && !isContextOverflowTurn(lastTurn)
+    ? getActionErrorKey(lastTurn)
+    : null;
+
+  if (!lastKey) {
+    return {
+      strikeCount: 0,
+      actionKey: null,
+      requiresRootCauseHypothesis: false,
+      directiveMessage: null,
+      escalateToArchitect: false,
+    };
+  }
+
+  let streak = 0;
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    const item = parsed[i]!;
+    if (isContextOverflowTurn(item)) {
+      break;
+    }
+    if (getActionErrorKey(item) === lastKey) {
+      streak += 1;
+    } else {
+      break;
+    }
+  }
+
+  if (streak >= cfg.actionErrorThreshold && cfg.actionErrorThreshold > 0) {
+    return {
+      strikeCount: streak,
+      actionKey: lastKey,
+      requiresRootCauseHypothesis: true,
+      directiveMessage: `${streak}ª falha consecutiva para '${lastKey}'. Escalação obrigatória ao Arquiteto/HITL com hipótese de causa-raiz.`,
+      escalateToArchitect: true,
+    };
+  }
+
+  if (streak >= 2) {
+    return {
+      strikeCount: streak,
+      actionKey: lastKey,
+      requiresRootCauseHypothesis: true,
+      directiveMessage: `2ª falha consecutiva para '${lastKey}'. Pare de editar; formule e registre a hipótese da causa-raiz antes da próxima alteração.`,
+      escalateToArchitect: false,
+    };
+  }
+
+  return {
+    strikeCount: streak,
+    actionKey: lastKey,
+    requiresRootCauseHypothesis: false,
+    directiveMessage: null,
+    escalateToArchitect: false,
   };
 }
 
 export function detectStuck(
   history: readonly AgentTurnObservationInput[],
-  partialConfig: Partial<StuckDetectorConfig> = {}
-): StuckAlert | null {
+  partialConfig: Partial<StuckDetectorConfig> = {},
+  options?: { rootCauseHypothesis?: string }
+): StuckAlertV2Extension | null {
   const cfg: StuckDetectorConfig = {
     ...DEFAULT_STUCK_DETECTOR_CONFIG,
     ...partialConfig,
@@ -95,7 +184,12 @@ export function detectStuck(
       return buildAlert(
         "context_window_overflow",
         `${cfg.contextOverflowThreshold}+ erros consecutivos de estouro de janela de contexto detectados.`,
-        tail
+        tail,
+        {
+          strikeCount: tail.length,
+          escalatedToArchitect: false,
+          rootCauseHypothesis: options?.rootCauseHypothesis,
+        }
       );
     }
   }
@@ -108,10 +202,20 @@ export function detectStuck(
     const keys = tail.map(getActionErrorKey);
     const firstKey = keys[0];
     if (firstKey && keys.every((k) => k === firstKey)) {
+      const lastErrorMessage =
+        tail[tail.length - 1]?.errorMessage?.trim() ?? "erro recorrente";
+      const synthesizedHypothesis =
+        options?.rootCauseHypothesis?.trim() ||
+        `Falha persistente após ${tail.length} tentativas em '${firstKey}': ${lastErrorMessage}`;
       return buildAlert(
         "repeated_action_error",
         `${cfg.actionErrorThreshold}+ repetições consecutivas da mesma ação com erro (${firstKey}).`,
-        tail
+        tail,
+        {
+          strikeCount: tail.length,
+          escalatedToArchitect: tail.length >= 3,
+          rootCauseHypothesis: synthesizedHypothesis,
+        }
       );
     }
   }
@@ -127,7 +231,12 @@ export function detectStuck(
       return buildAlert(
         "repeated_action_observation",
         `${cfg.actionObservationThreshold}+ repetições idênticas de ação e observação (${firstKey}).`,
-        tail
+        tail,
+        {
+          strikeCount: tail.length,
+          escalatedToArchitect: false,
+          rootCauseHypothesis: options?.rootCauseHypothesis,
+        }
       );
     }
   }
@@ -146,7 +255,12 @@ export function detectStuck(
       return buildAlert(
         "alternating_ping_pong",
         `${cfg.pingPongThreshold}+ oscilações alternadas consecutivas entre ${sigA} e ${sigB}.`,
-        tail
+        tail,
+        {
+          strikeCount: tail.length,
+          escalatedToArchitect: false,
+          rootCauseHypothesis: options?.rootCauseHypothesis,
+        }
       );
     }
   }
@@ -157,7 +271,12 @@ export function detectStuck(
       return buildAlert(
         "monologue_no_tool",
         `${cfg.monologueThreshold}+ turnos consecutivos de monólogo sem chamada de ferramenta.`,
-        tail
+        tail,
+        {
+          strikeCount: tail.length,
+          escalatedToArchitect: false,
+          rootCauseHypothesis: options?.rootCauseHypothesis,
+        }
       );
     }
   }
@@ -168,6 +287,7 @@ export function detectStuck(
 export class StuckDetector {
   private readonly config: StuckDetectorConfig;
   private readonly history: AgentTurnObservation[] = [];
+  private rootCauseHypothesis: string | undefined;
 
   constructor(config: Partial<StuckDetectorConfig> = {}) {
     this.config = {
@@ -176,10 +296,27 @@ export class StuckDetector {
     };
   }
 
-  recordTurn(observation: AgentTurnObservationInput): StuckAlert | null {
+  recordRootCauseHypothesis(hypothesis: string): void {
+    const trimmed = hypothesis.trim();
+    if (trimmed.length > 0) {
+      this.rootCauseHypothesis = trimmed.slice(0, 2000);
+    }
+  }
+
+  getLatestRootCauseHypothesis(): string | undefined {
+    return this.rootCauseHypothesis;
+  }
+
+  getStrikeStatus(): StuckThreeStrikeDirective {
+    return evaluateConsecutiveErrorStrike(this.history, this.config);
+  }
+
+  recordTurn(observation: AgentTurnObservationInput): StuckAlertV2Extension | null {
     const validated = AgentTurnObservationSchema.parse(observation);
     this.history.push(validated);
-    return detectStuck(this.history, this.config);
+    return detectStuck(this.history, this.config, {
+      rootCauseHypothesis: this.rootCauseHypothesis,
+    });
   }
 
   getHistory(): readonly AgentTurnObservation[] {
@@ -188,5 +325,6 @@ export class StuckDetector {
 
   reset(): void {
     this.history.length = 0;
+    this.rootCauseHypothesis = undefined;
   }
 }

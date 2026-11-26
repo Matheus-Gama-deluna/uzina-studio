@@ -643,7 +643,10 @@ export function DeliverablesDocsHub() {
               }`}
             >
               <Layers className="size-3.5" />
-              <span>Entregas &amp; Slices ({deliverablesList.length})</span>
+              <span>
+                Entregas &amp; Slices (
+                {deliverablesQuery.isLoading ? "…" : deliverablesList.length})
+              </span>
             </button>
             <button
               type="button"
@@ -791,7 +794,7 @@ export function DeliverablesDocsHub() {
                   finalizePolicy: e.target.value as ProjectFinalizePolicy,
                 })
               }
-              className="min-h-8 rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+              className="h-9 rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-xs leading-normal text-fg-primary focus:border-border-strong focus:outline-none"
             >
               <option value="local_merge">Merge Local em main</option>
               <option value="branch_only">Somente Branch</option>
@@ -995,6 +998,16 @@ export function DeliverablesDocsHub() {
             )}
           </article>
         </div>
+      ) : deliverablesQuery.isLoading ? (
+        <div
+          data-testid="deliverables-loading"
+          aria-label="Carregando entregas"
+          className="space-y-2.5"
+        >
+          <div className="h-20 animate-pulse rounded-xl border border-border-subtle bg-surface" />
+          <div className="h-20 animate-pulse rounded-xl border border-border-subtle bg-surface" />
+          <div className="h-20 animate-pulse rounded-xl border border-border-subtle bg-surface" />
+        </div>
       ) : deliverablesList.length === 0 ? (
         <div
           data-testid="empty-deliverables-state"
@@ -1114,7 +1127,7 @@ export function DeliverablesDocsHub() {
                       ) : null}
                     </header>
 
-                    <div className="flex max-h-[420px] flex-1 flex-col gap-2.5 overflow-y-auto p-3">
+                    <div className="flex max-h-[540px] flex-1 flex-col gap-2.5 overflow-y-auto p-3 pb-4">
                       {colItems.length === 0 ? (
                         <p className="py-6 text-center text-xs text-fg-muted">
                           Vazio
@@ -1547,7 +1560,7 @@ export function DeliverablesDocsHub() {
                         </button>
                       </div>
 
-                      <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <select
                           aria-label="Agente para revisão em ciclo"
                           value={revisionTargetAgent}
@@ -1556,7 +1569,7 @@ export function DeliverablesDocsHub() {
                               e.target.value as AgencyAgentRole
                             )
                           }
-                          className="min-h-9 rounded-md border border-border-default bg-inset px-2.5 text-xs text-fg-primary"
+                          className="h-9 shrink-0 whitespace-nowrap rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-xs leading-normal text-fg-primary"
                         >
                           <option value="software_architect">
                             Voltar ao Arquiteto
@@ -1574,7 +1587,7 @@ export function DeliverablesDocsHub() {
                           value={revisionFeedback}
                           onChange={(e) => setRevisionFeedback(e.target.value)}
                           placeholder="O que ajustar ou refazer neste slice?"
-                          className="min-h-9 flex-1 rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
+                          className="min-h-9 min-w-[200px] flex-1 rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
                         />
                         <button
                           type="button"
@@ -1589,7 +1602,7 @@ export function DeliverablesDocsHub() {
                                 `Revisar arquitetura e especificações do slice '${activeSlice.title}' em novo ciclo.`,
                             })
                           }
-                          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+                          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
                         >
                           <RotateCcw className="size-3.5" />
                           <span>Corrigir em Ciclo</span>

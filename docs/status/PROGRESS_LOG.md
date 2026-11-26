@@ -442,3 +442,72 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * QA visual `browser` em `/app/finops` e `/app/providers` (Desktop `1440x900` e Mobile `390x844`): **PASS** (`0` `console.error`, `0` `pageerror`, `0` HTTP `>= 500`, 101 reqs).
   * Revisores independentes: `test-critic` (bordas completas incorporadas), `appsec-auditor` (hardening SSRF/GitHub URL/`gitFinalize=ask`/`OpenCodeExecutorAdapter`/redação aplicados) e `factory-verifier` (`model-resolver.ts` corrigido + revalidado **PASS**).
 * **Próximo passo:** Plano Mestre P0–P3 (Slices 20–25) integralmente concluído e entregue na `main`.
+
+---
+
+## 2026-11-25 — Planejamento & Slice 26: Evolução Agêntica v2 — Controller Dinâmico, SkillsLoader v2 (`agentskills.io`), Playbooks Sênior & Guardrails (`fix/slice-26-controller-model-resolver-skills-loader-v2`)
+
+* **Planejamento Estratégico Criado (`docs/planos/`):**
+  * [plano-mestre-evolucao-agentes-v2-slices-26-34.md](docs/planos/plano-mestre-evolucao-agentes-v2-slices-26-34.md): Plano Mestre completo de Evolução Agêntica, Skills & Harness (Slices 26–32 em Onda 1 + Slices 33–34 em Onda 2 + Horizonte Fase 4).
+  * [dossie-agentes-por-fase-v2.md](docs/planos/dossie-agentes-por-fase-v2.md): Dossiê completo dos 8 agentes do sistema por fase SDLC, catálogo das 16 skills e matriz de rastreabilidade total.
+* **Entregue no Slice 26 (`docs/slices/slice-26-controller-model-resolver-skills-loader-v2.md`):**
+  * `@uzina/contracts` (`execution.ts`, `agency.ts`): `SkillLifecyclePhaseSchema`, `SkillRoleCategorySchema`, `SkillBudgetMetricsSchema`, extensão retrocompatível de `SkillDefinitionSchema` e `AgencyWorkingMemorySchema`.
+  * `@uzina/core` (`skills-loader.ts`, `tests/slice26-skills-loader-v2.test.ts`): descoberta automática de `references/`, `templates/` e `scripts/`, validação de orçamentos `agentskills.io` (`64`/`1024`/`500`, `strictBudgets`), `loadSkillResource` com contenção estrita (`followSymlinks: true` + `lstatSync` + bloqueio de `.git`/`.env`/`.master-key`/trailing dots NTFS + `maxBytes` + redação), e `selectNonConflictingSkillsForStage`.
+  * `@uzina/mastra-runtime` (`controller.ts`, `engineering-agents.ts`, `processors.ts`, `workspace-tools.ts`, `memory-runtime.ts`, `tests/slice26-controller-memory-skills.integration.test.ts`): remoção de `"openai/gpt-4o-mini"` hardcoded via `resolveControllerModelForMode` e `dynamicControllerModel` + `getControllerBackingAgent()` + validação multi-tenant de `projectId`/`resourceId`; Playbooks Sênior estruturados em `getRolePlaybookInstructions` para os 6 papéis; `createUzinaSkillsCatalogProcessor` + tool sob demanda `load_uzina_skill`; `WorkingMemory` tipada (`scope: "resource"`) + `createUzinaSemanticRecallProcessor` (QMD isolado por tenant + sanitização anti-injection) + `createUzinaPromptInjectionGuardProcessor` (NFKC/zero-width, `processInput`, `processInputStep`, `processToolResult` preservando redação de `knownSecrets` em `args` e `result`, mais `createOptionalLlmPromptInjectionDetector`).
+* **Validação & Verificadores:**
+  * `node scripts/check-no-ee.mjs` (`exit 0`), `node scripts/audit-tests.mjs` (`84` arquivos, `275` testes, `2` suprimidos, `0` violações).
+  * `pnpm verify`: `34/34` tasks Turbo PASS (`@uzina/contracts` `203/203`, `@uzina/core` `193/193`, `@uzina/db` `39 passed | 1 skipped`, `@uzina/codebase-intel` `13/13`, `@uzina/security-engine` `19/19`, `@uzina/cli` `13/13`, `@uzina/opencode-bridge` `58/58`, `@uzina/mastra-runtime` `93/93`, `@uzina/web` `36/36` + Next.js `16.4.6` Turbopack build).
+  * Revisores independentes: `test-critic` (8 ajustes incorporados), `appsec-auditor` (achados `CRITICAL`/`HIGH`/`MEDIUM`/`LOW` corrigidos e revalidados) e `factory-verifier` (**PASS**).
+* **Próximo passo:** Iniciar execução do **Slice 27** (Upgrade das 8 skills existentes + 8 novas skills autorais com Iron Laws, tabelas Anti-Racionalização e orquestração Lead → Reference → Critique).
+
+---
+
+## 2026-11-25 — Execução em Swarm (Ondas 1 & 2): Contratos 27–34 + Slices 27, 28, 29, 30, 31 (Backend) e 33 (`feat/slices-27-34-agentic-evolution-v2`)
+
+* **Entregue (Onda 0 + Onda 1 + Onda 2 — 7 commits verificados por pacote):**
+  * **Contratos Zod Consolidados (`ff08845`):** `packages/contracts/src/{role-tools,handoffs-v2,agent-evals,security-v2,governance-v2}.ts` e `tests/slices-27-34-contracts.test.ts` (`14 files, 269 tests passed`).
+  * **Slice 27 (`4cf36b1` — [dossiê](docs/slices/slice-27-skills-library-v2-iron-laws-16-skills.md)):** 16 skills autorais `Apache-2.0` em `packages/skills/` (8 evoluídas + 8 novas) com sub-recursos em `references/`, `templates/` e `scripts/check-migration-ddl.mjs`, mais `slice27-skills-catalog-integrity.test.ts` (`@uzina/core`: `2 files, 34 tests passed`).
+  * **Slice 28 (`4b3ea02` — [dossiê](docs/slices/slice-28-role-workspace-tools-codebase-design-appsec.md)):** 14 tools especializadas em `role-specialized-tools.ts`, integração RBAC/multi-tenant no `controller.ts` (`review` read-only), `ToolSearchProcessor`, `executive-copilot.ts`, `engineering-agents.ts` e `selectNonConflictingSkillsForStage` em `processors.ts` (`@uzina/mastra-runtime`: `2 files, 49 tests passed`).
+  * **Slice 33 (`0961fee` — [dossiê](docs/slices/slice-33-appsec-v2-dast-reachability-sbom-agentic-guard.md)):** AppSec v2 em `@uzina/security-engine` (`dast-passive.ts` + `nuclei` opcional, `reachability.ts` nativo sem acoplar `@uzina/codebase-intel`, `sbom.ts` CycloneDX 1.5 e `scanAgenticPromptInjectionNative`; `1 file, 14 tests passed`).
+  * **Slice 29 (`769d943` — [dossiê](docs/slices/slice-29-discovery-architect-ux-structured-handoffs.md)):** `stages/structured-handoffs.ts` (`ShapeSpec`, `ArchitectBlueprintV2`, pipeline UX 3 estágios + `PrototypeComponentManifest`) e `agency.ts` (`decideOptimalAiStrategyWithAgent` + `buildVisualPrototypeBlueprintWithAgent` com fallback offline; `8/8 passed`).
+  * **Slice 30 (`36fe585` — [dossiê](docs/slices/slice-30-builder-harness-test-lock-micro-loop-debug.md)):** `migration-safety.ts`, 3-Strikes em `stuck-detector.ts` + `runner.ts`, `Test Lock` (`lockedReadOnlyPaths`, incluindo `APPLY_PATCH`) e micro-loop allowlisted (`run_scoped_typecheck`, `run_scoped_unit_test`, `validate_migration_safety`) em `workspace-adapter.ts` (`@uzina/core` `220/220`, `@uzina/opencode-bridge` `58/58`, `slice30` `28/28`).
+  * **Slice 31 Backend/Workflow + Wiring Onda 2 (`71cad82` — [dossiê](docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md)):** `stages/two-stage-verifier.ts`, `github-pr.ts` com `DecisionRiskBriefing`, retrospectiva automática QMD, `syncOpenSpecArchive` e conexão consolidada dos Slices 29–31 em `workflows/deliverable-lifecycle.ts` (`slice31` `9/9`, `slice19` `8/8`).
+* **Verificação Real Até Este Checkpoint:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * `node scripts/audit-tests.mjs`: `91` arquivos, `322` testes, `0` violações.
+  * Builds aprovados incrementalmente para `@uzina/contracts`, `@uzina/core`, `@uzina/security-engine`, `@uzina/opencode-bridge` e `@uzina/mastra-runtime`.
+* **Ponto de Parada & Retomada (`Onda 3 + Onda 4`):**
+  * Execução pausada por limite de cota (`429 RESOURCE_EXHAUSTED`) no início da Onda 3.
+  * Restam: UI do Slice 31 em `/app/decisions`, Slice 32 completo, Slice 34 completo e o `pnpm verify` final único + auditoria consolidada. Guia passo a passo e prompt de retomada em [HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md](docs/status/HANDOFF_CONTINUACAO_ONDA3_SLICES_31_32_34.md).
+
+---
+
+## 2026-11-25 — Fechamento das Ondas 3 & 4: Slices 31 (UI), 32 e 34 + Gate Final (`feat/slices-27-34-agentic-evolution-v2`) ★ Evolução Agêntica v2 Concluída
+
+* **Entregue (Onda 3 + Onda 4A — 3 commits semânticos verificados):**
+  * **Slice 31 UI (`/app/decisions`, commit `b5faf27` — [dossiê](docs/slices/slice-31-two-stage-verifier-adversarial-qa-retro.md)):** `apps/web/src/components/decision-risk-briefing-card.tsx` integrado a `decisions-workbench.tsx` exibindo Matriz Requisito ↔ Teste ↔ Diff, `Confidence Score (0–100)`, Checklist de Superfície Alterada e Plano de Rollback nos 5 estados de UI.
+  * **Slice 32 (`8475fcd` — [dossiê](docs/slices/slice-32-agentic-ci-evals-trajectory-gates.md)):** `packages/mastra-runtime/src/evals/trajectory-evals.ts` (7 binary gates + `runTrajectoryEvalSuite()` para `software_architect`, `ux_designer`, `qa_appsec` e `MastraWorkspaceExecutorAdapter`), `computeAgentEffectivenessMetricsScoped` em `packages/mastra-runtime/src/finops.ts`, gate CI `scripts/audit-agent-trajectories.mjs`, rota `GET /api/finops/effectiveness` e `AgentEffectivenessPanel` em `/app/finops` (`slice32-trajectory-evals.test.ts` + atualização de `slice18-real-agents-om.integration.test.ts` com `ToolSearchProcessor`).
+  * **Slice 34 (`c0ac693` — [dossiê](docs/slices/slice-34-visual-a11y-mutation-pbt-and-skills-registry.md)):** `packages/core/src/skills-lock.ts` (SHA-256 determinístico + política `Apache-2.0`/`MIT`), `packages/core/src/mutation-pbt.ts` (PBT determinístico + Stryker via `execFile`, `shell: false`), `packages/mastra-runtime/src/stages/visual-a11y-verify.ts` (viewports `1440x900` e `390x844` + hook `stageVerify` em `deliverable-lifecycle.ts`), `packages/mastra-runtime/src/entropy.ts` + `uzina doctor --entropy` em `apps/cli/src/cli.ts`, rotas `GET /api/skills/catalog` e `GET /api/projects/[id]/entropy`, `SkillsCatalogPanel` em `/app/finops`, MSW fixtures/handlers e `apps/web/tests/slices-31-32-34-ui.test.ts`.
+* **Validação Final Real (Onda 4A):**
+  * `node scripts/check-no-ee.mjs`: `0` (zero `@mastra/*-ee`/`ee/`).
+  * `pnpm verify`: **34/34 tasks OK** (9/9 builds, 9/9 typechecks, 9/9 lints; `@uzina/contracts` 14 files / 269 passed; `@uzina/core` 17 files / 228 passed; `@uzina/db` 12 passed + 1 conditional pgvector skipped / 39 passed + 1 skipped; `@uzina/codebase-intel` 1 file / 13 passed; `@uzina/opencode-bridge` 6 files / 58 passed; `@uzina/security-engine` 4 files / 33 passed; `@uzina/mastra-runtime` 24 files / 183 passed; `@uzina/cli` 1 file / 13 passed; `@uzina/web` 15 files / 45 passed).
+  * `node scripts/audit-tests.mjs`: **95 arquivos, 338 testes, 2 suprimidos, 0 violações**.
+  * `node scripts/audit-agent-trajectories.mjs`: **4/4 passed**.
+  * Auditoria consolidada da Onda 3: `execFile` com `shell: false` e allowlist em `mutation-pbt.ts`, isolamento Playwright/axe em `visual-a11y-verify.ts`, `assertPathInsideWorkspace` + SHA-256 em `skills-lock.ts`, RBAC + multi-tenant `organizationId`/`projectId` nas 3 novas rotas API, zero `any` implícito ou `as unknown as`.
+* **Marco Atingido:** **Evolução Agêntica v2 (Slices 26–34) 100% concluída e verificada** na branch `feat/slices-27-34-agentic-evolution-v2`, pronta para push e abertura de Pull Request para `main`.
+
+---
+
+## 2026-11-25 — Slice 35: Polimento Visual/UX Pós-QA Real no Navegador & Cobertura E2E Populada (`feat/slices-27-34-agentic-evolution-v2`)
+
+* **Entregue após auditoria exploratória em navegador real (`http://localhost:3000`, `1440×900` Dark/Light e `390×844` Dark):**
+  * **Sidebar, Chat & Estúdio Visual (`cockpit-shell.tsx`, `agency-command-center.tsx`, `visual-studio-workspace.tsx`, `packages/mastra-runtime/src/agency.ts`):** `<aside>` desktop `lg:sticky lg:top-0 lg:h-screen` mantendo `Sair da sessão` fixo na base; `Project Switcher` exibindo `"Sincronizando... / Carregando projetos"` em vez de `"Crie sua primeira ideia"` durante loading; painel `Configurações` movido para Drawer lateral Radix `Dialog` preservando o composer na 1ª dobra; `Abortar` desabilitado quando ocioso; unificação de `"Estúdio & Protótipo"` → `"Estúdio Visual"`; truncamento seguro da badge `strategyLabel` no HTML do protótipo; e diferenciação real de largura `Desktop > Tablet (510px/768px) > Celular (390px)`.
+  * **Entregas, Decisões, FinOps & Skills (`deliverables-docs-hub.tsx`, `decisions-workbench.tsx`, `finops-dashboard.tsx`, `engine-config-panel.tsx`, `skills-catalog-panel.tsx`):** skeleton `deliverables-loading` eliminando flash de empty state; `<select>` `Entrega Git` alinhado e coluna Kanban ampliada (`max-h-[540px] pb-4`); `overflow-x-hidden` + abas em 1 linha (`flex-nowrap overflow-x-auto`) em `/app/decisions` mobile `390×844` sem overflow horizontal; empty state `finops-by-technique-empty` (inclusive quando `byTechnique` retorna linhas zeradas) + `US$ 0.0000` em 1 linha no mobile; busca textual, filtros por `phase`/`roleCategory`, expansão de detalhes e `filterSkillsCatalogItems` em `SkillsCatalogPanel`.
+  * **AppSec, Provedores, Memórias & Build Hygiene (`security-audit-console.tsx`, `providers-manager.tsx`, `memories-manager.tsx`, `packages/mastra-runtime/src/stages/visual-a11y-verify.ts`):** alinhamento horizontal de botões e barra de filtros de severidade no estado vazio AppSec; contagem dinâmica `"6 cartões"`, defaults `omni-pro`/`omni-fast` no `OmniRoute Gateway` e ocultação do Ping LLM para `github_pat`; `stripMarkdownToPlainPreview` + `<code>` em Memórias QMD; e `/*turbopackIgnore: true*/` em `visual-a11y-verify.ts` zerando os 2 warnings do Turbopack.
+  * **Novos Testes:** `apps/web/tests/slice35-qa-polish.test.ts` (`10/10`) e `apps/web/e2e/slices-31-35-qa-polish.spec.ts` (correções P1/P2 em Desktop + Mobile `390px` e estados populados de `DecisionRiskBriefingCard`, `AgentEffectivenessPanel` e AppSec SARIF).
+* **Validação Final Real:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * `pnpm verify`: **34/34 tasks OK**, **0 warnings Turbopack** (`@uzina/web`: `16` arquivos / `55` testes passed).
+  * `node scripts/audit-tests.mjs`: **96 arquivos, 343 testes, 2 suprimidos, 0 violações**.
+  * `pnpm test:e2e`: **4 passed (18.9s)** (`slices-31-35-qa-polish.spec.ts` `2/2` + `smoke.spec.ts` `2/2`).
+  * Revalidação visual pré-fechamento no subagente `browser` (`Model: "flash"`) em `http://localhost:3000`: **0** erros de console/página/HTTP, confirmando todas as correções visuais (após o único apontamento de `finops-by-technique-empty` com linhas zeradas ser corrigido e coberto por teste unitário + `pnpm verify` + `pnpm test:e2e`).

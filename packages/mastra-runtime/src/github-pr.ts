@@ -1,3 +1,7 @@
+import type {
+  DecisionRiskBriefing,
+  SpecComplianceRow,
+} from "@uzina/contracts";
 import {
   decryptSecret,
   parseMasterKeyBuffer,
@@ -126,6 +130,88 @@ export interface CreateGitHubDraftPrResult {
   error?: string;
 }
 
+export interface RenderDraftPrBodyParams {
+  summary?: string;
+  deliverableTitle?: string;
+  verifyAttempts?: number;
+  riskBriefing?: DecisionRiskBriefing | null;
+  specMatrix?: readonly SpecComplianceRow[];
+  knownSecrets?: readonly string[];
+}
+
+/**
+ * Renderiza o corpo do Draft PR com o Risk Briefing (superfície alterada, Confidence Score e plano de rollback).
+ */
+export function renderDraftPrBodyWithRiskBriefing(
+  params: RenderDraftPrBodyParams
+): string {
+  const knownSecrets = params.knownSecrets ?? [];
+  const sections: string[] = [];
+
+  const intro = params.summary?.trim()
+    ? redactSensitiveText(params.summary.trim(), knownSecrets)
+    : params.deliverableTitle
+      ? `Entrega: ${redactSensitiveText(params.deliverableTitle, knownSecrets)}`
+      : "Pacote de evidências gerado pelo Uzina Studio.";
+  sections.push(intro);
+
+  if (typeof params.verifyAttempts === "number") {
+    sections.push(`- Tentativas no Verify Gate: **${params.verifyAttempts}**`);
+  }
+
+  if (params.riskBriefing) {
+    const rb = params.riskBriefing;
+    const cs = rb.changedSurface;
+    const depsText =
+      cs.newDependencies.length > 0 ? cs.newDependencies.join(", ") : "nenhuma";
+    const envText =
+      cs.newEnvVars.length > 0 ? cs.newEnvVars.join(", ") : "nenhuma";
+
+    sections.push(
+      [
+        "## Risk Briefing & Confidence Score",
+        `- **Nível de Risco:** \`${rb.riskLevel.toUpperCase()}\``,
+        `- **Confidence Score:** **${rb.confidenceScore}/100**`,
+        "",
+        "### Superfície Alterada (Changed Surface Checklist)",
+        `- [${cs.dbMigrations ? "x" : " "}] Migrações de Banco de Dados (\`dbMigrations\`)`,
+        `- [${cs.authOrRbac ? "x" : " "}] Autenticação / RBAC (\`authOrRbac\`)`,
+        `- [${cs.cryptoOrSecrets ? "x" : " "}] Criptografia / Segredos (\`cryptoOrSecrets\`)`,
+        `- [${cs.newDependencies.length > 0 ? "x" : " "}] Novas Dependências: ${depsText}`,
+        `- [${cs.newEnvVars.length > 0 ? "x" : " "}] Novas Variáveis de Ambiente: ${envText}`,
+        "",
+        "### Plano de Rollback",
+        redactSensitiveText(rb.rollbackPlan, knownSecrets),
+        "",
+        "### FinOps Summary",
+        `- Tokens totais: ${rb.finopsSummary.tokensTotal} | Custo estimado: $${rb.finopsSummary.estimatedCostUsd.toFixed(4)}`,
+      ].join("\n")
+    );
+  }
+
+  if (params.specMatrix && params.specMatrix.length > 0) {
+    const rows = params.specMatrix.slice(0, 25).map((row) => {
+      const testRef = row.testFile
+        ? `${row.testFile}${row.testLine ? `:${row.testLine}` : ""}`
+        : "—";
+      const srcRef = row.sourceFile
+        ? `${row.sourceFile}${row.sourceLine ? `:${row.sourceLine}` : ""}`
+        : "—";
+      return `| ${row.criterionId} | ${row.status} | \`${testRef}\` | \`${srcRef}\` |`;
+    });
+    sections.push(
+      [
+        "## Matriz de Rastreabilidade (Spec ↔ Teste ↔ Diff)",
+        "| Critério | Status | Teste | Código |",
+        "| :--- | :--- | :--- | :--- |",
+        ...rows,
+      ].join("\n")
+    );
+  }
+
+  return sections.join("\n\n").slice(0, 60_000);
+}
+
 /**
  * Abre um Draft Pull Request via API REST do GitHub sem depender do binário local `gh`.
  */
@@ -137,6 +223,8 @@ export async function createGitHubDraftPrViaApi(params: {
   title: string;
   body: string;
   pat: string;
+  riskBriefing?: DecisionRiskBriefing | null;
+  specMatrix?: readonly SpecComplianceRow[];
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }): Promise<CreateGitHubDraftPrResult> {
@@ -155,6 +243,16 @@ export async function createGitHubDraftPrViaApi(params: {
       error: "Owner ou repositório GitHub inválido.",
     };
   }
+
+  const effectiveBody =
+    params.riskBriefing || (params.specMatrix && params.specMatrix.length > 0)
+      ? renderDraftPrBodyWithRiskBriefing({
+          summary: params.body,
+          riskBriefing: params.riskBriefing,
+          specMatrix: params.specMatrix,
+          knownSecrets: [pat],
+        })
+      : redactSensitiveText(params.body, [pat]);
 
   const fetchFn = params.fetchImpl ?? fetch;
   const endpoint = `https://api.github.com/repos/${encodeURIComponent(
@@ -188,7 +286,7 @@ export async function createGitHubDraftPrViaApi(params: {
       },
       body: JSON.stringify({
         title: params.title,
-        body: params.body,
+        body: effectiveBody,
         head: params.head,
         base: params.base,
         draft: true,

@@ -243,12 +243,12 @@ export function SecurityAuditConsole() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:flex-nowrap sm:self-center">
           {activeProjectId && (
             <Link
               href={`/app/projects/${encodeURIComponent(activeProjectId)}/code`}
               data-testid="security-code-map-link"
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+              className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
             >
               <Code2 className="size-3.5" strokeWidth={1.75} />
               <span>Mapa do Código (AST)</span>
@@ -257,7 +257,7 @@ export function SecurityAuditConsole() {
           <button
             type="button"
             onClick={() => scansQuery.refetch()}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+            className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
           >
             <RefreshCw className="size-3.5" strokeWidth={1.75} />
             <span>Atualizar</span>
@@ -269,7 +269,7 @@ export function SecurityAuditConsole() {
         onSubmit={handleRunSubmit}
         className="uzina-card grid gap-3 rounded-xl border border-border-subtle bg-surface p-5 sm:grid-cols-12"
       >
-        <div className="sm:col-span-4">
+        <div className="sm:col-span-3">
           <label
             htmlFor="sec-project"
             className="block text-xs font-medium text-fg-secondary"
@@ -280,7 +280,7 @@ export function SecurityAuditConsole() {
             id="sec-project"
             value={activeProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
+            className="mt-1 h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm leading-normal text-fg-primary focus:border-accent focus:outline-none"
           >
             {projects.length === 0 ? (
               <option value="">Nenhum projeto disponível</option>
@@ -307,7 +307,7 @@ export function SecurityAuditConsole() {
             onChange={(e) =>
               setTargetType(e.target.value as "git_repo" | "git_diff")
             }
-            className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm text-fg-primary focus:border-accent focus:outline-none"
+            className="mt-1 h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 text-sm leading-normal text-fg-primary focus:border-accent focus:outline-none"
           >
             <option value="git_repo">Repositório completo (git_repo)</option>
             <option value="git_diff">Alterações incrementais (git_diff)</option>
@@ -327,15 +327,15 @@ export function SecurityAuditConsole() {
             value={relativeSubpath}
             onChange={(e) => setRelativeSubpath(e.target.value)}
             placeholder="ex.: packages/core/src"
-            className="mt-1 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 font-mono text-sm text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
+            className="mt-1 h-9 w-full rounded-md border border-border-default bg-inset px-2.5 py-1.5 font-mono text-sm text-fg-primary placeholder:text-fg-muted focus:border-accent focus:outline-none"
           />
         </div>
 
-        <div className="flex items-end sm:col-span-2">
+        <div className="flex items-end sm:col-span-3">
           <button
             type="submit"
             disabled={runScanMutation.isPending || !activeProjectId}
-            className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
+            className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent px-3.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             {runScanMutation.isPending ? (
               <Loader2 className="size-4 animate-spin" />
@@ -376,15 +376,43 @@ export function SecurityAuditConsole() {
           <div className="h-64 animate-pulse rounded-lg border border-border-subtle bg-surface lg:col-span-8" />
         </div>
       ) : scans.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-default bg-surface px-6 py-14 text-center">
-          <ShieldCheck className="size-8 text-fg-muted" strokeWidth={1.5} />
-          <h2 className="mt-3 text-sm font-medium text-fg-primary">
-            Nenhuma auditoria de segurança executada ainda
-          </h2>
-          <p className="mt-1 max-w-md text-xs text-fg-secondary">
-            Dispare um scan sob demanda acima ou publique resultados via CLI
-            stateless <code className="font-mono">uzina-sec scan</code>.
-          </p>
+        <div className="space-y-4">
+          <div
+            data-testid="security-empty-severity-filters"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2.5"
+          >
+            <span className="text-xs font-medium text-fg-secondary">
+              Filtro de Severidade (SARIF):
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {(["all", "critical", "high", "medium", "low", "info"] as const).map(
+                (sev) => (
+                  <button
+                    key={sev}
+                    type="button"
+                    onClick={() => setSeverityFilter(sev)}
+                    className={`rounded border px-2.5 py-0.5 font-mono text-xs uppercase ${
+                      severityFilter === sev
+                        ? "border-border-strong bg-elevated text-fg-primary"
+                        : "border-border-subtle bg-inset text-fg-secondary"
+                    }`}
+                  >
+                    {sev === "all" ? "Todos" : sev}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border-default bg-surface px-6 py-14 text-center">
+            <ShieldCheck className="size-8 text-fg-muted" strokeWidth={1.5} />
+            <h2 className="mt-3 text-sm font-medium text-fg-primary">
+              Nenhuma auditoria de segurança executada ainda
+            </h2>
+            <p className="mt-1 max-w-md text-xs text-fg-secondary">
+              Dispare um scan sob demanda acima ou publique resultados via CLI
+              stateless <code className="font-mono">uzina-sec scan</code>.
+            </p>
+          </div>
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-12">
