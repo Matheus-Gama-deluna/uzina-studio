@@ -45,6 +45,9 @@ export const HealthDetailsSchema = z.object({
     mastraStore: ServiceCheckSchema.optional(),
     llmGateway: ServiceCheckSchema.optional(),
     docker: DockerHealthCheckSchema.optional(),
+    httpsReady: z.boolean().optional(),
+    pwaEnabled: z.boolean().optional(),
+    vapidConfigured: z.boolean().optional(),
   }),
 });
 export type HealthDetails = z.infer<typeof HealthDetailsSchema>;

@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { MobileSettingsPanel } from "@/components/mobile-settings-panel";
 
-export default function AppSettingsRedirectPage() {
-  redirect("/app/providers");
+export default function AppSettingsPage() {
+  return <MobileSettingsPanel />;
 }

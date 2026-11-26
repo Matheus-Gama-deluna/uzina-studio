@@ -2,6 +2,7 @@ import { IngestSecurityScanSchema } from "@uzina/contracts";
 import { getDb } from "@uzina/db";
 import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-utils";
+import { notifyFromSecurityScan } from "@/lib/notifications-service";
 import {
   assertScopedProjectOrDeliverable,
   persistIngestedSecurityScan,
@@ -102,6 +103,13 @@ export async function POST(request: Request): Promise<Response> {
       deliverableId: parsed.data.deliverableId ?? null,
       input: parsed.data,
     });
+    void notifyFromSecurityScan(db, {
+      organizationId: guard.actor.organizationId,
+      projectId: scoped.resolvedProjectId,
+      deliverableId: parsed.data.deliverableId ?? null,
+      criticalCount: saved.summaryCountsJson.critical,
+      highCount: saved.summaryCountsJson.high,
+    }).catch(() => undefined);
     return NextResponse.json(saved, { status: 201 });
   } catch (error) {
     console.error("[POST /api/security/scans/ingest] falha:", error);

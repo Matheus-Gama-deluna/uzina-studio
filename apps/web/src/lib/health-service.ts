@@ -12,6 +12,7 @@ import {
 } from "@uzina/mastra-runtime";
 import { NextResponse } from "next/server";
 import { getAuth, getAuthStatus } from "./auth";
+import { resolveVapidKeys } from "./vapid";
 
 export type DbHealthProbe = (timeoutMs?: number) => Promise<DatabaseHealthCheck>;
 export type DockerHealthProbe = () => Promise<DockerProbeResult>;
@@ -64,6 +65,17 @@ export async function getDetailedHealth(
   const status: HealthDetails["status"] =
     dbCheck.status === "down" ? "error" : "ok";
 
+  let vapidConfigured = false;
+  try {
+    const vapid = resolveVapidKeys();
+    vapidConfigured = Boolean(vapid.publicKey && vapid.privateKey);
+  } catch {
+    vapidConfigured = false;
+  }
+  const httpsReady = (process.env.BETTER_AUTH_URL?.trim() ?? "").startsWith(
+    "https://"
+  );
+
   return HealthDetailsSchema.parse({
     status,
     service: "uzina-studio",
@@ -73,6 +85,9 @@ export async function getDetailedHealth(
       database: dbCheck,
       auth: { status: getAuthStatus() },
       docker: dockerCheck,
+      httpsReady,
+      pwaEnabled: true,
+      vapidConfigured,
     },
   });
 }

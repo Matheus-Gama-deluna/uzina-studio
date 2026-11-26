@@ -25,12 +25,14 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  MoreHorizontal,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
   ShieldAlert,
+  Smartphone,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -43,6 +45,9 @@ import {
 import { CommandPalette } from "./command-palette";
 import { CopilotDrawer } from "./copilot-drawer";
 import { FontScaleToggle } from "./font-scale-toggle";
+import { MobileBottomSheet } from "./mobile-bottom-sheet";
+import { NotificationsCenter } from "./notifications-center";
+import { PwaInstallBanner } from "./pwa-install-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 interface CockpitActor {
@@ -90,6 +95,7 @@ export function CockpitShell({
   const router = useRouter();
   const activeProjectId = useActiveProjectId();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -127,7 +133,8 @@ export function CockpitShell({
     pathname.startsWith("/app/ideas") ||
     pathname.startsWith("/app/memories") ||
     pathname.startsWith("/app/finops") ||
-    pathname.startsWith("/app/providers");
+    pathname.startsWith("/app/providers") ||
+    pathname.startsWith("/app/settings");
 
   const factoryGroupKey = isFactoryRoute ? "factory" : "journey";
   const factoryExpanded = factoryOpenOverride[factoryGroupKey] ?? isFactoryRoute;
@@ -568,6 +575,18 @@ export function CockpitShell({
                       <span className="truncate">Provedores &amp; LLM</span>
                     </span>
                   </Link>
+
+                  <Link
+                    href="/app/settings"
+                    data-testid="nav-settings"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={navItemCls(pathname.startsWith("/app/settings"))}
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <Smartphone className="size-4 shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">Celular &amp; Alertas</span>
+                    </span>
+                  </Link>
                 </div>
               )}
             </div>
@@ -616,10 +635,12 @@ export function CockpitShell({
                   ? "Memórias (QMD)"
                   : pathname.startsWith("/app/providers")
                     ? "Provedores & LLM"
-                    : "Chat da Engenharia";
+                    : pathname.startsWith("/app/settings")
+                      ? "Celular & Alertas"
+                      : "Chat da Engenharia";
 
   return (
-    <div className="flex min-h-screen bg-canvas text-fg-primary">
+    <div className="flex min-h-[100dvh] bg-canvas text-fg-primary">
       {/* Sidebar Desktop recolhível (248px <-> 0px), fixa na altura da viewport */}
       {!sidebarCollapsed && (
         <aside className="hidden w-62 shrink-0 border-r border-border-subtle lg:sticky lg:top-0 lg:block lg:h-screen">
@@ -698,6 +719,7 @@ export function CockpitShell({
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <FontScaleToggle />
+            <NotificationsCenter />
             <button
               type="button"
               onClick={() => setCopilotOpen(true)}
@@ -725,8 +747,146 @@ export function CockpitShell({
           </div>
         </header>
 
-        <main className="flex-1 p-3 sm:px-6 sm:py-5">{children}</main>
+        <main className="flex-1 p-3 pb-24 sm:px-6 sm:py-5 md:pb-5">
+          <PwaInstallBanner />
+          {children}
+        </main>
       </div>
+
+      {/* Bottom Tab Bar Mobile (Thumb-zone < 768px) */}
+      <nav
+        data-testid="mobile-bottom-nav"
+        aria-label="Navegação rápida mobile"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border-default bg-sidebar/95 backdrop-blur-md md:hidden pb-[max(0.45rem,env(safe-area-inset-bottom,0px))]"
+      >
+        <div className="grid grid-cols-5 items-stretch px-1 pt-1">
+          <Link
+            href="/app"
+            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium ${
+              pathname === "/app" ? "text-accent" : "text-fg-secondary"
+            }`}
+          >
+            <MessageSquare className="size-4" strokeWidth={1.75} />
+            <span>Agência</span>
+          </Link>
+
+          <Link
+            href="/app/decisions"
+            className={`relative flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium ${
+              pathname.startsWith("/app/decisions")
+                ? "text-accent"
+                : "text-fg-secondary"
+            }`}
+          >
+            <ClipboardCheck className="size-4" strokeWidth={1.75} />
+            <span>Decisões</span>
+            {pendingDecisionsCount > 0 && (
+              <span
+                data-testid="mobile-bottom-decisions-badge"
+                className="absolute right-2.5 top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 font-mono text-[10px] font-bold leading-4 text-accent-fg tabular-nums"
+              >
+                {pendingDecisionsCount}
+              </span>
+            )}
+          </Link>
+
+          <Link
+            href="/app/deliverables"
+            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium ${
+              pathname.startsWith("/app/deliverables")
+                ? "text-accent"
+                : "text-fg-secondary"
+            }`}
+          >
+            <Layers className="size-4" strokeWidth={1.75} />
+            <span>Entregas</span>
+          </Link>
+
+          <Link
+            href="/app/studio"
+            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium ${
+              pathname.startsWith("/app/studio") || pathname.includes("/studio")
+                ? "text-accent"
+                : "text-fg-secondary"
+            }`}
+          >
+            <Palette className="size-4" strokeWidth={1.75} />
+            <span>Estúdio</span>
+          </Link>
+
+          <button
+            type="button"
+            data-testid="mobile-bottom-more-btn"
+            onClick={() => setMoreSheetOpen(true)}
+            className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium text-fg-secondary hover:text-fg-primary"
+          >
+            <MoreHorizontal className="size-4" strokeWidth={1.75} />
+            <span>Mais</span>
+          </button>
+        </div>
+      </nav>
+
+      <MobileBottomSheet
+        open={moreSheetOpen}
+        onOpenChange={setMoreSheetOpen}
+        title="Navegação & Sistema"
+        description={
+          currentProject
+            ? `Projeto ativo: ${currentProject.name}`
+            : "Selecione um projeto ou acesse recursos da fábrica"
+        }
+        testId="mobile-more-sheet"
+      >
+        <div className="space-y-4">
+          {renderProjectSwitcher(true)}
+
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { href: "/app/ideas", label: "Ideias & Voz", icon: Lightbulb },
+              { href: "/app/security", label: "AppSec & Código", icon: ShieldAlert },
+              { href: "/app/memories", label: "Memórias QMD", icon: Brain },
+              { href: "/app/finops", label: "FinOps & Motores", icon: Coins },
+              { href: "/app/providers", label: "Provedores & LLM", icon: KeyRound },
+              { href: "/app/settings", label: "Celular & Alertas", icon: Smartphone },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMoreSheetOpen(false)}
+                  className="flex min-h-11 items-center gap-2 rounded-lg border border-border-subtle bg-surface px-3 py-2 text-xs font-medium text-fg-primary hover:border-border-default"
+                >
+                  <Icon className="size-4 shrink-0 text-accent" strokeWidth={1.75} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 border-t border-border-subtle pt-3">
+            <button
+              type="button"
+              onClick={() => {
+                setMoreSheetOpen(false);
+                setCopilotOpen(true);
+              }}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary"
+            >
+              <Bot className="size-4 text-accent" strokeWidth={1.75} />
+              <span>Abrir Co-piloto</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border-subtle bg-inset px-4 text-xs text-fg-secondary"
+            >
+              <LogOut className="size-4" strokeWidth={1.75} />
+              <span>Sair</span>
+            </button>
+          </div>
+        </div>
+      </MobileBottomSheet>
 
       <CommandPalette
         open={paletteOpen}

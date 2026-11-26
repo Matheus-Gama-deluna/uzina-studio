@@ -35,7 +35,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-uzina}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-uzina_prod}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Defina BETTER_AUTH_SECRET no ambiente ou .env}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Defina MASTER_ENCRYPTION_KEY no ambiente ou .env}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@uzina.local}
       UZINA_STRICT_SECRETS: "1"
     volumes:
       - uzina_app_data:/data

@@ -1,0 +1,36 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: uzina-caddy
+    restart: unless-stopped
+    depends_on:
+      uzina:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      UZINA_DOMAIN: ${UZINA_DOMAIN:?Defina UZINA_DOMAIN no .env (ex.: studio.seudominio.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - uzina_caddy_data:/data
+      - uzina_caddy_config:/config
+
+  # Opcional: TTS self-hosted gratuito na VPS (Kokoro-82M compatível com OpenAI /v1/audio/speech)
+  # Ative com: docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile voice-local up -d
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: uzina-kokoro-tts
+    profiles: ["voice-local"]
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8880:8880"
+
+volumes:
+  uzina_caddy_data:
+  uzina_caddy_config:

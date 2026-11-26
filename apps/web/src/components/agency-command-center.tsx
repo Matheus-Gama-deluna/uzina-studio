@@ -45,8 +45,15 @@ import {
   type KeyboardEvent,
 } from "react";
 import { setActiveContext } from "@/lib/active-project-store";
+import {
+  useOfflineDraftQueue,
+  useVisibilityReconnect,
+  useVisualViewportKeyboard,
+} from "@/lib/mobile-resilience";
 import { IdeasHub } from "./ideas-hub";
 import { MarkdownProse } from "./markdown-prose";
+import { MessageAudioPlayer } from "./message-audio-player";
+import { VoiceComposerControls } from "./voice-composer-controls";
 
 const emptySubscribe = () => () => {};
 
@@ -54,6 +61,7 @@ interface ChatTurnItem {
   id: string;
   role: "user" | "assistant";
   content: string;
+  spokenSummary?: string;
   agentName?: string;
   agentRole?: AgencyAgentRole;
   tierLabel?: string;
@@ -113,6 +121,12 @@ export function AgencyCommandCenter({
     AgencyAgentRole | "auto"
   >("auto");
   const [chatInput, setChatInput] = useState("");
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [autoPlayTurnId, setAutoPlayTurnId] = useState<string | null>(null);
+  const { keyboardHeight } = useVisualViewportKeyboard();
+  const { drafts, isOnline, enqueueDraft, removeDraft } = useOfflineDraftQueue(
+    `agency-chat:${activeProjectId || "global"}`
+  );
 
   const storageKey = useMemo(
     () => `uzina:agency-chat-turns:${activeProjectId || "global"}`,
@@ -281,6 +295,13 @@ export function AgencyCommandCenter({
     },
   });
 
+  useVisibilityReconnect(() => {
+    if (!bootReady) return;
+    void agencyQuery.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["deliverables"] });
+    void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  }, bootReady);
+
   const chatMutation = useMutation({
     mutationFn: async (payload: {
       message: string;
@@ -340,6 +361,7 @@ export function AgencyCommandCenter({
           ...(payload.targetAgentRole
             ? { targetAgentRole: payload.targetAgentRole }
             : {}),
+          ...(voiceMode ? { voiceMode: true } : {}),
         }),
       });
 
@@ -467,6 +489,7 @@ export function AgencyCommandCenter({
         id: assistantTurnId,
         role: "assistant",
         content: data.reply,
+        spokenSummary: data.spokenSummary,
         agentName: data.activeAgent.name,
         agentRole: data.activeAgent.role,
         tierLabel: data.activeAgent.tierLabel,
@@ -498,6 +521,9 @@ export function AgencyCommandCenter({
       }
 
       setChatInput("");
+      if (voiceMode) {
+        setAutoPlayTurnId(assistantTurnId);
+      }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -507,6 +533,9 @@ export function AgencyCommandCenter({
     },
     onError: (err: Error, variables) => {
       setChatInput((prev) => prev || variables.message);
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        void enqueueDraft({ kind: "text", text: variables.message });
+      }
       setControllerNotice(
         err.message || "Falha ao enviar mensagem para a equipe."
       );
@@ -686,6 +715,7 @@ export function AgencyCommandCenter({
   }
 
   function handleTextareaKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitCurrentChat();
@@ -1041,6 +1071,18 @@ export function AgencyCommandCenter({
 
                 <MarkdownProse content={turn.content} />
 
+                {turn.role === "assistant" && turn.content && (
+                  <div className="pt-1">
+                    <MessageAudioPlayer
+                      text={turn.spokenSummary ?? turn.content}
+                      title={turn.agentName ?? "Agência Uzina"}
+                      autoPlaySignal={
+                        voiceMode && autoPlayTurnId === turn.id ? turn.id : null
+                      }
+                    />
+                  </div>
+                )}
+
                 {/* Cartões Inline estilo Claude Artifacts (ligando o Chat diretamente ao Estúdio e às Entregas) */}
                 {(hasPrototypeAction || hasSlicesAction) && projectState && (
                   <div className="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
@@ -1270,7 +1312,49 @@ export function AgencyCommandCenter({
           )}
 
           {/* Caixa de Texto Confortável + Sugestões Discretas */}
-          <div className="space-y-2">
+          <div
+            style={
+              keyboardHeight > 0
+                ? { paddingBottom: `${keyboardHeight}px` }
+                : undefined
+            }
+            className="space-y-2"
+          >
+            {(!isOnline || drafts.length > 0) && (
+              <div
+                data-testid="offline-drafts-banner"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-status-warn/40 bg-status-warn/10 px-3 py-2 text-xs text-fg-primary"
+              >
+                <span>
+                  {!isOnline
+                    ? "Sem conexão — novos envios serão salvos na fila local."
+                    : `${drafts.length} rascunho(s) aguardando envio na fila offline.`}
+                </span>
+                {isOnline && drafts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const first = drafts[0];
+                      if (!first) return;
+                      void removeDraft(first.id);
+                      if (first.kind === "text" && first.text.trim()) {
+                        chatMutation.mutate({
+                          message: first.text.trim(),
+                          intent: "general_chat",
+                          ...(activeProjectId ? { projectId: activeProjectId } : {}),
+                          ...(selectedAgentRole !== "auto"
+                            ? { targetAgentRole: selectedAgentRole }
+                            : {}),
+                        });
+                      }
+                    }}
+                    className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg hover:bg-accent-hover"
+                  >
+                    Reenviar pendente
+                  </button>
+                )}
+              </div>
+            )}
             <label htmlFor="agency-chat-input" className="sr-only">
               Mensagem para o Agente Responsável
             </label>
@@ -1332,8 +1416,37 @@ export function AgencyCommandCenter({
                 </div>
               </div>
 
-              {/* Direita: Controles de Intervenção + Único CTA Primário da Tela */}
+              {/* Direita: Voz + Controles de Intervenção + Único CTA Primário da Tela */}
               <div className="flex flex-wrap items-center gap-2">
+                <VoiceComposerControls
+                  disabled={chatMutation.isPending}
+                  voiceMode={voiceMode}
+                  onVoiceModeChange={setVoiceMode}
+                  onOfflineAudioQueued={(blob, mimeType) => {
+                    void enqueueDraft({
+                      kind: "audio",
+                      text: "Nota de voz offline",
+                      audioBlob: blob,
+                      audioMimeType: mimeType,
+                    });
+                  }}
+                  onTranscribed={(text, opts) => {
+                    if (opts.autoSend) {
+                      chatMutation.mutate({
+                        message: text,
+                        intent: "general_chat",
+                        ...(activeProjectId ? { projectId: activeProjectId } : {}),
+                        ...(selectedAgentRole !== "auto"
+                          ? { targetAgentRole: selectedAgentRole }
+                          : {}),
+                      });
+                    } else {
+                      setChatInput((prev) =>
+                        prev.trim() ? `${prev.trim()} ${text}` : text
+                      );
+                    }
+                  }}
+                />
                 {effectiveSessionId && (
                   <>
                     <button

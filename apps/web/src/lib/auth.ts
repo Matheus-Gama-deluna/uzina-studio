@@ -54,7 +54,9 @@ export function resolveAuthSecret(
 
   const dbConfig = resolveDatabaseConfig(env);
   const strictSecrets =
-    dbConfig.mode === "postgres" || env.UZINA_STRICT_SECRETS === "true";
+    dbConfig.mode === "postgres" ||
+    env.UZINA_STRICT_SECRETS === "true" ||
+    env.UZINA_STRICT_SECRETS === "1";
 
   if (strictSecrets && !isBuildPhase()) {
     throw new Error(
@@ -92,10 +94,49 @@ export function resolveAuthSecret(
   return holder[AUTH_SECRET_KEY];
 }
 
+export function resolveTrustedOrigins(
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const origins = new Set<string>();
+  const baseUrl = env.BETTER_AUTH_URL?.trim();
+  if (baseUrl) {
+    try {
+      origins.add(new URL(baseUrl).origin);
+    } catch {
+      // ignora URL malformada
+    }
+  }
+  const extra = env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? [];
+  for (const item of extra) {
+    const trimmed = item.trim();
+    if (!trimmed || trimmed === "*") continue;
+    try {
+      origins.add(new URL(trimmed).origin);
+    } catch {
+      // ignora origem inválida
+    }
+  }
+  if (origins.size === 0) {
+    origins.add("http://localhost:3000");
+  }
+  return Array.from(origins);
+}
+
+export function shouldUseSecureAuthCookies(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  const baseUrl = env.BETTER_AUTH_URL?.trim().toLowerCase() ?? "";
+  return baseUrl.startsWith("https://");
+}
+
 function createAuthInstance(
   db: Awaited<ReturnType<typeof getDb>>["db"],
   secret: string
 ) {
+  const baseURL = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  const trustedOrigins = resolveTrustedOrigins(process.env);
+  const useSecureCookies = shouldUseSecureAuthCookies(process.env);
+
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -109,10 +150,15 @@ function createAuthInstance(
       database: {
         generateId: "uuid",
       },
+      useSecureCookies,
     },
     secret,
-    baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    baseURL,
+    trustedOrigins,
     basePath: "/api/auth",
+    ...(process.env.UZINA_E2E_DISABLE_RATE_LIMIT === "1"
+      ? { rateLimit: { enabled: false } }
+      : {}),
     plugins: [bearer(), nextCookies()],
   });
 }

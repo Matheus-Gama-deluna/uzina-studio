@@ -23,7 +23,9 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { DecisionRiskBriefingCard } from "./decision-risk-briefing-card";
+import { MessageAudioPlayer } from "./message-audio-player";
 import { ToolTraceTimeline } from "./tool-trace-timeline";
+import { VoiceComposerControls } from "./voice-composer-controls";
 
 type StatusFilter = "all" | DecisionStatus;
 type DiffCategoryFilter = "all" | SemanticDiffCategory;
@@ -103,6 +105,8 @@ export function DecisionsWorkbench() {
     useState<DiffCategoryFilter>("all");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [confirmApproveOpen, setConfirmApproveOpen] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
   const feedbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const decisionsQuery = useQuery({
@@ -219,6 +223,12 @@ export function DecisionsWorkbench() {
       }
       parsedBudgetCap = num;
     }
+
+    if (status === "approved" && selectedDecision.decisionType === "pr_evidence_approve" && !confirmApproveOpen) {
+      setConfirmApproveOpen(true);
+      return;
+    }
+    setConfirmApproveOpen(false);
 
     resolveMutation.mutate({
       decisionId: selectedDecision.id,
@@ -346,6 +356,7 @@ export function DecisionsWorkbench() {
                   type="button"
                   onClick={() => {
                     setSelectedId(item.id);
+                    setConfirmApproveOpen(false);
                     setActionError(null);
                     setActionSuccess(null);
                   }}
@@ -406,6 +417,25 @@ export function DecisionsWorkbench() {
                 >
                   {STATUS_BADGE[selectedDecision.status].label}
                 </span>
+              </div>
+
+              {/* Quick-Decision Audio Briefing (Mobile & Hands-Free) */}
+              <div
+                data-testid="quick-decision-audio-bar"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle bg-inset px-3 py-2.5"
+              >
+                <span className="text-xs font-medium text-fg-secondary">
+                  Briefing rápido para decisão em movimento
+                </span>
+                <MessageAudioPlayer
+                  label="Ouvir Risk Briefing"
+                  title={selectedDecision.summary}
+                  text={
+                    evidencePack
+                      ? `Decisão ${GATE_LABELS[selectedDecision.decisionType] ?? selectedDecision.decisionType}: ${selectedDecision.summary}. Verificação ${evidencePack.verifyPassed ? "aprovada" : "reprovada"} com ${evidencePack.securitySummary.critical} achados críticos e veredito ${evidencePack.verifierVerdict}. ${evidencePack.verifierNotes}`
+                      : `Decisão ${GATE_LABELS[selectedDecision.decisionType] ?? selectedDecision.decisionType}: ${selectedDecision.summary}.`
+                  }
+                />
               </div>
 
               {evidencePack ? (
@@ -662,12 +692,25 @@ export function DecisionsWorkbench() {
 
               {selectedDecision.status === "pending" && (
                 <div className="space-y-3 border-t border-border-subtle pt-4">
-                  <label
-                    htmlFor="decision-feedback"
-                    className="block text-xs font-medium text-fg-secondary"
-                  >
-                    Orientação / Racional (obrigatório ao solicitar ajustes)
-                  </label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label
+                      htmlFor="decision-feedback"
+                      className="block text-xs font-medium text-fg-secondary"
+                    >
+                      Orientação / Racional (obrigatório ao solicitar ajustes)
+                    </label>
+                    <VoiceComposerControls
+                      compact
+                      disabled={resolveMutation.isPending}
+                      voiceMode={voiceMode}
+                      onVoiceModeChange={setVoiceMode}
+                      onTranscribed={(text) => {
+                        setFeedbackText((prev) =>
+                          prev.trim() ? `${prev.trim()} ${text}` : text
+                        );
+                      }}
+                    />
+                  </div>
                   <textarea
                     ref={feedbackTextareaRef}
                     id="decision-feedback"
@@ -733,12 +776,42 @@ export function DecisionsWorkbench() {
                     </div>
                   )}
 
+                  {confirmApproveOpen && (
+                    <div
+                      role="alertdialog"
+                      aria-label="Confirmar aprovação de PR e Evidências"
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/50 bg-accent-subtle p-3 text-xs text-fg-primary"
+                    >
+                      <span>
+                        Confirmar aprovação final de PR &amp; Evidências? Esta
+                        ação libera a conclusão/merge da entrega.
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmApproveOpen(false)}
+                          className="min-h-9 rounded-md border border-border-default bg-surface px-3 font-medium text-fg-secondary"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="confirm-approve-pr-btn"
+                          onClick={() => handleResolve("approved")}
+                          className="min-h-9 rounded-md bg-accent px-3 font-semibold text-accent-fg hover:bg-accent-hover"
+                        >
+                          Confirmar por toque
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       disabled={resolveMutation.isPending}
                       onClick={() => handleResolve("approved")}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-2 text-xs font-semibold text-base transition-opacity hover:opacity-90 disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50 sm:min-h-9"
                     >
                       {resolveMutation.isPending ? (
                         <Loader2 className="size-3.5 animate-spin" />
@@ -752,7 +825,7 @@ export function DecisionsWorkbench() {
                       type="button"
                       disabled={resolveMutation.isPending}
                       onClick={() => handleResolve("changes_requested")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-status-info/40 bg-status-info/10 px-3.5 py-2 text-xs font-semibold text-status-info hover:bg-status-info/15 disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-status-info/40 bg-status-info/10 px-4 py-2 text-xs font-semibold text-status-info hover:bg-status-info/15 disabled:opacity-50 sm:min-h-9"
                     >
                       <MessageSquareWarning className="size-3.5" />
                       <span>Solicitar Ajustes</span>
@@ -762,7 +835,7 @@ export function DecisionsWorkbench() {
                       type="button"
                       disabled={resolveMutation.isPending}
                       onClick={() => handleResolve("rejected")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-status-error/40 bg-status-error/10 px-3.5 py-2 text-xs font-semibold text-status-error hover:bg-status-error/15 disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-status-error/40 bg-status-error/10 px-4 py-2 text-xs font-semibold text-status-error hover:bg-status-error/15 disabled:opacity-50 sm:min-h-9"
                     >
                       <XCircle className="size-3.5" />
                       <span>Rejeitar Entrega</span>

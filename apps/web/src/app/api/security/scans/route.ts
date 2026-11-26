@@ -7,6 +7,7 @@ import { getDb } from "@uzina/db";
 import { runSecurityScan } from "@uzina/security-engine";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
+import { notifyFromSecurityScan } from "@/lib/notifications-service";
 import {
   buildProjectSuppressionLookup,
   listScopedSecurityScans,
@@ -123,6 +124,14 @@ export async function POST(request: Request): Promise<Response> {
       deliverableId: target.deliverableId,
       output,
     });
+
+    void notifyFromSecurityScan(db, {
+      organizationId: guard.actor.organizationId,
+      projectId: target.projectId,
+      deliverableId: target.deliverableId,
+      criticalCount: saved.summaryCountsJson.critical,
+      highCount: saved.summaryCountsJson.high,
+    }).catch(() => undefined);
 
     return NextResponse.json(saved, { status: 201 });
   } catch (error) {

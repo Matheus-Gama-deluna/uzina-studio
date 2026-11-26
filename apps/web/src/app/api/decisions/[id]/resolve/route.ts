@@ -5,6 +5,7 @@ import {
 import { getDb } from "@uzina/db";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
+import { notifyFromWorkflowState } from "@/lib/notifications-service";
 import { getScopedDecisionGate } from "@/lib/operations-queries";
 import {
   VAULT_WRITE_ROLES,
@@ -73,6 +74,15 @@ export async function POST(
       actorRole: guard.actor.role,
       input: body.data,
     });
+    if (resolved.workflowState) {
+      void notifyFromWorkflowState(db, {
+        organizationId: guard.actor.organizationId,
+        deliverableId: resolved.workflowState.deliverableId,
+        workflowStatus: resolved.workflowState.workflowStatus,
+        deliverableStatus: resolved.workflowState.deliverableStatus,
+        gate: resolved.workflowState.gate,
+      }).catch(() => undefined);
+    }
     return NextResponse.json(ResolveDecisionResponseSchema.parse(resolved), {
       status: 200,
     });

@@ -1,6 +1,8 @@
 import { WorkflowResumeInputSchema } from "@uzina/contracts";
+import { getDb } from "@uzina/db";
 import { NextResponse } from "next/server";
 import { isUuid, jsonError, parseJsonBody } from "@/lib/api-utils";
+import { notifyFromWorkflowState } from "@/lib/notifications-service";
 import {
   VAULT_WRITE_ROLES,
   WORKSPACE_WRITE_ROLES,
@@ -59,6 +61,17 @@ export async function POST(
       actorRole: auth.actor.role,
       input: parsed.data,
     });
+    void getDb()
+      .then(({ db }) =>
+        notifyFromWorkflowState(db, {
+          organizationId: auth.actor.organizationId,
+          deliverableId,
+          workflowStatus: state.workflowStatus,
+          deliverableStatus: state.deliverableStatus,
+          gate: state.gate,
+        })
+      )
+      .catch(() => undefined);
     return NextResponse.json(state, { status: 200 });
   } catch (err) {
     return handleWorkflowRouteError(err);

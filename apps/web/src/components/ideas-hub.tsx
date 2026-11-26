@@ -27,11 +27,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 import {
   setActiveContext,
   useActiveClientId,
 } from "@/lib/active-project-store";
+import { VoiceComposerControls } from "./voice-composer-controls";
+
+const emptySubscribe = () => () => {};
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -78,11 +81,33 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
   const [originMode, setOriginMode] = useState<"greenfield" | "brownfield">(
     "greenfield"
   );
-  const [ideaPrompt, setIdeaPrompt] = useState("");
-  const [ideaName, setIdeaName] = useState("");
+  const urlSearch = useSyncExternalStore(
+    emptySubscribe,
+    () => window.location.search,
+    () => ""
+  );
+  const sharedDefaults = useMemo(() => {
+    const params = new URLSearchParams(urlSearch);
+    const sharedTitle = params.get("sharedTitle")?.trim() ?? "";
+    const sharedText = params.get("sharedText")?.trim() ?? "";
+    const sharedUrl = params.get("sharedUrl")?.trim() ?? "";
+    return {
+      name: sharedTitle.slice(0, 120),
+      prompt: [sharedTitle, sharedText, sharedUrl].filter(Boolean).join("\n"),
+      quickVoice: params.get("quickVoice") === "1",
+    };
+  }, [urlSearch]);
+
+  const [ideaPromptOverride, setIdeaPrompt] = useState<string | null>(null);
+  const [ideaNameOverride, setIdeaName] = useState<string | null>(null);
   const [ideaClientId, setIdeaClientId] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [ideaError, setIdeaError] = useState<string | null>(null);
+  const [voiceModeOverride, setVoiceMode] = useState<boolean | null>(null);
+
+  const ideaPrompt = ideaPromptOverride ?? sharedDefaults.prompt;
+  const ideaName = ideaNameOverride ?? sharedDefaults.name;
+  const voiceMode = voiceModeOverride ?? sharedDefaults.quickVoice;
 
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -540,9 +565,40 @@ export function IdeasHub({ embedded = false }: { embedded?: boolean }) {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3">
-            <span className="text-xs text-fg-muted">
-              A estratégia técnica e o protótipo inicial são criados automaticamente.
-            </span>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <VoiceComposerControls
+                disabled={startIdeaMutation.isPending}
+                voiceMode={voiceMode}
+                onVoiceModeChange={setVoiceMode}
+                onTranscribed={(text, opts) => {
+                  const nextText = ideaPrompt.trim()
+                    ? `${ideaPrompt.trim()} ${text}`
+                    : text;
+                  setIdeaPrompt(nextText);
+                  if (opts.autoSend && nextText.trim().length >= 4) {
+                    const effectiveClientId =
+                      ideaClientId ||
+                      (selectedClientId !== "all" ? selectedClientId : "");
+                    startIdeaMutation.mutate({
+                      message: nextText.trim(),
+                      intent:
+                        originMode === "brownfield"
+                          ? "import_git_or_repo"
+                          : "start_greenfield",
+                      projectName: ideaName.trim() || undefined,
+                      gitUrl:
+                        originMode === "brownfield"
+                          ? gitUrl.trim() || undefined
+                          : undefined,
+                      clientId: effectiveClientId || undefined,
+                    });
+                  }
+                }}
+              />
+              <span className="text-xs text-fg-muted">
+                Dite sua ideia ou digite para iniciar o Discovery.
+              </span>
+            </div>
 
             {/* Único CTA primário destacado da página */}
             <button

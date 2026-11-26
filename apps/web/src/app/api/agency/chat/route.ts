@@ -2,6 +2,7 @@ import { AgencyChatRequestSchema } from "@uzina/contracts";
 import { redactSensitiveText } from "@uzina/core";
 import { getDb } from "@uzina/db";
 import { handleAgencyChatScoped } from "@uzina/mastra-runtime/agency";
+import { buildSpokenSummary } from "@uzina/mastra-runtime";
 import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api-utils";
 import { READ_ROLES, requireOrgRole } from "@/lib/rbac";
@@ -48,7 +49,8 @@ export async function POST(request: Request) {
       workflowService,
       request: parsed.data,
     });
-    return NextResponse.json(res, { status: 200 });
+    const spokenSummary = buildSpokenSummary(res.reply);
+    return NextResponse.json({ ...res, spokenSummary }, { status: 200 });
   } catch (err) {
     if (
       err &&

@@ -192,3 +192,26 @@
   - [x] Correções P1/P2 em `cockpit-shell.tsx`, `agency-command-center.tsx`, `agency.ts`, `visual-studio-workspace.tsx`, `deliverables-docs-hub.tsx`, `decisions-workbench.tsx`, `finops-dashboard.tsx`, `engine-config-panel.tsx`, `skills-catalog-panel.tsx`, `security-audit-console.tsx`, `providers-manager.tsx`, `memories-manager.tsx`
   - [x] `/*turbopackIgnore: true*/` em `visual-a11y-verify.ts` (**0 warnings Turbopack**) + `apps/web/tests/slice35-qa-polish.test.ts` (`10/10`) + `apps/web/e2e/slices-31-35-qa-polish.spec.ts` (`2/2`)
   - [x] Verify Gate Final: `pnpm verify` (**34/34 OK**), `audit-tests` (**96 arquivos, 343 testes, 2 suprimidos, 0 violações**), `pnpm test:e2e` (**4/4 passed**)
+
+---
+
+## Mobile-First PWA, Voz Bidirecional (STT/TTS), Web Push & VPS HTTPS (`main` ← `feat/slices-36-38-mobile-pwa-voice-notifications`)
+> Plano Consolidado: `docs/planos/plano-mobile-pwa-voz-notificacoes-vps-slices-36-38.md` · Guia VPS/Mobile: `docs/deploy-vps-mobile.md`
+
+- [x] **Slice 36 — PWA Instalável, Ergonomia Mobile (`Bottom Tab Bar` + `vaul`) & VPS HTTPS**
+  - [x] `manifest.ts`, ícones PNG reais, `public/sw.js` (Turbopack-safe, bypass `/api/*`, `SKIP_WAITING` controlado, Push + App Badging), `/offline` e `POST /api/share`
+  - [x] `Bottom Tab Bar` `<768px`, `MobileBottomSheet` (`vaul`), `useVisualViewportKeyboard`, `useVisibilityReconnect`, `useOfflineDraftQueue` (IndexedDB), `useWakeLock`
+  - [x] `auth.ts` (`BETTER_AUTH_TRUSTED_ORIGINS` + `useSecureCookies` HTTPS), `next.config.ts` headers, `docker-compose.vps.yml` + `deploy/Caddyfile` (`flush_interval -1`)
+  - [x] `apps/web/tests/slice36-pwa-vps-auth.test.ts` (`7/7 passed`)
+
+- [x] **Slice 37 — Voz Bidirecional (STT + TTS + `spokenSummary`) & Captura de Ideias**
+  - [x] `packages/contracts/src/voice.ts`, `voiceMode`/`spokenSummary` em `agency.ts`/`copilot.ts`, `packages/mastra-runtime/src/voice-client.ts` (Cofre AES-256-GCM OpenAI/Groq/Kokoro + Gemini `x-goog-api-key`)
+  - [x] Rotas `/api/voice/transcribe` (<=15MB em memória + Zod) e `/api/voice/speak` (LRU 5min + fallback `browser_speech`)
+  - [x] `voice-browser.ts` (`MediaRecorder` WebM/MP4 iOS, `unlockMobileAudio`, `AnalyserNode` waveform, `MediaSession`), `VoiceComposerControls`, `MessageAudioPlayer`, integração em Agência, Co-piloto, Ideias e Provedores
+  - [x] `apps/web/tests/slice37-voice-stt-tts.test.ts` (`6/6 passed`)
+
+- [x] **Slice 38 — Web Push VAPID, Central In-App, Quiet Hours & Quick-Decision Cards**
+  - [x] `packages/contracts/src/notifications.ts` (allowlist anti-SSRF), `packages/db/src/schema/notifications.ts` + migração `0014_smiling_joystick.sql`
+  - [x] `vapid.ts` (`0600`), `notifications-service.ts` (RBAC, Quiet Hours cruzando meia-noite, purga `404`/`410`), 6 rotas `/api/notifications/*` (anti-IDOR `409`), `NotificationsCenter`, `/app/settings` real e Quick-Decisions em `decisions-workbench.tsx`
+  - [x] `apps/web/tests/slice38-notifications-web-push.test.ts` (`8/8 passed`) + `apps/web/e2e/slices-36-38-mobile-pwa-voice-push.spec.ts` + Verify Gate Final (`pnpm verify` **34/34 OK**, `audit-tests` **99 arquivos, 353 testes, 0 violações**, `pnpm test:e2e` **5/5 passed**, `factory-verifier`: **PASS**)
+  - [x] Atualização de `README.md`, `.env.example`, `.uzina/steering.md`, `ROADMAP_STATUS.md`, `.uzina/slices-checklist.md` e `PROGRESS_LOG.md` + integração em `main`

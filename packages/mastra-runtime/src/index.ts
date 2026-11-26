@@ -25,4 +25,5 @@ export * from "./stages/structured-handoffs.js";
 export * from "./stages/two-stage-verifier.js";
 export * from "./stages/visual-a11y-verify.js";
 export * from "./entropy.js";
+export * from "./voice-client.js";
 export { probeDockerDaemon, type DockerProbeResult } from "@uzina/opencode-bridge";
