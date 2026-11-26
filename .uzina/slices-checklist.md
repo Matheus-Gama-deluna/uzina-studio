@@ -195,7 +195,7 @@
 
 ---
 
-## Mobile-First PWA, Voz Bidirecional (STT/TTS), Web Push & VPS HTTPS (`feat/slices-36-38-mobile-pwa-voice-notifications`)
+## Mobile-First PWA, Voz Bidirecional (STT/TTS), Web Push & VPS HTTPS (`main` ← `feat/slices-36-38-mobile-pwa-voice-notifications`)
 > Plano Consolidado: `docs/planos/plano-mobile-pwa-voz-notificacoes-vps-slices-36-38.md` · Guia VPS/Mobile: `docs/deploy-vps-mobile.md`
 
 - [x] **Slice 36 — PWA Instalável, Ergonomia Mobile (`Bottom Tab Bar` + `vaul`) & VPS HTTPS**
@@ -214,3 +214,4 @@
   - [x] `packages/contracts/src/notifications.ts` (allowlist anti-SSRF), `packages/db/src/schema/notifications.ts` + migração `0014_smiling_joystick.sql`
   - [x] `vapid.ts` (`0600`), `notifications-service.ts` (RBAC, Quiet Hours cruzando meia-noite, purga `404`/`410`), 6 rotas `/api/notifications/*` (anti-IDOR `409`), `NotificationsCenter`, `/app/settings` real e Quick-Decisions em `decisions-workbench.tsx`
   - [x] `apps/web/tests/slice38-notifications-web-push.test.ts` (`8/8 passed`) + `apps/web/e2e/slices-36-38-mobile-pwa-voice-push.spec.ts` + Verify Gate Final (`pnpm verify` **34/34 OK**, `audit-tests` **99 arquivos, 353 testes, 0 violações**, `pnpm test:e2e` **5/5 passed**, `factory-verifier`: **PASS**)
+  - [x] Atualização de `README.md`, `.env.example`, `.uzina/steering.md`, `ROADMAP_STATUS.md`, `.uzina/slices-checklist.md` e `PROGRESS_LOG.md` + integração em `main`

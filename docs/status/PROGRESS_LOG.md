@@ -525,3 +525,5 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `pnpm verify`: **34/34 tasks OK** (9/9 builds, 9/9 typechecks, 9/9 lints com 0 erros/warnings, `audit-tests`: **99 arquivos, 353 testes, 2 suprimidos, 0 violações**, `slice36` `7/7`, `slice37` `6/6`, `slice38` `8/8`, `contract-drift` `1/1`).
   * `pnpm test:e2e`: **5 passed (25.7s)** (`slices-31-35-qa-polish.spec.ts` `2/2` + `slices-36-38-mobile-pwa-voice-push.spec.ts` `1/1` + `smoke.spec.ts` `2/2`).
   * `test-critic` (`flash`), `appsec-auditor` (`flash`, todos achados HIGH/MEDIUM/LOW corrigidos) e `factory-verifier` (`inherit`): **PASS**.
+* **Documentação & Integração em `main`:**
+  * Atualizados `README.md` (estado completo Slices 0–38), `.env.example` (variáveis VPS/HTTPS/VAPID), `.uzina/steering.md`, `docs/status/ROADMAP_STATUS.md`, `.uzina/slices-checklist.md` e `docs/status/PROGRESS_LOG.md`, com merge integrado na branch `main`.
