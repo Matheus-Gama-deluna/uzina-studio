@@ -187,3 +187,8 @@
 - [x] **Slice 34 — QA Visual A11y, Mutation/PBT, `skills-lock.json` & Entropia (`docs/slices/slice-34-visual-a11y-mutation-pbt-and-skills-registry.md`)** (`c0ac693`)
   - [x] `skills-lock.ts` (SHA-256), `mutation-pbt.ts`, `visual-a11y-verify.ts` + hook `stageVerify`, `entropy.ts`, CLI `uzina doctor --entropy`, APIs `/api/skills/catalog` e `/api/projects/[id]/entropy` + `SkillsCatalogPanel` + testes (`slice34-skills-lock-entropy.test.ts`, `slice34-visual-a11y-verify.test.ts`, `slices-31-32-34-ui.test.ts`)
   - [x] Gate Final Onda 4: `pnpm verify` (**34/34 OK**), `check-no-ee` (`0`), `audit-tests` (**95 arquivos, 338 testes, 2 suprimidos, 0 violações**), `audit-agent-trajectories.mjs` (**4/4 passed**), auditoria consolidada e atualização dos dossiês 31/32/34 e `docs/planos/dossie-agentes-por-fase-v2.md`
+
+- [x] **Slice 35 — Polimento Visual/UX Pós-QA Real no Navegador & E2E Playwright Populado** (`feat/slices-27-34-agentic-evolution-v2`)
+  - [x] Correções P1/P2 em `cockpit-shell.tsx`, `agency-command-center.tsx`, `agency.ts`, `visual-studio-workspace.tsx`, `deliverables-docs-hub.tsx`, `decisions-workbench.tsx`, `finops-dashboard.tsx`, `engine-config-panel.tsx`, `skills-catalog-panel.tsx`, `security-audit-console.tsx`, `providers-manager.tsx`, `memories-manager.tsx`
+  - [x] `/*turbopackIgnore: true*/` em `visual-a11y-verify.ts` (**0 warnings Turbopack**) + `apps/web/tests/slice35-qa-polish.test.ts` (`10/10`) + `apps/web/e2e/slices-31-35-qa-polish.spec.ts` (`2/2`)
+  - [x] Verify Gate Final: `pnpm verify` (**34/34 OK**), `audit-tests` (**96 arquivos, 343 testes, 2 suprimidos, 0 violações**), `pnpm test:e2e` (**4/4 passed**)

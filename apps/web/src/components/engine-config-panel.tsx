@@ -507,12 +507,12 @@ export function EngineConfigPanel() {
                       : "border-border-subtle bg-inset"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-semibold text-fg-primary">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <span className="inline-flex min-w-0 items-center gap-1.5 font-semibold text-fg-primary">
                       {isSelected && (
                         <span className="size-1.5 shrink-0 rounded-full bg-status-ok" />
                       )}
-                      <span className="truncate">{opt.label}</span>
+                      <span className="break-words">{opt.label}</span>
                     </span>
                     <span className="shrink-0 rounded border border-border-subtle bg-surface px-1.5 py-0.5 font-mono text-xs text-fg-muted">
                       {opt.category}

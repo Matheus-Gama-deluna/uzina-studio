@@ -41,6 +41,17 @@ const SCOPE_LABELS: Record<MemoryScope, string> = {
   project: "Projeto",
 };
 
+export function stripMarkdownToPlainPreview(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/\n{2,}/g, " · ")
+    .trim();
+}
+
 async function fetchMemories(params: {
   scopeType?: MemoryScope | "all";
   category?: MemoryCategory | "all";
@@ -503,7 +514,8 @@ export function MemoriesManager() {
             </div>
             <p className="mt-0.5 text-xs text-fg-secondary">
               Consulta bilíngue PT-BR / EN sobre memórias e documentos Markdown
-              indexados (`.uzina/`, `docs/`).
+              indexados (<code className="font-mono">.uzina/</code>,{" "}
+              <code className="font-mono">docs/</code>).
             </p>
           </div>
           <button
@@ -537,7 +549,7 @@ export function MemoriesManager() {
             aria-label="Modo de busca QMD"
             value={qmdMode}
             onChange={(e) => setQmdMode(e.target.value as QmdSearchMode)}
-            className="min-h-10 rounded-lg border border-border-default bg-inset px-3 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+            className="h-10 rounded-lg border border-border-default bg-inset px-3 py-1.5 text-xs leading-normal text-fg-primary focus:border-border-strong focus:outline-none"
           >
             <option value="hybrid">Híbrido (RRF)</option>
             <option value="lexical">Léxico (BM25)</option>
@@ -605,7 +617,7 @@ export function MemoriesManager() {
                         : `memory:${hit.scopeType}#L${hit.lineStart}-L${hit.lineEnd}`}
                     </p>
                     <p className="mt-1.5 text-sm leading-relaxed text-fg-secondary">
-                      {hit.snippet}
+                      {stripMarkdownToPlainPreview(hit.snippet)}
                     </p>
                   </div>
                 ))}
@@ -699,7 +711,7 @@ export function MemoriesManager() {
                   {mem.title}
                 </h2>
                 <p className="mt-1 text-sm leading-relaxed text-fg-secondary">
-                  {mem.content}
+                  {stripMarkdownToPlainPreview(mem.content)}
                 </p>
               </div>
 

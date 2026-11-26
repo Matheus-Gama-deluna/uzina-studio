@@ -10,16 +10,19 @@ import {
 import {
   AlertCircle,
   BookOpenCheck,
+  ChevronDown,
+  ChevronRight,
   FileWarning,
   FolderGit2,
   Lock,
   PackageX,
   RefreshCw,
+  Search,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
 export const SkillsCatalogItemSchema = z
@@ -55,6 +58,37 @@ export interface SkillsCatalogPanelProps {
   defaultProjectId?: string;
 }
 
+export function filterSkillsCatalogItems(
+  skills: readonly SkillsCatalogItem[],
+  filters: {
+    searchQuery: string;
+    phaseFilter: string;
+    roleCategoryFilter: string;
+  }
+): SkillsCatalogItem[] {
+  const q = filters.searchQuery.trim().toLowerCase();
+  return skills.filter((skill) => {
+    if (
+      filters.phaseFilter !== "all" &&
+      (skill.phase ?? "geral") !== filters.phaseFilter
+    ) {
+      return false;
+    }
+    if (
+      filters.roleCategoryFilter !== "all" &&
+      skill.roleCategory !== filters.roleCategoryFilter
+    ) {
+      return false;
+    }
+    if (!q) return true;
+    return (
+      skill.name.toLowerCase().includes(q) ||
+      skill.description.toLowerCase().includes(q) ||
+      skill.appliesToRoles.some((r) => r.toLowerCase().includes(q))
+    );
+  });
+}
+
 export function SkillsCatalogPanel({
   initialCatalog,
   initialEntropy,
@@ -62,6 +96,12 @@ export function SkillsCatalogPanel({
 }: SkillsCatalogPanelProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     defaultProjectId ?? ""
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [phaseFilter, setPhaseFilter] = useState<string>("all");
+  const [roleCategoryFilter, setRoleCategoryFilter] = useState<string>("all");
+  const [expandedSkillName, setExpandedSkillName] = useState<string | null>(
+    null
   );
 
   const catalogQuery = useQuery({
@@ -115,6 +155,24 @@ export function SkillsCatalogPanel({
 
   const catalog = catalogQuery.data;
   const entropy = entropyQuery.data;
+
+  const availablePhases = useMemo(() => {
+    const phases = new Set<string>();
+    for (const s of catalog?.skills ?? []) {
+      if (s.phase) phases.add(s.phase);
+    }
+    return Array.from(phases).sort();
+  }, [catalog?.skills]);
+
+  const filteredSkills = useMemo(
+    () =>
+      filterSkillsCatalogItems(catalog?.skills ?? [], {
+        searchQuery,
+        phaseFilter,
+        roleCategoryFilter,
+      }),
+    [catalog?.skills, searchQuery, phaseFilter, roleCategoryFilter]
+  );
 
   return (
     <div
@@ -220,45 +278,149 @@ export function SkillsCatalogPanel({
               </div>
             )}
 
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {catalog.skills.map((skill) => (
-                <div
-                  key={skill.name}
-                  data-testid={`skill-item-${skill.name}`}
-                  className="rounded-lg border border-border-subtle bg-inset p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <BookOpenCheck
-                        className="size-3.5 shrink-0 text-fg-secondary"
-                        strokeWidth={1.75}
-                      />
-                      <span className="truncate font-mono text-xs font-semibold text-fg-primary">
-                        {skill.name}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs tabular-nums">
-                      <span className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-fg-secondary">
-                        {skill.license ?? "Apache-2.0"}
-                      </span>
-                      <span className="rounded border border-border-subtle bg-surface px-1.5 py-0.5 text-fg-muted">
-                        v{skill.version ?? "1.0.0"}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-fg-secondary">
-                    {skill.description}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-fg-muted tabular-nums">
-                    <span>
-                      {skill.phase ?? "geral"} · {skill.roleCategory} ·{" "}
-                      {skill.resourcesCount} recurso(s)
-                    </span>
-                    <span>sha256:{skill.sha256.slice(0, 12)}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="grid gap-2 sm:grid-cols-12">
+              <div className="relative sm:col-span-6">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-muted"
+                  strokeWidth={1.75}
+                />
+                <input
+                  type="search"
+                  data-testid="skills-search-input"
+                  aria-label="Buscar skill por nome ou descrição"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filtrar skills (ex.: stride, msw, debug)..."
+                  className="h-8 w-full rounded-md border border-border-default bg-inset pl-8 pr-2.5 text-xs text-fg-primary placeholder:text-fg-muted focus:border-border-strong focus:outline-none"
+                />
+              </div>
+              <select
+                data-testid="skills-phase-filter"
+                aria-label="Filtrar skills por fase"
+                value={phaseFilter}
+                onChange={(e) => setPhaseFilter(e.target.value)}
+                className="h-8 rounded-md border border-border-default bg-inset px-2 py-1 text-xs leading-normal text-fg-primary focus:border-border-strong focus:outline-none sm:col-span-3"
+              >
+                <option value="all">Todas as fases</option>
+                {availablePhases.map((phase) => (
+                  <option key={phase} value={phase}>
+                    Fase: {phase}
+                  </option>
+                ))}
+              </select>
+              <select
+                data-testid="skills-role-category-filter"
+                aria-label="Filtrar skills por categoria"
+                value={roleCategoryFilter}
+                onChange={(e) => setRoleCategoryFilter(e.target.value)}
+                className="h-8 rounded-md border border-border-default bg-inset px-2 py-1 text-xs leading-normal text-fg-primary focus:border-border-strong focus:outline-none sm:col-span-3"
+              >
+                <option value="all">Todas categorias</option>
+                <option value="lead">lead</option>
+                <option value="reference">reference</option>
+                <option value="critique">critique</option>
+              </select>
             </div>
+
+            <div className="flex items-center justify-between text-xs text-fg-muted tabular-nums">
+              <span data-testid="skills-filtered-count">
+                Exibindo {filteredSkills.length} de {catalog.skills.length} skill(s)
+              </span>
+              {(searchQuery || phaseFilter !== "all" || roleCategoryFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setPhaseFilter("all");
+                    setRoleCategoryFilter("all");
+                  }}
+                  className="text-xs underline hover:text-fg-primary"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+
+            {filteredSkills.length === 0 ? (
+              <p
+                data-testid="skills-filter-empty"
+                className="rounded-lg border border-dashed border-border-default bg-inset px-4 py-6 text-center text-xs text-fg-secondary"
+              >
+                Nenhuma skill corresponde aos filtros aplicados.
+              </p>
+            ) : (
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {filteredSkills.map((skill) => {
+                  const isExpanded = expandedSkillName === skill.name;
+                  return (
+                    <div
+                      key={skill.name}
+                      data-testid={`skill-item-${skill.name}`}
+                      className="rounded-lg border border-border-subtle bg-inset p-3"
+                    >
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        onClick={() =>
+                          setExpandedSkillName((prev) =>
+                            prev === skill.name ? null : skill.name
+                          )
+                        }
+                        className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="size-3.5 shrink-0 text-fg-muted" />
+                          ) : (
+                            <ChevronRight className="size-3.5 shrink-0 text-fg-muted" />
+                          )}
+                          <BookOpenCheck
+                            className="size-3.5 shrink-0 text-fg-secondary"
+                            strokeWidth={1.75}
+                          />
+                          <span className="truncate font-mono text-xs font-semibold text-fg-primary">
+                            {skill.name}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs tabular-nums">
+                          <span className="rounded border border-border-default bg-surface px-1.5 py-0.5 text-fg-secondary">
+                            {skill.license ?? "Apache-2.0"}
+                          </span>
+                          <span className="rounded border border-border-subtle bg-surface px-1.5 py-0.5 text-fg-muted">
+                            v{skill.version ?? "1.0.0"}
+                          </span>
+                        </div>
+                      </button>
+                      <p
+                        className={`mt-1.5 text-xs text-fg-secondary ${
+                          isExpanded ? "leading-relaxed" : "line-clamp-2"
+                        }`}
+                      >
+                        {skill.description}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-fg-muted tabular-nums">
+                        <span>
+                          {skill.phase ?? "geral"} · {skill.roleCategory} ·{" "}
+                          {skill.resourcesCount} recurso(s)
+                        </span>
+                        <span>sha256:{skill.sha256.slice(0, 12)}</span>
+                      </div>
+                      {isExpanded && (
+                        <div
+                          data-testid={`skill-detail-${skill.name}`}
+                          className="mt-2 space-y-1 border-t border-border-subtle pt-2 font-mono text-xs text-fg-muted"
+                        >
+                          <p className="break-words">
+                            Papéis: {skill.appliesToRoles.join(", ")}
+                          </p>
+                          <p className="break-all">SHA-256: {skill.sha256}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -285,7 +447,7 @@ export function SkillsCatalogPanel({
                 aria-label="Projeto para auditoria de entropia"
                 value={effectiveProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="min-h-8 max-w-[180px] rounded-md border border-border-default bg-inset px-2 text-xs text-fg-primary focus:border-border-strong focus:outline-none"
+                className="h-8 max-w-[200px] truncate rounded-md border border-border-default bg-inset px-2 py-1 text-xs leading-normal text-fg-primary focus:border-border-strong focus:outline-none"
               >
                 {projectsList.map((proj) => (
                   <option key={proj.id} value={proj.id}>

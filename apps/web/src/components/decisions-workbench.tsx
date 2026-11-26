@@ -229,9 +229,9 @@ export function DecisionsWorkbench() {
   }
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
+    <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6 overflow-x-hidden">
       <header className="flex flex-col gap-3 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-fg-muted">
             <ClipboardCheck className="size-4 text-fg-secondary" strokeWidth={1.75} />
             <span>Governança HITL</span>
@@ -245,11 +245,11 @@ export function DecisionsWorkbench() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:gap-3">
           <div
             role="tablist"
             aria-label="Filtrar decisões por status"
-            className="inline-flex flex-wrap rounded-md border border-border-default bg-inset p-0.5"
+            className="inline-flex max-w-full flex-nowrap items-center overflow-x-auto rounded-md border border-border-default bg-inset p-0.5"
           >
             {(
               [
@@ -266,7 +266,7 @@ export function DecisionsWorkbench() {
                 role="tab"
                 aria-selected={statusFilter === tab.id}
                 onClick={() => setStatusFilter(tab.id)}
-                className={`min-h-8 rounded px-3 text-xs font-medium transition-colors ${
+                className={`min-h-8 shrink-0 whitespace-nowrap rounded px-2.5 text-xs font-medium transition-colors sm:px-3 ${
                   statusFilter === tab.id
                     ? "border border-border-subtle bg-surface text-fg-primary"
                     : "text-fg-secondary hover:text-fg-primary"

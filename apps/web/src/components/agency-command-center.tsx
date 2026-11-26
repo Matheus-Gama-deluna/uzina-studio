@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgencyActionExecuted,
@@ -779,182 +780,194 @@ export function AgencyCommandCenter({
         </div>
       </header>
 
-      {/* Painel Discreto & Retrátil de Configurações da Sessão (Equipe, Autonomia, Setup & Estratégia do Arquiteto) */}
-      {settingsOpen && (
-        <section
-          data-testid="session-settings-panel"
-          className="space-y-4 rounded-xl border border-border-default bg-surface p-4 sm:p-5"
-        >
-          <div className="flex items-center justify-between border-b border-border-subtle pb-2.5">
-            <h2 className="text-sm font-semibold text-fg-primary">
-              Configurações da Sessão &amp; Orquestração
-            </h2>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(false)}
-              aria-label="Fechar configurações da sessão"
-              className="rounded p-1 text-fg-muted hover:text-fg-primary"
-            >
-              <X className="size-4" strokeWidth={1.75} />
-            </button>
-          </div>
+      {/* Drawer Lateral de Configurações da Sessão (Equipe, Autonomia, Setup & Estratégia do Arquiteto) */}
+      <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs" />
+          <Dialog.Content
+            data-testid="session-settings-panel"
+            aria-describedby={undefined}
+            className="fixed right-0 top-0 z-50 flex h-full w-full max-w-xl flex-col gap-4 overflow-y-auto border-l border-border-default bg-surface p-5 shadow-2xl focus:outline-none"
+          >
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <Dialog.Title className="text-sm font-semibold text-fg-primary">
+                Configurações da Sessão &amp; Orquestração
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  aria-label="Fechar configurações da sessão"
+                  className="rounded p-1.5 text-fg-muted transition-colors hover:bg-inset hover:text-fg-primary"
+                >
+                  <X className="size-4" strokeWidth={1.75} />
+                </button>
+              </Dialog.Close>
+            </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {/* Topologia da Equipe */}
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-fg-secondary">
-                Topologia da Equipe Visível
-              </span>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Topologia da Equipe */}
+              <div className="space-y-1.5">
+                <span className="block text-xs font-medium text-fg-secondary">
+                  Topologia da Equipe Visível
+                </span>
+                <div
+                  role="group"
+                  aria-label="Topologia da equipe de agentes"
+                  data-testid="team-topology-toggle"
+                  className="inline-flex w-full rounded-md border border-border-default bg-inset p-1"
+                >
+                  <button
+                    type="button"
+                    data-testid="topology-lean-mvp"
+                    onClick={() => setTeamTopology("lean_mvp")}
+                    className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                      teamTopology === "lean_mvp"
+                        ? "border border-border-subtle bg-surface text-fg-primary"
+                        : "text-fg-secondary hover:text-fg-primary"
+                    }`}
+                  >
+                    <Sparkles className="size-3.5" />
+                    <span>Equipe Enxuta (3)</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="topology-full-enterprise"
+                    onClick={() => setTeamTopology("full_enterprise")}
+                    className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
+                      teamTopology === "full_enterprise"
+                        ? "border border-border-subtle bg-surface text-fg-primary"
+                        : "text-fg-secondary hover:text-fg-primary"
+                    }`}
+                  >
+                    <Users className="size-3.5" />
+                    <span>Completa (6)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modo de Autonomia */}
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="autonomy-mode-select"
+                  className="block text-xs font-medium text-fg-secondary"
+                >
+                  Modo de Autonomia do Ciclo
+                </label>
+                <select
+                  id="autonomy-mode-select"
+                  data-testid="autonomy-mode-select"
+                  value={autonomyMode}
+                  onChange={(e) =>
+                    setAutonomyMode(e.target.value as AutonomyMode)
+                  }
+                  className="h-10 w-full rounded-md border border-border-default bg-inset px-3 py-1.5 text-sm leading-normal text-fg-primary"
+                >
+                  {(Object.keys(AUTONOMY_LABELS) as AutonomyMode[]).map((m) => (
+                    <option key={m} value={m}>
+                      {AUTONOMY_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Estratégia do Arquiteto & Ações de Ciclo */}
+            {projectState && (
               <div
-                role="group"
-                aria-label="Topologia da equipe de agentes"
-                data-testid="team-topology-toggle"
-                className="inline-flex w-full rounded-md border border-border-default bg-inset p-1"
+                data-testid="architect-strategy-banner"
+                className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-inset p-3.5"
               >
-                <button
-                  type="button"
-                  data-testid="topology-lean-mvp"
-                  onClick={() => setTeamTopology("lean_mvp")}
-                  className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
-                    teamTopology === "lean_mvp"
-                      ? "border border-border-subtle bg-surface text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  <span>Equipe Enxuta (3)</span>
-                </button>
-                <button
-                  type="button"
-                  data-testid="topology-full-enterprise"
-                  onClick={() => setTeamTopology("full_enterprise")}
-                  className={`inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded px-2.5 text-xs font-medium ${
-                    teamTopology === "full_enterprise"
-                      ? "border border-border-subtle bg-surface text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary"
-                  }`}
-                >
-                  <Users className="size-3.5" />
-                  <span>Completa (6)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Modo de Autonomia */}
-            <div className="space-y-1.5">
-              <label
-                htmlFor="autonomy-mode-select"
-                className="block text-xs font-medium text-fg-secondary"
-              >
-                Modo de Autonomia do Ciclo
-              </label>
-              <select
-                id="autonomy-mode-select"
-                data-testid="autonomy-mode-select"
-                value={autonomyMode}
-                onChange={(e) =>
-                  setAutonomyMode(e.target.value as AutonomyMode)
-                }
-                className="min-h-10 w-full rounded-md border border-border-default bg-inset px-3 text-sm text-fg-primary"
-              >
-                {(Object.keys(AUTONOMY_LABELS) as AutonomyMode[]).map((m) => (
-                  <option key={m} value={m}>
-                    {AUTONOMY_LABELS[m]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Estratégia do Arquiteto & Ações de Ciclo */}
-          {projectState && (
-            <div
-              data-testid="architect-strategy-banner"
-              className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-inset p-3.5 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-fg-secondary">
-                  Estratégia definida pelo Arquiteto:{" "}
-                  <strong className="font-mono text-fg-primary">
-                    {architectDecision?.strategyLabel ??
-                      projectState.defaultStrategy}
-                  </strong>
-                </p>
-                {architectDecision?.rationale && (
-                  <p className="text-xs leading-relaxed text-fg-muted">
-                    {architectDecision.rationale}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-fg-secondary">
+                    Estratégia definida pelo Arquiteto:{" "}
+                    <strong className="font-mono text-fg-primary">
+                      {architectDecision?.strategyLabel ??
+                        projectState.defaultStrategy}
+                    </strong>
                   </p>
-                )}
-              </div>
+                  {architectDecision?.rationale && (
+                    <p className="text-xs leading-relaxed text-fg-muted">
+                      {architectDecision.rationale}
+                    </p>
+                  )}
+                </div>
 
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="btn-run-autonomous-cycle"
-                  disabled={chatMutation.isPending}
-                  onClick={() =>
-                    chatMutation.mutate({
-                      message:
-                        "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão visual ou HITL.",
-                      intent: "advance_cycle",
-                      projectId: projectState.projectId,
-                    })
-                  }
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
-                >
-                  <Play className="size-3.5" />
-                  <span>Executar Ciclo Autônomo</span>
-                </button>
-                <button
-                  type="button"
-                  data-testid="btn-cycle-architect"
-                  disabled={chatMutation.isPending}
-                  onClick={() =>
-                    chatMutation.mutate({
-                      message:
-                        "Iniciar novo ciclo evolutivo com o Agente Arquiteto para reavaliar a arquitetura e atualizar os artefatos.",
-                      intent: "revisit_architecture",
-                      projectId: projectState.projectId,
-                      targetAgentRole: "software_architect",
-                    })
-                  }
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs text-fg-secondary hover:text-fg-primary disabled:opacity-50"
-                >
-                  <RotateCcw className="size-3.5" />
-                  <span>Ciclo #{projectState.cycleNumber + 1}</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="btn-run-autonomous-cycle"
+                    disabled={chatMutation.isPending}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      chatMutation.mutate({
+                        message:
+                          "Executar ciclo autônomo avançando os slices pelas fases permitidas até o próximo portão visual ou HITL.",
+                        intent: "advance_cycle",
+                        projectId: projectState.projectId,
+                      });
+                    }}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-primary hover:border-border-strong disabled:opacity-50"
+                  >
+                    <Play className="size-3.5" />
+                    <span>Executar Ciclo Autônomo</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="btn-cycle-architect"
+                    disabled={chatMutation.isPending}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      chatMutation.mutate({
+                        message:
+                          "Iniciar novo ciclo evolutivo com o Agente Arquiteto para reavaliar a arquitetura e atualizar os artefatos.",
+                        intent: "revisit_architecture",
+                        projectId: projectState.projectId,
+                        targetAgentRole: "software_architect",
+                      });
+                    }}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-subtle bg-surface px-3 text-xs text-fg-secondary hover:text-fg-primary disabled:opacity-50"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    <span>Ciclo #{projectState.cycleNumber + 1}</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Setup & Prontidão Compacto */}
-          {readiness && (
-            <div className="grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-3 md:grid-cols-3">
-              {readiness.steps.map((step) => (
-                <Link
-                  key={step.id}
-                  href={step.id === "first_project_chat" ? "/app/ideas" : step.actionHref}
-                  className="flex flex-col justify-between rounded-lg border border-border-subtle bg-inset p-3 transition-colors hover:border-border-strong"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-medium text-fg-primary">
-                      {step.title}
+            {/* Setup & Prontidão Compacto */}
+            {readiness && (
+              <div className="grid grid-cols-1 gap-2.5 border-t border-border-subtle pt-3">
+                {readiness.steps.map((step) => (
+                  <Link
+                    key={step.id}
+                    href={
+                      step.id === "first_project_chat"
+                        ? "/app/ideas"
+                        : step.actionHref
+                    }
+                    onClick={() => setSettingsOpen(false)}
+                    className="flex flex-col justify-between rounded-lg border border-border-subtle bg-inset p-3 transition-colors hover:border-border-strong"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs font-medium text-fg-primary">
+                        {step.title}
+                      </span>
+                      <span
+                        className={`mt-1 size-2 shrink-0 rounded-full ${
+                          step.completed ? "bg-status-ok" : "bg-status-warn"
+                        }`}
+                      />
+                    </div>
+                    <span className="mt-2 font-mono text-xs text-fg-muted">
+                      {step.statusBadge}
                     </span>
-                    <span
-                      className={`mt-1 size-2 shrink-0 rounded-full ${
-                        step.completed ? "bg-status-ok" : "bg-status-warn"
-                      }`}
-                    />
-                  </div>
-                  <span className="mt-2 font-mono text-xs text-fg-muted">
-                    {step.statusBadge}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* Feed Amplo & Confortável de Mensagens (15px, leading-7, sem scroll duplo no desktop) */}
       <section
@@ -1339,10 +1352,29 @@ export function AgencyCommandCenter({
                     <button
                       type="button"
                       data-testid="btn-session-abort"
-                      disabled={abortSessionMutation.isPending}
+                      disabled={
+                        abortSessionMutation.isPending ||
+                        (!chatMutation.isPending &&
+                          !backgroundTaskEvents.some(
+                            (t) =>
+                              t.status === "running" ||
+                              t.status === "queued" ||
+                              t.status === "queued_waiting_lock"
+                          ))
+                      }
                       onClick={() => abortSessionMutation.mutate()}
-                      title="Interrompe imediatamente a sessão ativa do controlador"
-                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-status-danger/35 bg-status-danger/10 px-3 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:opacity-50"
+                      title={
+                        chatMutation.isPending ||
+                        backgroundTaskEvents.some(
+                          (t) =>
+                            t.status === "running" ||
+                            t.status === "queued" ||
+                            t.status === "queued_waiting_lock"
+                        )
+                          ? "Interrompe imediatamente a sessão ativa do controlador"
+                          : "Nenhuma execução em andamento para abortar"
+                      }
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-status-danger/35 bg-status-danger/10 px-3 text-xs font-medium text-status-danger hover:bg-status-danger/15 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <Square className="size-3.5" />
                       <span>Abortar</span>

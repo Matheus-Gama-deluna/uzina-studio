@@ -88,11 +88,12 @@ const PROVIDER_PRESETS: Record<
     defaultName: "OmniRoute Gateway",
     baseUrl: "http://localhost:8080/v1",
     keyPlaceholder: "sk-omni-...",
-    tier3Model: "gemini-2.5-pro",
-    tier2Model: "gemini-2.5-flash",
+    tier3Model: "omni-pro",
+    tier2Model: "omni-fast",
     suggestions: [
+      "omni-pro",
+      "omni-fast",
       "gemini-2.5-pro",
-      "gemini-2.5-flash",
       "claude-sonnet-4",
       "gpt-4o",
     ],
@@ -557,7 +558,7 @@ export function ProvidersManager() {
             <p className="mt-1.5 max-w-lg text-sm text-fg-secondary">
               Enquanto nenhum provedor estiver salvo no Cofre, o Chat opera em{" "}
               <strong className="text-fg-primary">Modo Assistido Local</strong>.
-              Escolha um dos 5 cartões acima ou abra o assistente de configuração.
+              Escolha um dos 6 cartões acima ou abra o assistente de configuração.
             </p>
             <button
               type="button"
@@ -972,20 +973,27 @@ export function ProvidersManager() {
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3">
-                <button
-                  type="button"
-                  data-testid="btn-test-provider-modal"
-                  disabled={pingMutation.isPending}
-                  onClick={handleTestModalConnection}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-accent/50 bg-accent-subtle px-3 text-xs font-semibold text-accent hover:border-accent disabled:opacity-50"
-                >
-                  {pingMutation.isPending ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Activity className="size-3.5" />
-                  )}
-                  <span>Testar Conexão Real (Ping LLM)</span>
-                </button>
+                {providerType !== "github_pat" ? (
+                  <button
+                    type="button"
+                    data-testid="btn-test-provider-modal"
+                    disabled={pingMutation.isPending}
+                    onClick={handleTestModalConnection}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-accent/50 bg-accent-subtle px-3 text-xs font-semibold text-accent hover:border-accent disabled:opacity-50"
+                  >
+                    {pingMutation.isPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Activity className="size-3.5" />
+                    )}
+                    <span>Testar Conexão Real (Ping LLM)</span>
+                  </button>
+                ) : (
+                  <span className="text-xs text-fg-muted">
+                    PAT usado no push HTTPS e Draft PR via{" "}
+                    <code className="font-mono">api.github.com</code>
+                  </span>
+                )}
 
                 <div className="flex items-center gap-2">
                   <Dialog.Close asChild>

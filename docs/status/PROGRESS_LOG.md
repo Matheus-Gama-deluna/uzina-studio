@@ -495,3 +495,19 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `node scripts/audit-agent-trajectories.mjs`: **4/4 passed**.
   * Auditoria consolidada da Onda 3: `execFile` com `shell: false` e allowlist em `mutation-pbt.ts`, isolamento Playwright/axe em `visual-a11y-verify.ts`, `assertPathInsideWorkspace` + SHA-256 em `skills-lock.ts`, RBAC + multi-tenant `organizationId`/`projectId` nas 3 novas rotas API, zero `any` implícito ou `as unknown as`.
 * **Marco Atingido:** **Evolução Agêntica v2 (Slices 26–34) 100% concluída e verificada** na branch `feat/slices-27-34-agentic-evolution-v2`, pronta para push e abertura de Pull Request para `main`.
+
+---
+
+## 2026-11-25 — Slice 35: Polimento Visual/UX Pós-QA Real no Navegador & Cobertura E2E Populada (`feat/slices-27-34-agentic-evolution-v2`)
+
+* **Entregue após auditoria exploratória em navegador real (`http://localhost:3000`, `1440×900` Dark/Light e `390×844` Dark):**
+  * **Sidebar, Chat & Estúdio Visual (`cockpit-shell.tsx`, `agency-command-center.tsx`, `visual-studio-workspace.tsx`, `packages/mastra-runtime/src/agency.ts`):** `<aside>` desktop `lg:sticky lg:top-0 lg:h-screen` mantendo `Sair da sessão` fixo na base; `Project Switcher` exibindo `"Sincronizando... / Carregando projetos"` em vez de `"Crie sua primeira ideia"` durante loading; painel `Configurações` movido para Drawer lateral Radix `Dialog` preservando o composer na 1ª dobra; `Abortar` desabilitado quando ocioso; unificação de `"Estúdio & Protótipo"` → `"Estúdio Visual"`; truncamento seguro da badge `strategyLabel` no HTML do protótipo; e diferenciação real de largura `Desktop > Tablet (510px/768px) > Celular (390px)`.
+  * **Entregas, Decisões, FinOps & Skills (`deliverables-docs-hub.tsx`, `decisions-workbench.tsx`, `finops-dashboard.tsx`, `engine-config-panel.tsx`, `skills-catalog-panel.tsx`):** skeleton `deliverables-loading` eliminando flash de empty state; `<select>` `Entrega Git` alinhado e coluna Kanban ampliada (`max-h-[540px] pb-4`); `overflow-x-hidden` + abas em 1 linha (`flex-nowrap overflow-x-auto`) em `/app/decisions` mobile `390×844` sem overflow horizontal; empty state `finops-by-technique-empty` (inclusive quando `byTechnique` retorna linhas zeradas) + `US$ 0.0000` em 1 linha no mobile; busca textual, filtros por `phase`/`roleCategory`, expansão de detalhes e `filterSkillsCatalogItems` em `SkillsCatalogPanel`.
+  * **AppSec, Provedores, Memórias & Build Hygiene (`security-audit-console.tsx`, `providers-manager.tsx`, `memories-manager.tsx`, `packages/mastra-runtime/src/stages/visual-a11y-verify.ts`):** alinhamento horizontal de botões e barra de filtros de severidade no estado vazio AppSec; contagem dinâmica `"6 cartões"`, defaults `omni-pro`/`omni-fast` no `OmniRoute Gateway` e ocultação do Ping LLM para `github_pat`; `stripMarkdownToPlainPreview` + `<code>` em Memórias QMD; e `/*turbopackIgnore: true*/` em `visual-a11y-verify.ts` zerando os 2 warnings do Turbopack.
+  * **Novos Testes:** `apps/web/tests/slice35-qa-polish.test.ts` (`10/10`) e `apps/web/e2e/slices-31-35-qa-polish.spec.ts` (correções P1/P2 em Desktop + Mobile `390px` e estados populados de `DecisionRiskBriefingCard`, `AgentEffectivenessPanel` e AppSec SARIF).
+* **Validação Final Real:**
+  * `node scripts/check-no-ee.mjs`: exit `0`.
+  * `pnpm verify`: **34/34 tasks OK**, **0 warnings Turbopack** (`@uzina/web`: `16` arquivos / `55` testes passed).
+  * `node scripts/audit-tests.mjs`: **96 arquivos, 343 testes, 2 suprimidos, 0 violações**.
+  * `pnpm test:e2e`: **4 passed (18.9s)** (`slices-31-35-qa-polish.spec.ts` `2/2` + `smoke.spec.ts` `2/2`).
+  * Revalidação visual pré-fechamento no subagente `browser` (`Model: "flash"`) em `http://localhost:3000`: **0** erros de console/página/HTTP, confirmando todas as correções visuais (após o único apontamento de `finops-by-technique-empty` com linhas zeradas ser corrigido e coberto por teste unitário + `pnpm verify` + `pnpm test:e2e`).

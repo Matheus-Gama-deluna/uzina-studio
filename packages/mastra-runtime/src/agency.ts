@@ -693,7 +693,7 @@ function buildGeneratedVisualPrototypeHtml(params: {
       <span style="font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #f97316; font-weight: 700; display: block;">${blueprint.domainBadge}</span>
       <h1 style="margin: 2px 0 0 0; font-size: 15px; color: #fafafa; line-height: 1.2;">${safeName}</h1>
     </div>
-    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 7px; border-radius: 5px; font-size: 9px; font-family: monospace;">${params.strategyLabel.slice(0, 28)}</span>
+    <span style="background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 7px; border-radius: 5px; font-size: 9px; font-family: monospace; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1;">${params.strategyLabel.slice(0, 28)}</span>
   </header>
   <nav style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
     ${blueprint.navTabs
@@ -1645,7 +1645,7 @@ export async function resolveProjectAgencyStateScoped(
 
   const recommendedPrompt =
     hasUiDeliverables && !visualFlow.approvedForCodeHandoff
-      ? "Revise o Fluxo Visual na aba 'Estúdio & Protótipo' ao lado e clique em 'Aprovar Fluxo Visual' (ou peça ajustes no chat) antes da codificação da UI."
+      ? "Revise o Fluxo Visual na página Estúdio Visual e clique em 'Aprovar Fluxo Visual' (ou peça ajustes no chat) antes da codificação da UI."
       : pendingDecs.length > 0
         ? "Revise o Dossiê do Slice pendente no painel ao lado para Aprovar ou Devolver em Ciclo com feedback para o Arquiteto."
         : canAutoAdvance
@@ -2266,9 +2266,9 @@ async function executeDeterministicAgencyMutations(
       `### O que executei automaticamente:`,
       `1. **Projeto & Repositório Git:** Criei o projeto **${projectName}** e vinculei ${detectedGitUrl ? `o repositório remoto \`${detectedGitUrl}\`` : `o diretório \`${resolvedLocalPath}\``}.`,
       `2. **Brownfield Scan & AST Poliglota:** Indexei **${astResult.indexedFiles} arquivo(s)** e **${astResult.totalSymbols} símbolo(s)** no grafo de código e salvei o Blueprint na Memória QMD.`,
-      `3. **Protótipo Visual & Slices (Ciclo #1):** Gerei o **Protótipo Visual Inicial** na aba **Estúdio & Protótipo** e estruturei **${wave.length} entregas (Vertical Slices)** ao lado.`,
+      `3. **Protótipo Visual & Slices (Ciclo #1):** Gerei o **Protótipo Visual Inicial** na página **Estúdio Visual** e estruturei **${wave.length} entregas (Vertical Slices)** em **Entregas & Docs**.`,
       ``,
-      `Revise o **Protótipo Visual** na aba ao lado para aprovar o fluxo de telas antes da codificação da interface, ou clique em **Executar Ciclo Autônomo**.`,
+      `Revise o **Protótipo Visual** na página **Estúdio Visual** para aprovar o fluxo de telas antes da codificação da interface, ou clique em **Executar Ciclo Autônomo**.`,
     ];
   }
   // 2. Fluxo Greenfield: Criar Sistema do Zero via Agente de Descoberta -> Arquiteto
@@ -2419,7 +2419,7 @@ async function executeDeterministicAgencyMutations(
       ``,
       `### Artefatos de Longo Prazo, Protótipo Visual & Slices Criados:`,
       `1. **PRD Vivo (Memória QMD):** Registrei os objetivos e regras de domínio de **${projectName}**.`,
-      `2. **Estúdio & Protótipo Visual:** Gerei o protótipo visual inicial (\`${createdProto.title}\`) na aba **Estúdio & Protótipo** ao lado para validarmos o fluxo visual antes da codificação das telas.`,
+      `2. **Estúdio Visual:** Gerei o protótipo visual inicial (\`${createdProto.title}\`) na página **Estúdio Visual** para validarmos o fluxo visual antes da codificação das telas.`,
       `3. **Vertical Slices (Ciclo #1):** Criei automaticamente **${wave.length} entregas** com Dossiê e Blueprint Técnico.`,
     ];
   }
@@ -2602,7 +2602,7 @@ async function executeDeterministicAgencyMutations(
           pausedAtVisualCount += 1;
           actionsExecuted.push({
             type: "paused_at_visual_gate",
-            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual na aba 'Estúdio & Protótipo' antes da codificação`,
+            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual no Estúdio Visual antes da codificação`,
             targetId: deliv.id,
           });
           break;
@@ -2657,7 +2657,7 @@ async function executeDeterministicAgencyMutations(
           pausedAtVisualCount += 1;
           actionsExecuted.push({
             type: "paused_at_visual_gate",
-            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual na aba 'Estúdio & Protótipo' antes da codificação`,
+            label: `Pausa no Portão Visual para '${deliv.title}': aprove o fluxo visual no Estúdio Visual antes da codificação`,
             targetId: deliv.id,
           });
           break;
@@ -2715,9 +2715,9 @@ async function executeDeterministicAgencyMutations(
       `- **Slices pausados em Portão Obrigatório (\`Decisão HITL\`):** ${pausedAtGateCount}`,
       ``,
       pausedAtVisualCount > 0
-        ? `O motor pausou na fase de **Prototipação Visual** para garantir que a interface não seja codificada às cegas. Abra a aba **Estúdio & Protótipo** ao lado para aprovar o fluxo visual ou pedir ajustes.`
+        ? `O motor pausou na fase de **Prototipação Visual** para garantir que a interface não seja codificada às cegas. Abra a página **Estúdio Visual** para aprovar o fluxo visual ou pedir ajustes.`
         : pausedAtGateCount > 0
-          ? `O motor pausou nos portões obrigatórios para sua inspeção. Abra a aba **Slices & Entregas** ao lado para aprovar ou pedir correção em ciclo.`
+          ? `O motor pausou nos portões obrigatórios para sua inspeção. Abra **Entregas & Docs** ou **Decisões (HITL)** para aprovar ou pedir correção em ciclo.`
           : `As entregas avançaram na esteira técnica.`,
     ];
     }
@@ -2894,7 +2894,7 @@ async function executeDeterministicAgencyMutations(
           : "Modo Assistido Local"
       }) incorporando seu direcionamento:`,
       `- **Ajuste aplicado:** ${redactSensitiveText(parsed.message)}`,
-      `- Confira o preview atualizado na aba **Estúdio & Protótipo** ao lado e clique em **Aprovar Fluxo Visual** quando estiver de acordo.`,
+      `- Confira o preview atualizado na página **Estúdio Visual** e clique em **Aprovar Fluxo Visual** quando estiver de acordo.`,
     ];
   }
   // 4. Aprovar Artefato / Slice no Portão e Avançar

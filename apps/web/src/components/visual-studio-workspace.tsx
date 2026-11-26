@@ -191,7 +191,9 @@ export function VisualStudioWorkspace() {
     viewport === "mobile"
       ? "390px"
       : viewport === "tablet"
-        ? "640px"
+        ? inspectorOpen
+          ? "510px"
+          : "768px"
         : "100%";
 
   return (

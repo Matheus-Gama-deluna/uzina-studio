@@ -85,13 +85,17 @@ function tryLoadPlaywrightAndAxe(): {
 } | null {
   try {
     const req = createRequire(import.meta.url);
-    const playwright = req("playwright") as PlaywrightModuleLike;
+    const playwright = req(
+      /*turbopackIgnore: true*/ "playwright"
+    ) as PlaywrightModuleLike;
     if (!playwright?.chromium?.launch) {
       return null;
     }
     let AxeBuilder: AxeBuilderConstructor | null = null;
     try {
-      const axePkg = req("@axe-core/playwright") as {
+      const axePkg = req(
+        /*turbopackIgnore: true*/ "@axe-core/playwright"
+      ) as {
         default?: AxeBuilderConstructor;
         AxeBuilder?: AxeBuilderConstructor;
       };

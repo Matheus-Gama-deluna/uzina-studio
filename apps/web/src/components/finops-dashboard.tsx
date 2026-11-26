@@ -203,7 +203,7 @@ export function FinopsDashboard() {
             </span>
             <Coins className="size-4 text-status-ok" strokeWidth={1.75} />
           </div>
-          <p className="mt-1.5 font-mono text-2xl font-semibold text-status-ok tabular-nums">
+          <p className="mt-1.5 font-mono text-lg font-semibold whitespace-nowrap text-status-ok tabular-nums sm:text-2xl">
             US$ {(summary?.estimatedCostSavedUsd ?? 0).toFixed(4)}
           </p>
           <p className="mt-1 font-mono text-xs text-fg-muted tabular-nums">
@@ -219,36 +219,50 @@ export function FinopsDashboard() {
           <h2 className="text-sm font-semibold text-fg-primary">
             Economia por Técnica
           </h2>
-          <div className="space-y-2.5">
-            {(summary?.byTechnique ?? []).map((item) => (
-              <div
-                key={item.technique}
-                data-testid="finops-technique-row"
-                className="space-y-1.5 rounded-lg border border-border-subtle bg-inset p-3.5"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-medium text-fg-primary">
-                    {TECHNIQUE_LABELS[item.technique]}
-                  </span>
-                  <span className="font-mono text-xs text-status-ok tabular-nums">
-                    {item.tokensSaved.toLocaleString("pt-BR")} tokens (
-                    {item.savingsPercent}%)
-                  </span>
+          {!(summary?.byTechnique ?? []).some(
+            (item) =>
+              item.eventsCount > 0 ||
+              item.tokensSaved > 0 ||
+              item.tokensBaseline > 0
+          ) ? (
+            <p
+              data-testid="finops-by-technique-empty"
+              className="rounded-lg border border-dashed border-border-default bg-inset px-4 py-6 text-center text-sm text-fg-secondary"
+            >
+              Sem economia registrada por técnica ainda. As barras aparecerão após execuções com Prompt Cache, QMD, Grafo AST ou Esqueleto.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {(summary?.byTechnique ?? []).map((item) => (
+                <div
+                  key={item.technique}
+                  data-testid="finops-technique-row"
+                  className="space-y-1.5 rounded-lg border border-border-subtle bg-inset p-3.5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-fg-primary">
+                      {TECHNIQUE_LABELS[item.technique]}
+                    </span>
+                    <span className="font-mono text-xs text-status-ok tabular-nums">
+                      {item.tokensSaved.toLocaleString("pt-BR")} tokens (
+                      {item.savingsPercent}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className="h-full bg-status-ok transition-all"
+                      style={{ width: `${Math.min(100, item.savingsPercent)}%` }}
+                    />
+                  </div>
+                  <p className="font-mono text-xs text-fg-muted tabular-nums">
+                    {item.eventsCount} evento(s) · baseline{" "}
+                    {item.tokensBaseline.toLocaleString("pt-BR")} → real{" "}
+                    {item.tokensActual.toLocaleString("pt-BR")}
+                  </p>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-canvas">
-                  <div
-                    className="h-full bg-status-ok transition-all"
-                    style={{ width: `${Math.min(100, item.savingsPercent)}%` }}
-                  />
-                </div>
-                <p className="font-mono text-xs text-fg-muted tabular-nums">
-                  {item.eventsCount} evento(s) · baseline{" "}
-                  {item.tokensBaseline.toLocaleString("pt-BR")} → real{" "}
-                  {item.tokensActual.toLocaleString("pt-BR")}
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="uzina-card min-w-0 space-y-4 rounded-xl border border-border-subtle bg-surface p-5">
