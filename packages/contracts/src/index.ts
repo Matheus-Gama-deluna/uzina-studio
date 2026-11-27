@@ -23,3 +23,4 @@ export * from "./security-v2.js";
 export * from "./governance-v2.js";
 export * from "./voice.js";
 export * from "./notifications.js";
+export * from "./executive.js";

@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
+import { useActiveProjectId } from "@/lib/active-project-store";
 
 const CATEGORY_LABELS: Record<MemoryCategory, string> = {
   architecture: "Arquitetura",
@@ -83,6 +84,7 @@ async function fetchProjects(): Promise<ProjectListResponse> {
 
 export function MemoriesManager() {
   const queryClient = useQueryClient();
+  const activeProjectId = useActiveProjectId();
   const [scopeFilter, setScopeFilter] = useState<MemoryScope | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<MemoryCategory | "all">(
     "all"
@@ -205,12 +207,20 @@ export function MemoriesManager() {
     },
   });
 
+  const effectiveProjectId =
+    activeProjectId ||
+    (newScopeType === "project" ? resolvedScopeId : "") ||
+    (projectsList[0]?.id ?? "");
+
   const qmdSearchMutation = useMutation({
     mutationFn: async (payload: { query: string; mode: QmdSearchMode }) => {
       const res = await fetch("/api/memories/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+        }),
       });
       const body = (await res.json()) as QmdSearchResponse & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Falha na busca híbrida QMD.");
@@ -230,7 +240,11 @@ export function MemoriesManager() {
       const res = await fetch("/api/qmd/reindex", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ includeDocs: true, force: false }),
+        body: JSON.stringify({
+          includeDocs: true,
+          force: false,
+          ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+        }),
       });
       const body = (await res.json()) as QmdReindexResponse & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Falha ao reindexar QMD.");

@@ -290,7 +290,7 @@ export function MobileSettingsPanel() {
                 type="button"
                 data-testid="btn-enable-web-push"
                 onClick={() => void handleEnablePush()}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-accent-fg hover:bg-accent-hover"
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-accent/50 bg-accent-subtle px-4 text-xs font-semibold text-accent hover:border-accent"
               >
                 <Bell className="size-3.5" strokeWidth={1.75} />
                 <span>Ativar Notificações Push</span>

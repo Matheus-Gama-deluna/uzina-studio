@@ -117,19 +117,10 @@ test.describe("Simulação Arco 2 — Brownfield Poliglota, AST, QMD, FinOps & T
       await expect(page.getByText("settle_batch").first()).toBeVisible();
       await expect(page.getByText("merchant_accounts").first()).toBeVisible();
 
-      // 2. Reindexa QMD explicitamente com projectId (achado P1: o botão UI em memories-manager.tsx:233
-      //    não envia projectId ao /api/qmd/reindex) e valida a busca híbrida na UI /app/memories
-      const qmdReindexStatus = await page.evaluate(async (pid) => {
-        const res = await fetch("/api/qmd/reindex", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ projectId: pid, includeDocs: true, force: true }),
-        });
-        return res.status;
-      }, created.projectId);
-      expect(qmdReindexStatus).toBe(200);
-
+      // 2. Navega para Memórias QMD com projectId ativo, clica no botão real da UI e valida busca
       await page.goto(`/app/memories?projectId=${created.projectId}`);
+      await page.getByTestId("qmd-reindex-btn").click();
+      await expect(page.getByRole("status")).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId("qmd-search-input")).toBeVisible();
       await page
         .getByTestId("qmd-search-input")

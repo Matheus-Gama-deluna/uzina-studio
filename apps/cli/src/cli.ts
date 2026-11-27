@@ -120,6 +120,14 @@ export interface SpawnServerPlan {
   singleProcess: true;
 }
 
+export interface DockerCliStatus {
+  available: boolean;
+  version: string | null;
+  wslAvailable?: boolean;
+  wslVersion?: string | null;
+  hint?: string | null;
+}
+
 export interface UzinaCliDependencies {
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
@@ -127,6 +135,9 @@ export interface UzinaCliDependencies {
   securityDeps?: SecurityCliDependencies;
   migrateImpl?: (options: MigrateDatabaseOptions) => Promise<MigrationReport>;
   checkGitAvailable?: () => { ok: boolean; version?: string };
+  checkDockerAvailable?: () => DockerCliStatus;
+  probeWslDocker?: () => { available: boolean; version: string | null };
+  platform?: NodeJS.Platform;
   spawnServer?: (plan: SpawnServerPlan) => Promise<number>;
   entropyAudit?: (rootDir: string) => Promise<EntropyAuditReport>;
   cwd?: string;
@@ -730,15 +741,56 @@ export async function runCli(
       ...deps.securityDeps,
     });
 
-    const dockerRes = spawnSync("docker", ["--version"], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 3000,
-    });
-    const dockerStatus =
-      dockerRes.status === 0
-        ? { available: true, version: dockerRes.stdout.trim() || "ok" }
-        : { available: false, version: null };
+    const nativeDocker: DockerCliStatus = deps.checkDockerAvailable
+      ? deps.checkDockerAvailable()
+      : (() => {
+          const dockerRes = spawnSync("docker", ["--version"], {
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 1500,
+          });
+          return dockerRes.status === 0
+            ? { available: true, version: dockerRes.stdout.trim() || "ok" }
+            : { available: false, version: null };
+        })();
+
+    let dockerStatus: DockerCliStatus = {
+      available: nativeDocker.available,
+      version: nativeDocker.version,
+      wslAvailable: nativeDocker.wslAvailable ?? false,
+      wslVersion: nativeDocker.wslVersion ?? null,
+      hint: nativeDocker.hint ?? null,
+    };
+
+    const currentPlatform = deps.platform ?? process.platform;
+    if (
+      !dockerStatus.available &&
+      currentPlatform === "win32" &&
+      nativeDocker.wslAvailable === undefined
+    ) {
+      const wslProbe = deps.probeWslDocker
+        ? deps.probeWslDocker()
+        : (() => {
+            const wslRes = spawnSync("wsl", ["-e", "docker", "--version"], {
+              encoding: "utf8",
+              windowsHide: true,
+              timeout: 1800,
+            });
+            const out = (wslRes.stdout ?? "").trim();
+            return wslRes.status === 0 && out.includes("Docker version")
+              ? { available: true, version: out }
+              : { available: false, version: null };
+          })();
+      if (wslProbe.available) {
+        dockerStatus = {
+          available: false,
+          version: null,
+          wslAvailable: true,
+          wslVersion: wslProbe.version,
+          hint: "Docker detectado via WSL2 Ubuntu. Execute comandos Docker via 'wsl -e docker ...' ou integre o Docker Engine ao host.",
+        };
+      }
+    }
 
     const workspaceMode =
       effectiveEnv.UZINA_WORKSPACE?.trim().toLowerCase() === "docker"
@@ -768,9 +820,17 @@ export async function runCli(
     if (parsed.json) {
       stdout(JSON.stringify(payload, null, 2));
     } else {
+      const dockerSummary = dockerStatus.available
+        ? dockerStatus.version ?? "OK"
+        : dockerStatus.wslAvailable
+          ? `ausente no host (WSL2: ${dockerStatus.wslVersion ?? "disponível"})`
+          : "ausente";
       stdout(
-        `[uzina doctor] Node ${payload.nodeVersion} (${nodeOk ? "OK" : "REQUER >= 22"}) | Git: ${gitStatus.ok ? gitStatus.version : "ausente"} | DB: ${dbConfig.mode} | DataDir: ${dataDir}`
+        `[uzina doctor] Node ${payload.nodeVersion} (${nodeOk ? "OK" : "REQUER >= 22"}) | Git: ${gitStatus.ok ? gitStatus.version : "ausente"} | Docker: ${dockerSummary} | DB: ${dbConfig.mode} | DataDir: ${dataDir}`
       );
+      if (dockerStatus.hint) {
+        stdout(`[uzina doctor] Dica Docker: ${dockerStatus.hint}`);
+      }
       for (const line of scannerLines) {
         stdout(line);
       }

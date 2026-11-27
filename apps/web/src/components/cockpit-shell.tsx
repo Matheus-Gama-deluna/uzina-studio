@@ -142,11 +142,13 @@ export function CockpitShell({
   const clientsQuery = useQuery({
     queryKey: ["clients"],
     queryFn: fetchClients,
+    staleTime: 30_000,
   });
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
+    staleTime: 30_000,
   });
 
   const clientsList = useMemo(
@@ -252,9 +254,10 @@ export function CockpitShell({
                 }`}
               />
               <span className="truncate text-sm font-semibold text-fg-primary">
-                {projectsQuery.isLoading
-                  ? "Sincronizando..."
-                  : currentProject?.name ?? "Sem projeto ativo"}
+                {currentProject?.name ??
+                  (projectsQuery.isPending
+                    ? "Sincronizando..."
+                    : "Sem projeto ativo")}
               </span>
             </div>
             <p className="mt-0.5 truncate pl-4 text-xs text-fg-muted">
@@ -587,6 +590,17 @@ export function CockpitShell({
                       <span className="truncate">Celular &amp; Alertas</span>
                     </span>
                   </Link>
+                  <Link
+                    href="/exec"
+                    data-testid="nav-exec"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={navItemCls(pathname.startsWith("/exec"))}
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <ClipboardCheck className="size-4 shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">Visão Executiva</span>
+                    </span>
+                  </Link>
                 </div>
               )}
             </div>
@@ -718,7 +732,9 @@ export function CockpitShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <FontScaleToggle />
+            <div className="hidden sm:inline-flex">
+              <FontScaleToggle />
+            </div>
             <NotificationsCenter />
             <button
               type="button"
@@ -736,7 +752,7 @@ export function CockpitShell({
               data-testid="open-command-palette"
               aria-label="Abrir paleta de comandos"
               title="Paleta de comandos (⌘K / Ctrl+K)"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
+              className="hidden h-8 items-center gap-1.5 rounded-md border border-border-default bg-surface px-2.5 text-xs text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary sm:inline-flex"
             >
               <Command className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
               <kbd className="hidden font-mono text-xs text-fg-muted md:inline">
@@ -848,6 +864,7 @@ export function CockpitShell({
               { href: "/app/finops", label: "FinOps & Motores", icon: Coins },
               { href: "/app/providers", label: "Provedores & LLM", icon: KeyRound },
               { href: "/app/settings", label: "Celular & Alertas", icon: Smartphone },
+              { href: "/exec", label: "Visão Executiva", icon: ClipboardCheck },
             ].map((item) => {
               const Icon = item.icon;
               return (

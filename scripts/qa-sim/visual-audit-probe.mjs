@@ -63,9 +63,17 @@ async function run() {
   await page.waitForURL("**/app?projectId=**");
   await page.getByTestId("agency-chat-input").waitFor({ state: "visible" });
 
-  // Verifica comportamento de /exec
+  // Verifica comportamento de /exec (Superfície Executiva)
   await page.goto(`${BASE_URL}/exec`);
+  await page.getByTestId("executive-cockpit-root").waitFor({ state: "visible", timeout: 15_000 });
+  await page
+    .getByTestId("exec-progress-percent")
+    .or(page.getByText("Nenhum produto cadastrado"))
+    .waitFor({ state: "visible", timeout: 15_000 });
   const execFinalUrl = page.url();
+  await page.screenshot({
+    path: path.join(SCREENSHOT_DIR, "qa-after-exec-surface.png"),
+  });
 
   // Volta ao /app para medir escalas A-, A, A+ em 1440x900
   await page.goto(`${BASE_URL}/app`);
@@ -124,6 +132,7 @@ async function run() {
 
   // Varrer todas as rotas em Desktop Dark, Tablet 768x1024 e Mobile 390x844
   const routes = [
+    "/exec",
     "/app",
     "/app/ideas",
     "/app/studio",
@@ -142,12 +151,21 @@ async function run() {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${BASE_URL}${route}`);
     await page.waitForLoadState("networkidle").catch(() => undefined);
+    if (route === "/app/settings") {
+      await page.screenshot({
+        path: path.join(SCREENSHOT_DIR, "qa-after-settings-90-10.png"),
+      });
+    }
 
     const desktopDark = await page.evaluate(() => {
       const accentBtns = Array.from(document.querySelectorAll("button, a")).filter(
         (el) => {
           const cls = el.className || "";
-          return typeof cls === "string" && cls.includes("bg-accent") && el.getBoundingClientRect().width > 0;
+          return (
+            typeof cls === "string" &&
+            /(?:^|\s)bg-accent(?:\s|$)/.test(cls) &&
+            el.getBoundingClientRect().width > 0
+          );
         }
       );
       const bodyFontSize = Number.parseFloat(

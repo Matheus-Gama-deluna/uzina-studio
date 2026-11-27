@@ -115,9 +115,12 @@ export function FinopsDashboard() {
           </span>
           <button
             type="button"
-            onClick={() =>
-              void queryClient.invalidateQueries({ queryKey: ["finops-summary"] })
-            }
+            data-testid="finops-refresh-btn"
+            onClick={() => {
+              void queryClient.invalidateQueries({ queryKey: ["finops-summary"] });
+              void queryClient.invalidateQueries({ queryKey: ["finops-effectiveness"] });
+              void queryClient.invalidateQueries({ queryKey: ["engine-config"] });
+            }}
             className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border-default bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
           >
             <RefreshCw className="size-3.5" strokeWidth={1.75} />

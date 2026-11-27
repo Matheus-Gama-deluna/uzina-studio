@@ -127,3 +127,21 @@ Inspeção automatizada e visual via Chromium (`scripts/qa-sim/visual-audit-prob
 | **Slice 40 — Superfície Executiva `/exec` Real** | Entregar experiência dedicada para Fundadores/Stakeholders | Implementar `/exec` e `/exec/deliverables` com layout calmo `max-w-[1040px]`, PRD vivo, linha do tempo de entregas, aprovações de negócio e links de preview — com barreira rígida ocultando worktrees, diffs Git, SARIF bruto e custos de tokens. | **Média-Alta** |
 | **Slice 41 — Voz Neural Gemini TTS & Trivy Air-Gapped** | Paridade de voz neural e SAST offline completo | Suporte a áudio TTS nativo via Gemini / Kokoro fallback sem depender de `speechSynthesis` robotizado no iOS/Android + cache/pre-seed opcional do `trivy-db` em volume Docker. | **Média** |
 | **Slice 42 — Orquestração Containerizada & Runner Sidecar** | Habilitar `DockerExecutionWorkspace` a partir do próprio container `uzina` | Proxy Docker socket restrito (Tecnativa `docker-socket-proxy` com allowlist mínima de containers) no `docker-compose.vps.yml` + instalação opcional do OpenCode CLI na imagem runner. | **Planejada** |
+
+---
+
+## 6. Validação Pós-Implementação (Slices 39–42)
+
+Todas as recomendações prioritárias do plano pós-auditoria foram implementadas na branch `feat/slices-39-42-post-audit-evolution` e re-validadas com evidências automatizadas e visuais:
+
+| Dimensão Auditada | Antes (Relatório v1) | Depois (Slices 39–42) | Evidência Verificada |
+| :--- | :--- | :--- | :--- |
+| **Gemini STT (`voice-client.ts`)** | `part.thought` vazava para a transcrição final | `thinkingBudget: 0` + filtro `part.thought !== true` | `slice39-post-audit-stabilization.test.ts` (`2/2`) |
+| **Opengrep SAST no Container** | `EXIT=2` sem `--config` local | Bundle `uzina-sast-core.yaml` + `--no-git-ignore --config` (`EXIT=0`, 3/3 bugs LegacyPay) | `uzina-studio:verify` + `security-engine` (`33/33`) |
+| **`DEFAULT_DOCKER_WORKSPACE_IMAGE`** | Digest `9f241c1b...` inexistente no Registry | Digest real verificado `sha256:be979e55...` (`node:22-slim`) | `slice39-docker-image-digest.test.ts` (`1/1`) |
+| **QMD Reindex na UI (`memories-manager.tsx`)** | Botão enviava sem `projectId` (workaround no E2E) | Usa `useActiveProjectId()` no payload real | `sim-arc2` (`qmd-reindex-btn` clique direto PASS) |
+| **Superfície Executiva `/exec`** | Redirecionava imediatamente para `/app` | Rota dedicada `GET /api/exec/overview` + `ExecutiveCockpit` (`max-w-[1040px]`, zero `worktree`/`branch`/SARIF/tokens) | `slice40` Vitest (`4/4`) + E2E (`1/1`) + screenshot |
+| **Voz Neural Google Gemini TTS & Trivy** | Gemini caía em `fallback_browser_speech`; Trivy sem cache persistente | `gemini-2.5-flash-preview-tts` (`x-goog-api-key`) + `wrapPcm16MonoToWav` (`audio/wav`); `buildTrivyFsArgs` (`--cache-dir`, `--skip-db-update`, `--offline-scan`) | `slice41-gemini-tts-trivy-offline.test.ts` (`6/6`) |
+| **Regra Visual 90/10 & Responsividade** | 2 CTAs `bg-accent` em `/app/studio` e `/app/settings`; `Atualizar` duplicado em FinOps | `accentCtaCount <= 1` nas **12/12 rotas**; único `Atualizar`; `overflowX === false` em `1440×900`, `768×1024`, `390×844`; `0` erros console/rede | `visual-audit-probe.mjs` ao vivo + PNGs auditados |
+| **Hardening Docker Sidecar & WSL2 CLI** | Sem validação de `DOCKER_HOST` nem proxy/WSL2 no `doctor` | `validateDockerHostEndpoint` + `docker-proxy` (`profiles: ["sandbox"]`, `docker compose config -q` = `0`) + detecção WSL2 em `uzina doctor` | `slice42-docker-host-proxy` (`11/11`) + `slice42-doctor-wsl2` (`2/2`) |
+| **Gates Globais Finais** | `8` specs E2E anteriores; `99` arquivos / `353` testes | `pnpm verify` **34/34 OK** (0 warnings Turbopack), `audit-tests` **107 arquivos / 378 testes / 0 violações**, `pnpm test:e2e` **9/9 passed (39.6s)** | Logs reais de CI local executados na branch |
