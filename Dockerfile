@@ -60,10 +60,11 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/packages/db/drizzle ./packages/db/drizzle
 COPY --from=builder /app/packages/skills ./packages/skills
+COPY --from=builder /app/packages/security-engine/rules ./packages/security-engine/rules
 COPY --from=builder /app/apps/cli/dist ./apps/cli/dist
 COPY --from=builder /app/apps/cli/package.json ./apps/cli/package.json
 
-RUN mkdir -p /data /app/apps/web/.next/cache \
+RUN mkdir -p /data /data/trivy-cache /app/apps/web/.next/cache \
   && chown -R root:uzina /app \
   && chmod -R g+rX,o-w /app \
   && chown -R uzina:uzina /data /app/apps/web/.next/cache

@@ -17,7 +17,7 @@ import {
 } from "./workspace.js";
 
 export const DEFAULT_DOCKER_WORKSPACE_IMAGE =
-  "node:22-slim@sha256:9f241c1b86d255e7f4a4f38d58732a4752e9c40d23c1a2e2f6a203e7b1c5d6e8";
+  "node:22-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb";
 
 export interface DockerRunArgsInput {
   containerName: string;
@@ -146,12 +146,122 @@ export function buildDockerRunArgs(input: DockerRunArgsInput): string[] {
   ];
 }
 
+export type DockerHostValidationResult =
+  | {
+      ok: true;
+      mode: "local_default" | "unix_socket" | "npipe" | "tcp_loopback_or_proxy";
+      normalizedHost: string | null;
+    }
+  | {
+      ok: false;
+      mode: "invalid";
+      normalizedHost: null;
+      reason: string;
+    };
+
+const ALLOWED_DOCKER_PROXY_HOSTS = new Set([
+  "127.0.0.1",
+  "localhost",
+  "::1",
+  "[::1]",
+  "docker-proxy",
+  "uzina-docker-proxy",
+]);
+
+export function validateDockerHostEndpoint(
+  rawHost?: string | null
+): DockerHostValidationResult {
+  const trimmed = rawHost?.trim() ?? "";
+  if (!trimmed) {
+    return {
+      ok: true,
+      mode: "local_default",
+      normalizedHost: null,
+    };
+  }
+
+  if (trimmed.startsWith("unix:///") && trimmed.length > "unix:///".length) {
+    return {
+      ok: true,
+      mode: "unix_socket",
+      normalizedHost: trimmed,
+    };
+  }
+
+  if (
+    trimmed.startsWith("npipe:////./pipe/") &&
+    trimmed.length > "npipe:////./pipe/".length
+  ) {
+    return {
+      ok: true,
+      mode: "npipe",
+      normalizedHost: trimmed,
+    };
+  }
+
+  if (trimmed.startsWith("tcp://")) {
+    try {
+      const parsed = new URL(trimmed);
+      const hostname = parsed.hostname.toLowerCase();
+      const portNum = Number(parsed.port);
+      if (
+        !ALLOWED_DOCKER_PROXY_HOSTS.has(hostname) ||
+        !Number.isInteger(portNum) ||
+        portNum < 1 ||
+        portNum > 65535 ||
+        parsed.pathname !== "" ||
+        parsed.search !== "" ||
+        parsed.hash !== "" ||
+        parsed.username !== "" ||
+        parsed.password !== ""
+      ) {
+        return {
+          ok: false,
+          mode: "invalid",
+          normalizedHost: null,
+          reason:
+            "DOCKER_HOST tcp:// permitido apenas para loopback (127.0.0.1/localhost/[::1]) ou sidecar proxy interno (docker-proxy/uzina-docker-proxy) com porta explícita.",
+        };
+      }
+      return {
+        ok: true,
+        mode: "tcp_loopback_or_proxy",
+        normalizedHost: trimmed,
+      };
+    } catch {
+      return {
+        ok: false,
+        mode: "invalid",
+        normalizedHost: null,
+        reason: "DOCKER_HOST tcp:// malformado.",
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    mode: "invalid",
+    normalizedHost: null,
+    reason:
+      "DOCKER_HOST inválido: utilize unix:///, npipe:////./pipe/... ou tcp:// loopback/proxy.",
+  };
+}
+
 const defaultDockerRunner: DockerCommandRunner = ({
   args,
   timeoutMs,
   signal,
-}) =>
-  new Promise((resolve) => {
+}) => {
+  const dockerHostCheck = validateDockerHostEndpoint(process.env.DOCKER_HOST);
+  if (!dockerHostCheck.ok) {
+    return Promise.resolve({
+      exitCode: 1,
+      stdout: "",
+      stderr: dockerHostCheck.reason,
+      timedOut: false,
+    });
+  }
+  return new Promise((resolve) => {
     const controller = new AbortController();
     let timedOut = false;
 
@@ -205,9 +315,14 @@ const defaultDockerRunner: DockerCommandRunner = ({
       }
     );
   });
+};
 
-const defaultDockerCleanupRunner = (containerName: string): Promise<void> =>
-  new Promise((resolve) => {
+const defaultDockerCleanupRunner = (containerName: string): Promise<void> => {
+  const dockerHostCheck = validateDockerHostEndpoint(process.env.DOCKER_HOST);
+  if (!dockerHostCheck.ok) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
     execFile(
       "docker",
       ["rm", "-f", containerName],
@@ -215,6 +330,7 @@ const defaultDockerCleanupRunner = (containerName: string): Promise<void> =>
       () => resolve()
     );
   });
+};
 
 export class DockerExecutionWorkspace implements ExecutionWorkspace {
   private readonly inner = new LocalGitWorktreeWorkspace();

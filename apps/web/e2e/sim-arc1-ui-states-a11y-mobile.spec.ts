@@ -61,9 +61,15 @@ test.describe("Simulação Arco 1 — UI/UX, Escalas A-|A|A+, Dark/Light, Dense 
       timeout: 15_000,
     });
 
-    // Comportamento atual da rota /exec (redireciona para /app)
+    // Superfície Executiva dedicada (/exec)
     await page.goto("/exec");
-    await page.waitForURL("**/app**");
+    await expect(page.getByTestId("executive-cockpit-root")).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.goto("/app");
+    await expect(page.getByTestId("agency-chat-input")).toBeVisible({
+      timeout: 15_000,
+    });
 
     // Escalas tipográficas A- | A | A+ no Desktop 1440x900 preservando Enviar Mensagem na 1ª dobra
     for (const scale of ["compact", "comfortable", "large"] as const) {
@@ -95,6 +101,7 @@ test.describe("Simulação Arco 1 — UI/UX, Escalas A-|A|A+, Dark/Light, Dense 
 
     // Matriz de rotas em Desktop 1440x900, Tablet 768x1024 e Mobile 390x844
     const targetRoutes = [
+      "/exec",
       "/app",
       "/app/ideas",
       "/app/studio",
@@ -123,7 +130,7 @@ test.describe("Simulação Arco 1 — UI/UX, Escalas A-|A|A+, Dark/Light, Dense 
           () => document.documentElement.scrollWidth > window.innerWidth
         );
         expect(hasHorizontalOverflow).toBe(false);
-        if (vp.width === 390) {
+        if (vp.width === 390 && route.startsWith("/app")) {
           const moreBtnBox = await page
             .getByTestId("mobile-bottom-more-btn")
             .boundingBox();

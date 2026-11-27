@@ -67,6 +67,16 @@ export function CommandPalette({
   const items = useMemo<CommandItem[]>(
     () => [
       {
+        id: "nav-exec",
+        label: "Ir para Visão Executiva (PRD, Preview & Aprovações)",
+        hint: "/exec",
+        icon: "board",
+        action: () => {
+          router.push("/exec");
+          onOpenChange(false);
+        },
+      },
+      {
         id: "nav-ideas",
         label: "Ir para Ideias & Novos Projetos",
         hint: "/app/ideas",

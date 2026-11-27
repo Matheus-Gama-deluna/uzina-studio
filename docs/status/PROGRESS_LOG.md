@@ -527,3 +527,20 @@ Registro cronológico curto de cada fase ou slice concluído, decisões tomadas 
   * `test-critic` (`flash`), `appsec-auditor` (`flash`, todos achados HIGH/MEDIUM/LOW corrigidos) e `factory-verifier` (`inherit`): **PASS**.
 * **Documentação & Integração em `main`:**
   * Atualizados `README.md` (estado completo Slices 0–38), `.env.example` (variáveis VPS/HTTPS/VAPID), `.uzina/steering.md`, `docs/status/ROADMAP_STATUS.md`, `.uzina/slices-checklist.md` e `docs/status/PROGRESS_LOG.md`, com merge integrado na branch `main`.
+
+
+---
+
+## 2026-11-26 — Slices 39–42: Estabilização Pós-Auditoria, Superfície Executiva `/exec`, Voz Neural Gemini TTS & Sidecar (`feat/slices-39-42-post-audit-evolution`)
+
+* **Entregue (Pós-Auditoria Integral — [dossiê](docs/slices/slices-39-42-post-audit-evolution.md)):**
+  * **Slice 39 (Correção dos 4 P1s + Polimentos P2 UI/UX):** `voice-client.ts` (`thinkingBudget: 0` + filtro `part.thought !== true` no Gemini STT), `packages/security-engine/rules/uzina-sast-core.yaml` + `--no-git-ignore --config` + `/*turbopackIgnore: true*/` em `adapters.ts` + copy no `Dockerfile` (detectando 3/3 vulnerabilidades LegacyPay no `uzina-studio:verify`), `DEFAULT_DOCKER_WORKSPACE_IMAGE` atualizado para digest real (`sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb`), `memories-manager.tsx` enviando `useActiveProjectId()` no QMD, e polimentos `90/10` (`finops-dashboard.tsx`, `agent-effectiveness-panel.tsx`, `mobile-settings-panel.tsx`, `cockpit-shell.tsx`).
+  * **Slice 40 (Superfície Executiva `/exec` Dedicada):** `packages/contracts/src/executive.ts`, rota multi-tenant `GET /api/exec/overview` com Barreira de Domínio (zero `worktreePath`, `branchName`, SARIF bruto ou tokens), `ExecutiveCockpit` (`max-w-[1040px]`, PRD vivo `prd_vision`, timeline, `<iframe sandbox="">` e aprovação 1-toque) + navegação `/exec` em `cockpit-shell.tsx` e `command-palette.tsx`.
+  * **Slice 41 (Gemini Neural TTS & Trivy Air-Gapped):** `wrapPcm16MonoToWav` (RIFF/WAVE 44B, 24kHz mono) + `synthesizeSpeechWithVault` nativo para `google` (`gemini-2.5-flash-preview-tts` via `x-goog-api-key`) e `buildTrivyFsArgs` (`--cache-dir`, `--skip-db-update`, `--offline-scan`) + `/data/trivy-cache` no `Dockerfile`.
+  * **Slice 42 (Proxy Docker Restrito & `uzina doctor` WSL2):** `validateDockerHostEndpoint` e validação pré-spawn em `docker-workspace.ts`, serviço opcional `docker-proxy` (`profiles: ["sandbox"]`, `tecnativa/docker-socket-proxy:0.3`, `internal: true`) em `docker-compose.vps.yml` e detecção automática de Docker via WSL2 no `uzina doctor`.
+* **Validação Final Real:**
+  * `node scripts/check-no-ee.mjs`: `0`.
+  * `node scripts/audit-tests.mjs`: **107 arquivos, 378 testes, 2 suprimidos, 0 violações**.
+  * `pnpm verify`: **34/34 tasks OK**, **0 warnings Turbopack**.
+  * `pnpm test:e2e`: **9 passed (39.9s)** (`sim-arc1` 2/2, `sim-arc2` 1/1 clicando botão real QMD, `slice40` 1/1, `slices-31-35` 2/2, `slices-36-38` 1/1, `smoke` 2/2).
+  * Re-simulação Visual Ao Vivo (`visual-audit-probe.mjs`): **12/12 rotas** (`/exec` incluída) com `accentCtaCount <= 1` (`0` ou `1`), `overflowX === false` nos 3 viewports (`1440×900`, `768×1024`, `390×844`) e `0` erros de console/HTTP; `docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile sandbox config -q` aprovado (`exit 0`).

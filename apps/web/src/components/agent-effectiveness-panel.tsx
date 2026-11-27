@@ -12,7 +12,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Gauge,
-  RefreshCw,
   RotateCcw,
   Sparkles,
 } from "lucide-react";
@@ -76,15 +75,6 @@ export function AgentEffectivenessPanel({
             Efetividade Agêntica por Papel
           </h2>
         </div>
-
-        <button
-          type="button"
-          onClick={() => void effectivenessQuery.refetch()}
-          className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-default bg-inset px-2.5 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg-primary"
-        >
-          <RefreshCw className="size-3.5" strokeWidth={1.75} />
-          <span>Atualizar</span>
-        </button>
       </div>
 
       {effectivenessQuery.isLoading ? (

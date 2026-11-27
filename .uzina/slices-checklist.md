@@ -215,3 +215,30 @@
   - [x] `vapid.ts` (`0600`), `notifications-service.ts` (RBAC, Quiet Hours cruzando meia-noite, purga `404`/`410`), 6 rotas `/api/notifications/*` (anti-IDOR `409`), `NotificationsCenter`, `/app/settings` real e Quick-Decisions em `decisions-workbench.tsx`
   - [x] `apps/web/tests/slice38-notifications-web-push.test.ts` (`8/8 passed`) + `apps/web/e2e/slices-36-38-mobile-pwa-voice-push.spec.ts` + Verify Gate Final (`pnpm verify` **34/34 OK**, `audit-tests` **99 arquivos, 353 testes, 0 violações**, `pnpm test:e2e` **5/5 passed**, `factory-verifier`: **PASS**)
   - [x] Atualização de `README.md`, `.env.example`, `.uzina/steering.md`, `ROADMAP_STATUS.md`, `.uzina/slices-checklist.md` e `PROGRESS_LOG.md` + integração em `main`
+
+---
+
+## Estabilização Pós-Auditoria, Superfície Executiva `/exec`, Voz Neural & Sidecar (`feat/slices-39-42-post-audit-evolution`)
+> Dossiê Consolidado: `docs/slices/slices-39-42-post-audit-evolution.md` · Auditoria de Origem: `docs/auditorias/relatorio-simulacao-ui-ux-funcionamento-v1.md`
+
+- [x] **Slice 39 — Estabilização Pós-Auditoria (4 Bugs P1 + Refinos UI P2)**
+  - [x] STT Gemini sem vazamento de `thought` (`thinkingBudget: 0` + filtro `part.thought !== true` em `voice-client.ts`)
+  - [x] Bundle local SAST `packages/security-engine/rules/uzina-sast-core.yaml` + `--no-git-ignore --config` em `adapters.ts` + `/*turbopackIgnore: true*/` (0 warnings Turbopack) + copy no `Dockerfile`
+  - [x] `DEFAULT_DOCKER_WORKSPACE_IMAGE` atualizado para digest verificado `node:22-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb`
+  - [x] `memories-manager.tsx` com `useActiveProjectId()` no QMD (`sim-arc2` clique real no botão `qmd-reindex-btn`) + refinos `90/10` (`/app/studio`, `/app/settings`), único `Atualizar` em `/app/finops` e breadcrumb mobile `390px`
+  - [x] `apps/web/tests/slice39-post-audit-stabilization.test.ts` (`2/2`) + `packages/opencode-bridge/tests/slice39-docker-image-digest.test.ts` (`1/1`)
+
+- [x] **Slice 40 — Superfície Executiva `/exec` Dedicada & Barreira de Domínio**
+  - [x] Contrato `packages/contracts/src/executive.ts` (`ExecutiveProjectOverviewSchema.strict()`) + rota autenticada/multi-tenant `GET /api/exec/overview` (sem `worktreePath`, `branchName`, SARIF, blueprint ou tokens)
+  - [x] Página `/exec` (`apps/web/src/app/exec/page.tsx`) + `ExecutiveCockpit` (`max-w-[1040px]`, 5 estados de UI, PRD vivo, timeline, `<iframe sandbox="">` e aprovação 1-toque) + links em `cockpit-shell.tsx` e `command-palette.tsx`
+  - [x] `apps/web/tests/slice40-executive-surface.test.ts` (`4/4`) + `apps/web/e2e/slice40-executive-surface.spec.ts` (`1/1`)
+
+- [x] **Slice 41 — Voz Neural Gemini TTS & Trivy Air-Gapped**
+  - [x] `wrapPcm16MonoToWav` (RIFF/WAVE 44B, 24kHz mono) + `synthesizeSpeechWithVault` nativo para Google Gemini (`gemini-2.5-flash-preview-tts` via header `x-goog-api-key`) com fallback seguro
+  - [x] `buildTrivyFsArgs` (`--cache-dir`, `--skip-db-update`, `--offline-scan`) em `packages/security-engine/src/adapters.ts` + `/data/trivy-cache` no `Dockerfile`
+  - [x] `apps/web/tests/slice41-gemini-tts-trivy-offline.test.ts` (`6/6`)
+
+- [x] **Slice 42 — Proxy Restrito `docker-socket-proxy` & Detecção WSL2 em `uzina doctor`**
+  - [x] `validateDockerHostEndpoint` + bloqueio em `defaultDockerRunner` em `docker-workspace.ts` + serviço `docker-proxy` (`profiles: ["sandbox"]`, `tecnativa/docker-socket-proxy:0.3`, `internal: true`) em `docker-compose.vps.yml` (validado com `docker compose config -q`)
+  - [x] Detecção WSL2 Docker (`wsl -e docker --version`) em `uzina doctor` (`apps/cli/src/cli.ts`)
+  - [x] `packages/opencode-bridge/tests/slice42-docker-host-proxy.test.ts` (`11/11`) + `apps/cli/tests/slice42-doctor-wsl2.test.ts` (`2/2`) + `pnpm test:e2e` (`9/9 passed`) + `pnpm verify` (`34/34 OK`)

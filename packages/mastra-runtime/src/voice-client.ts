@@ -358,6 +358,9 @@ export async function transcribeAudioWithVault(params: {
         ],
         generationConfig: {
           temperature: 0,
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
         },
       }),
     });
@@ -384,12 +387,13 @@ export async function transcribeAudioWithVault(params: {
 
   const data = (await res.json()) as {
     candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
+      content?: { parts?: Array<{ text?: string; thought?: boolean }> };
     }>;
   };
   const rawText =
     data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text ?? "")
+      ?.filter((p) => p.thought !== true)
+      .map((p) => p.text ?? "")
       .join(" ")
       .trim() ?? "";
 
@@ -416,6 +420,28 @@ export type SynthesizeSpeechResult =
       reason: string;
     };
 
+export function wrapPcm16MonoToWav(
+  pcmBuffer: Buffer,
+  sampleRate = 24000
+): Buffer {
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * 2;
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
 export async function synthesizeSpeechWithVault(params: {
   db: UzinaDb;
   organizationId: string;
@@ -440,6 +466,117 @@ export async function synthesizeSpeechWithVault(params: {
     };
   }
 
+  const fetchFn = params.fetchImpl ?? globalThis.fetch;
+
+  if (provider.providerType === "google") {
+    if (!provider.apiKey) {
+      return {
+        mode: "fallback_browser_speech",
+        reason: "no_tts_provider",
+      };
+    }
+
+    const geminiVoices = new Map<string, string>([
+      ["kore", "Kore"],
+      ["puck", "Puck"],
+      ["aoede", "Aoede"],
+      ["charon", "Charon"],
+      ["fenrir", "Fenrir"],
+    ]);
+    const requestedVoice = params.voice?.trim().toLowerCase() ?? "";
+    const geminiVoice = geminiVoices.get(requestedVoice) ?? "Kore";
+    const endpoint = `${provider.baseUrl.replace(/\/+$/, "")}/models/gemini-2.5-flash-preview-tts:generateContent`;
+
+    try {
+      const res = await fetchFn(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": provider.apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: params.text }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: geminiVoice,
+                },
+              },
+            },
+          },
+        }),
+        redirect: "error",
+      });
+
+      if (!res.ok) {
+        return {
+          mode: "fallback_browser_speech",
+          reason: `tts_http_${res.status}`,
+        };
+      }
+
+      const json = (await res.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{
+              inlineData?: { data?: string; mimeType?: string };
+            }>;
+          };
+        }>;
+      };
+      const parts = json.candidates?.[0]?.content?.parts ?? [];
+      const audioPart = parts.find((p) => Boolean(p.inlineData?.data));
+      const b64 = audioPart?.inlineData?.data;
+      if (!b64) {
+        return {
+          mode: "fallback_browser_speech",
+          reason: "empty_tts_audio",
+        };
+      }
+
+      const rawBuf = Buffer.from(b64, "base64");
+      if (rawBuf.length === 0) {
+        return {
+          mode: "fallback_browser_speech",
+          reason: "empty_tts_audio",
+        };
+      }
+
+      const mimeType = (audioPart?.inlineData?.mimeType ?? "").toLowerCase();
+      const isNativeCompressed =
+        mimeType.startsWith("audio/wav") ||
+        mimeType.startsWith("audio/mp3") ||
+        mimeType.startsWith("audio/ogg") ||
+        mimeType.startsWith("audio/mpeg");
+      const isPcm = mimeType.includes("pcm") || mimeType.includes("l16");
+      const audioBuffer =
+        isPcm || !isNativeCompressed
+          ? wrapPcm16MonoToWav(rawBuf, 24000)
+          : rawBuf;
+      const contentType =
+        isPcm || !isNativeCompressed ? "audio/wav" : mimeType;
+      const estimatedCostUsd = Number(
+        ((params.text.length / 1000) * 0.004).toFixed(6)
+      );
+
+      return {
+        mode: "audio",
+        audioBuffer,
+        contentType,
+        providerType: provider.providerType,
+        model: "gemini-2.5-flash-preview-tts",
+        estimatedCostUsd,
+      };
+    } catch {
+      return {
+        mode: "fallback_browser_speech",
+        reason: "tts_network_fallback",
+      };
+    }
+  }
+
   // Groq não possui endpoint TTS OpenAI-compatible padrão na maior parte dos tiers; cai graciosamente se falhar
   if (
     provider.providerType !== "openai_compatible" &&
@@ -451,7 +588,6 @@ export async function synthesizeSpeechWithVault(params: {
     };
   }
 
-  const fetchFn = params.fetchImpl ?? globalThis.fetch;
   const isOpenAiCloud = provider.baseUrl.toLowerCase().includes("api.openai.com");
   const model = isOpenAiCloud ? "gpt-4o-mini-tts" : "tts-1";
   const voice = params.voice?.trim() || "alloy";

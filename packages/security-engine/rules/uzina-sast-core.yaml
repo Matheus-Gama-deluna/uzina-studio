@@ -1,0 +1,38 @@
+rules:
+  - id: uzina.sast.js-ts.eval-execution
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Uso de eval() dinâmico detectado. Risco de execução arbitrária de código
+      e injeção.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: uzina.sast.js-ts.sql-concat
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Concatenação de string em consulta SQL detectada. Utilize queries
+      parametrizadas para prevenir SQL Injection.
+    pattern-regex: "(?i)(?:SELECT|INSERT|UPDATE|DELETE)\\s+.{0,120}\\b(?:FROM|INTO|SET|WHERE)\\b[^\\n;]*[\"']\\s*\\+"
+
+  - id: uzina.sast.python.subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Execução de subprocesso com shell=True detectada. Utilize lista de
+      argumentos com shell=False para prevenir Command Injection.
+    pattern-either:
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: os.system(...)
+
+  - id: uzina.sast.react.dangerously-set-inner-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      Uso de dangerouslySetInnerHTML detectado. Garanta sanitização estrita
+      ou renderização via sandbox.
+    pattern: dangerouslySetInnerHTML

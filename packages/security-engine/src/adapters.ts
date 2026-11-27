@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   ScannerExecutionRecord,
   SecuritySeverity,
@@ -300,6 +302,26 @@ export interface AdapterSpec {
   parseOutput: (stdout: string) => RawNormalizedFinding[];
 }
 
+export function resolveBundledOpengrepRulesPath(): string {
+  const candidates = [
+    fileURLToPath(new URL("../rules/uzina-sast-core.yaml", import.meta.url)),
+    path.resolve(
+      process.cwd(),
+      "packages/security-engine/rules/uzina-sast-core.yaml"
+    ),
+    path.resolve(
+      process.cwd(),
+      "../../packages/security-engine/rules/uzina-sast-core.yaml"
+    ),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0]!;
+}
+
 export const EXTERNAL_SCANNER_SPECS: readonly AdapterSpec[] = [
   {
     id: "gitleaks",
@@ -324,21 +346,23 @@ export const EXTERNAL_SCANNER_SPECS: readonly AdapterSpec[] = [
     id: "opengrep_semgrep",
     binaries: ["opengrep", "semgrep"],
     installHint: "uzina-sec install-tools (Opengrep / Semgrep OSS)",
-    buildArgs: (targetPath) => ["scan", "--json", "--quiet", "--", targetPath],
+    buildArgs: (targetPath) => [
+      "scan",
+      "--no-git-ignore",
+      "--config",
+      resolveBundledOpengrepRulesPath(),
+      "--json",
+      "--quiet",
+      "--",
+      targetPath,
+    ],
     parseOutput: parseSemgrepLikeJson,
   },
   {
     id: "trivy",
     binaries: ["trivy"],
     installHint: "uzina-sec install-tools (aquasecurity/trivy)",
-    buildArgs: (targetPath) => [
-      "fs",
-      "--format",
-      "json",
-      "--quiet",
-      "--",
-      targetPath,
-    ],
+    buildArgs: (targetPath) => buildTrivyFsArgs(targetPath),
     parseOutput: parseTrivyJson,
   },
   {
@@ -355,6 +379,38 @@ export const EXTERNAL_SCANNER_SPECS: readonly AdapterSpec[] = [
     parseOutput: parseOsvScannerJson,
   },
 ];
+
+export function buildTrivyFsArgs(
+  targetPath: string,
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const rawCacheDir =
+    env.TRIVY_CACHE_DIR?.trim() ||
+    path.join(
+      env.UZINA_DATA_DIR?.trim() || path.resolve(process.cwd(), ".uzina-data"),
+      "trivy-cache"
+    );
+  const cacheDir = assertSafeScanArg("cacheDir", rawCacheDir);
+  const hasCachedDb =
+    fs.existsSync(/*turbopackIgnore: true*/ path.join(cacheDir, "db", "trivy.db")) ||
+    fs.existsSync(/*turbopackIgnore: true*/ path.join(cacheDir, "trivy.db"));
+  const offline =
+    env.UZINA_TRIVY_OFFLINE?.trim() === "1" ||
+    env.UZINA_TRIVY_OFFLINE?.trim()?.toLowerCase() === "true";
+
+  return [
+    "fs",
+    "--format",
+    "json",
+    "--quiet",
+    "--cache-dir",
+    cacheDir,
+    ...(hasCachedDb || offline ? ["--skip-db-update"] : []),
+    ...(offline ? ["--offline-scan"] : []),
+    "--",
+    targetPath,
+  ];
+}
 
 export function assertSafeScanArg(label: string, value: string): string {
   const trimmed = value.trim();
